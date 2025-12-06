@@ -14,7 +14,7 @@ const transporter = nodemailer.createTransport({
 const sendEmail = async (options) => {
   try {
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'Skill Hub <noreply@skillhub.com>',
+      from: process.env.EMAIL_FROM || 'Quick Chat <noreply@skillhub.com>',
       to: options.to,
       subject: options.subject,
       text: options.text,
@@ -48,7 +48,7 @@ const sendOTPEmail = async (email, otp, purpose) => {
     <body>
       <div class="container">
         <div class="header">
-          <h1>Skill Hub</h1>
+          <h1>Quick Chat</h1>
         </div>
         <div class="content">
           <h2>Your OTP Code</h2>
@@ -58,7 +58,7 @@ const sendOTPEmail = async (email, otp, purpose) => {
           <p>If you didn't request this, please ignore this email.</p>
         </div>
         <div class="footer">
-          <p>&copy; ${new Date().getFullYear()} Skill Hub. All rights reserved.</p>
+          <p>&copy; ${new Date().getFullYear()} Quick Chat. All rights reserved.</p>
         </div>
       </div>
     </body>
@@ -69,7 +69,7 @@ const sendOTPEmail = async (email, otp, purpose) => {
 };
 
 const sendWelcomeEmail = async (email, name) => {
-  const subject = 'Welcome to Skill Hub!';
+  const subject = 'Welcome to Quick Chat!';
   const html = `
     <!DOCTYPE html>
     <html>
@@ -85,11 +85,11 @@ const sendWelcomeEmail = async (email, name) => {
     <body>
       <div class="container">
         <div class="header">
-          <h1>Welcome to Skill Hub!</h1>
+          <h1>Welcome to Quick Chat!</h1>
         </div>
         <div class="content">
           <h2>Hello ${name},</h2>
-          <p>Welcome to Skill Hub - Your one-stop platform for consultation and services.</p>
+          <p>Welcome to Quick Chat - Your one-stop platform for consultation and services.</p>
           <p>You can now:</p>
           <ul>
             <li>Offer your skills and services</li>

@@ -1,7 +1,7 @@
 {
   "name": "skillhub-backend",
   "version": "1.0.0",
-  "description": "Skill Hub Backend API",
+  "description": "Quick Chat Backend API",
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",

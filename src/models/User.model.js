@@ -11,9 +11,9 @@ const UserSchema = new mongoose.Schema(
     },
     email: {
       type: String,
+      required: [true, 'Email is required'],
       trim: true,
       lowercase: true,
-      sparse: true,
       unique: true,
     },
     mobile: {
@@ -32,11 +32,12 @@ const UserSchema = new mongoose.Schema(
       enum: ['male', 'female', 'other'],
     },
     place: {
+      village: String,
+      town: String,
       city: String,
       state: String,
       country: String,
     },
-    address: String,
     profession: String,
     education: String,
     hobbies: [String],
@@ -73,15 +74,15 @@ const UserSchema = new mongoose.Schema(
     consultationModes: {
       chat: {
         type: Boolean,
-        default: false,
+        default: true,
       },
       audio: {
         type: Boolean,
-        default: false,
+        default: true,
       },
       video: {
         type: Boolean,
-        default: false,
+        default: true,
       },
     },
     availability: [

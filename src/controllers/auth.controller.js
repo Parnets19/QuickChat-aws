@@ -22,18 +22,31 @@ const sendOTP = async (req, res, next) => {
     }
 
     // Check if user already exists (only for registration purpose)
+    // In development mode, allow re-registration by deleting existing user
     if (purpose === 'registration') {
       if (mobile) {
         const existingUserByMobile = await User.findOne({ mobile });
         if (existingUserByMobile) {
-          return next(new AppError('This mobile number is already registered. Please login instead.', 400));
+          if (process.env.NODE_ENV === 'development') {
+            // In development, delete the existing user to allow re-registration
+            await User.findByIdAndDelete(existingUserByMobile._id);
+            logger.info(`Deleted existing user with mobile ${mobile} for re-registration in development mode`);
+          } else {
+            return next(new AppError('This mobile number is already registered. Please login instead.', 400));
+          }
         }
       }
       
       if (email) {
         const existingUserByEmail = await User.findOne({ email });
         if (existingUserByEmail) {
-          return next(new AppError('This email is already registered. Please login instead.', 400));
+          if (process.env.NODE_ENV === 'development') {
+            // In development, delete the existing user to allow re-registration
+            await User.findByIdAndDelete(existingUserByEmail._id);
+            logger.info(`Deleted existing user with email ${email} for re-registration in development mode`);
+          } else {
+            return next(new AppError('This email is already registered. Please login instead.', 400));
+          }
         }
       }
     }
@@ -187,13 +200,19 @@ const register = async (req, res, next) => {
       return next(new AppError('User already exists with this mobile number', 400));
     }
 
+    // Validate required fields
+    if (!email) {
+      return next(new AppError('Email is required', 400));
+    }
+
     // Prepare user data
     const userData = {
       fullName,
       mobile,
-      email: email || undefined,
+      email,
       password,
       isMobileVerified: true,
+      isEmailVerified: false, // Will be verified later
       isServiceProvider: isServiceProvider || false,
     };
 
@@ -201,7 +220,6 @@ const register = async (req, res, next) => {
     if (dateOfBirth) userData.dateOfBirth = new Date(dateOfBirth);
     if (gender) userData.gender = gender;
     if (place) userData.place = place;
-    if (address) userData.address = address;
     if (profession) userData.profession = profession;
     if (education) userData.education = education;
     if (hobbies && hobbies.length > 0) userData.hobbies = hobbies;
@@ -222,8 +240,20 @@ const register = async (req, res, next) => {
         return cat; // Store as plain string (category name)
       });
     }
-    if (consultationModes) userData.consultationModes = consultationModes;
-    if (rates) userData.rates = rates;
+    // Set default consultation modes (all enabled)
+    userData.consultationModes = consultationModes || {
+      chat: true,
+      audio: true,
+      video: true
+    };
+    
+    // Set default rates (chat is free)
+    userData.rates = rates || {
+      chargeType: 'per-minute',
+      chat: 0,
+      audio: 100,
+      video: 150
+    };
     if (availability && availability.length > 0) userData.availability = availability;
     if (bankDetails) userData.bankDetails = bankDetails;
 

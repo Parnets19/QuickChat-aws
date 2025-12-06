@@ -1,4 +1,4 @@
-# Skill Hub Backend
+# Quick Chat Backend
 
 ## Environment Setup
 

@@ -49,7 +49,7 @@ const sendSMS = async (mobile, message) => {
 };
 
 const sendOTPSMS = async (mobile, otp) => {
-  const message = `Your OTP for Skill Hub is: ${otp}. Valid for 10 minutes. Do not share this OTP with anyone.`;
+  const message = `Your OTP for Quick Chat is: ${otp}. Valid for 10 minutes. Do not share this OTP with anyone.`;
   return await sendSMS(mobile, message);
 };
 
