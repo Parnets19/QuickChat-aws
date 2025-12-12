@@ -529,6 +529,60 @@ const updateFCMToken = async (req, res, next) => {
   }
 };
 
+// @desc    Guest login with OTP
+// @route   POST /api/auth/guest-login
+// @access  Public
+const guestLogin = async (req, res, next) => {
+  try {
+    const { mobile, otp, name, issue } = req.body;
+
+    if (!mobile || !otp || !name) {
+      return next(new AppError('Mobile number, OTP, and name are required', 400));
+    }
+
+    // Verify OTP
+    const verifiedOTP = await OTP.findOne({
+      mobile,
+      otp,
+      purpose: 'guest',
+      isVerified: false,
+    });
+
+    if (!verifiedOTP) {
+      return next(new AppError('Invalid OTP', 400));
+    }
+
+    if (verifiedOTP.expiresAt < new Date()) {
+      return next(new AppError('OTP has expired', 400));
+    }
+
+    // Mark OTP as verified
+    verifiedOTP.isVerified = true;
+    await verifiedOTP.save();
+
+    // Create guest session data
+    const guestSession = {
+      id: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name,
+      mobile,
+      issue: issue || '',
+      isGuest: true,
+      verifiedAt: new Date(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+    };
+
+    res.status(200).json({
+      success: true,
+      message: 'Guest verification successful',
+      data: {
+        guest: guestSession,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -539,5 +593,6 @@ module.exports = {
   logout,
   refreshToken,
   updateFCMToken,
+  guestLogin,
 };
 

@@ -93,7 +93,7 @@ const sendWelcomeEmail = async (email, name) => {
           <p>You can now:</p>
           <ul>
             <li>Offer your skills and services</li>
-            <li>Connect with experts for consultation</li>
+            <li>Connect with advisers for consultation</li>
             <li>Manage your wallet and earnings</li>
             <li>And much more!</li>
           </ul>

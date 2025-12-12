@@ -22,20 +22,56 @@ const httpServer = createServer(app);
 // Initialize Socket.IO
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: function (origin, callback) {
+      // Allow all origins for Socket.IO to fix iOS Safari issues
+      callback(null, true);
+    },
     credentials: true,
+    methods: ['GET', 'POST'],
   },
+  transports: ['websocket', 'polling'], // Support both transports for better compatibility
+  allowEIO3: true, // Allow Engine.IO v3 clients
 });
 
 // Middleware
-app.use(helmet()); // Security headers
-app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:3000',
-    process.env.ADMIN_URL || 'http://localhost:3001',
-  ],
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false,
+})); // Security headers
+
+// CORS configuration - more permissive for production
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      process.env.FRONTEND_URL || 'http://localhost:3000',
+      process.env.ADMIN_URL || 'http://localhost:3001',
+      'https://skill-quick-chats.netlify.app',
+      'https://skillhub-a00h.onrender.com',
+    ];
+    
+    // Allow any origin in development
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    
+    // Check if origin is allowed
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('netlify.app')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for now to fix iOS Safari issue
+    }
+  },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400, // 24 hours
+};
+
+app.use(cors(corsOptions));
 app.use(compression()); // Compress responses
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -54,6 +90,8 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api', routes);
+
+app.use('/',(req,res)=> res.status(200).json({message:"Welcome to Quick Chat api"}))
 
 // Error handling middleware
 app.use(errorHandler);
