@@ -104,6 +104,35 @@ const UserSchema = new mongoose.Schema(
         type: Number,
         default: 0,
       },
+      // Per-minute rates
+      perMinute: {
+        audio: {
+          type: Number,
+          default: 0,
+        },
+        video: {
+          type: Number,
+          default: 0,
+        },
+      },
+      // Per-hour rates
+      perHour: {
+        audio: {
+          type: Number,
+          default: 0,
+        },
+        video: {
+          type: Number,
+          default: 0,
+        },
+      },
+      // Default charge type for display
+      defaultChargeType: {
+        type: String,
+        enum: ['per-minute', 'per-hour'],
+        default: 'per-minute',
+      },
+      // Legacy fields for backward compatibility
       audio: {
         type: Number,
         default: 0,
@@ -220,6 +249,8 @@ UserSchema.pre('save', async function (next) {
 
   next();
 });
+
+
 
 // Compare password method
 UserSchema.methods.comparePassword = async function (candidatePassword) {

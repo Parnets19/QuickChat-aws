@@ -426,6 +426,34 @@ const getMe = async (req, res, next) => {
       .populate('serviceCategories')
       .populate('subscription.plan');
 
+    // Ensure user has proper nested rate structure for backward compatibility
+    if (user && user.rates && (!user.rates.perMinute || !user.rates.perHour)) {
+      const currentChargeType = user.rates.chargeType || 'per-minute';
+      
+      const updatedRates = {
+        ...user.rates,
+        perMinute: user.rates.perMinute || {
+          audio: currentChargeType === 'per-minute' ? (user.rates.audio || 0) : 0,
+          video: currentChargeType === 'per-minute' ? (user.rates.video || 0) : 0
+        },
+        perHour: user.rates.perHour || {
+          audio: currentChargeType === 'per-hour' ? (user.rates.audio || 0) : 0,
+          video: currentChargeType === 'per-hour' ? (user.rates.video || 0) : 0
+        },
+        defaultChargeType: user.rates.defaultChargeType || user.rates.chargeType || 'per-minute'
+      };
+
+      // Update the user in database with proper structure
+      await User.findByIdAndUpdate(
+        user._id,
+        { $set: { rates: updatedRates } },
+        { new: true }
+      );
+
+      // Update the user object to return
+      user.rates = updatedRates;
+    }
+
     res.status(200).json({
       success: true,
       data: user,

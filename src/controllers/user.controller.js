@@ -204,6 +204,9 @@ const updateProviderSettings = async (req, res, next) => {
       return next(new AppError('You are not a service provider', 403));
     }
 
+    // Get current user to preserve existing data
+    const currentUser = await User.findById(req.user._id);
+
     const allowedFields = [
       'serviceCategories',
       'consultationModes',
@@ -219,16 +222,73 @@ const updateProviderSettings = async (req, res, next) => {
       }
     });
 
+    // Special handling for rates to ensure nested objects are properly updated
+    if (updateData.rates) {
+
+      
+      // Ensure the current user has the proper nested structure
+      const currentRates = currentUser.rates || {};
+      const currentPerMinute = currentRates.perMinute || { audio: 0, video: 0 };
+      const currentPerHour = currentRates.perHour || { audio: 0, video: 0 };
+      
+      // Build the complete rates object with all nested structures
+      const completeRates = {
+        chat: updateData.rates.chat !== undefined ? updateData.rates.chat : (currentRates.chat || 0),
+        
+        // Ensure perMinute object always exists with both audio and video
+        perMinute: {
+          audio: updateData.rates.perMinute?.audio !== undefined 
+            ? updateData.rates.perMinute.audio 
+            : currentPerMinute.audio,
+          video: updateData.rates.perMinute?.video !== undefined 
+            ? updateData.rates.perMinute.video 
+            : currentPerMinute.video
+        },
+        
+        // Ensure perHour object always exists with both audio and video
+        perHour: {
+          audio: updateData.rates.perHour?.audio !== undefined 
+            ? updateData.rates.perHour.audio 
+            : currentPerHour.audio,
+          video: updateData.rates.perHour?.video !== undefined 
+            ? updateData.rates.perHour.video 
+            : currentPerHour.video
+        },
+        
+        // Other rate fields
+        defaultChargeType: updateData.rates.defaultChargeType || currentRates.defaultChargeType || 'per-minute',
+        
+        // Legacy fields for backward compatibility
+        audio: updateData.rates.audio !== undefined ? updateData.rates.audio : (currentRates.audio || 0),
+        video: updateData.rates.video !== undefined ? updateData.rates.video : (currentRates.video || 0),
+        chargeType: updateData.rates.chargeType || updateData.rates.defaultChargeType || currentRates.chargeType || 'per-minute'
+      };
+
+      // Update the user with the complete rates structure
+      await User.findByIdAndUpdate(
+        req.user._id,
+        { $set: { rates: completeRates } },
+        { new: true, runValidators: true }
+      );
+
+      // Remove rates from updateData since we handled it separately
+      delete updateData.rates;
+    }
+
+    // Update other fields normally
     const user = await User.findByIdAndUpdate(
       req.user._id,
       updateData,
       { new: true, runValidators: true }
     );
 
+    // Fetch the updated user to verify rates were saved correctly
+    const updatedUser = await User.findById(req.user._id);
+
     res.status(200).json({
       success: true,
       message: 'Provider settings updated successfully',
-      data: user,
+      data: updatedUser, // Return the freshly fetched user data
     });
   } catch (error) {
     next(error);
@@ -261,12 +321,15 @@ const toggleProfileVisibility = async (req, res, next) => {
   }
 };
 
+
+
 // @desc    Get user dashboard
 // @route   GET /api/users/dashboard
 // @access  Private
 const getDashboard = async (req, res, next) => {
   try {
     const userId = req.user?._id;
+    const isProvider = req.user?.isServiceProvider;
 
     // Get upcoming consultations
     const upcomingConsultations = await Consultation.find({
@@ -275,7 +338,7 @@ const getDashboard = async (req, res, next) => {
     })
       .populate('user', 'fullName profilePhoto')
       .populate('provider', 'fullName profilePhoto')
-      .sort({ createdAt: -1 })
+      .sort({ scheduledAt: 1 })
       .limit(5);
 
     // Get recent transactions
@@ -283,22 +346,67 @@ const getDashboard = async (req, res, next) => {
       .sort({ createdAt: -1 })
       .limit(10);
 
-    // Get stats
+    // Get comprehensive stats
     const totalConsultations = await Consultation.countDocuments({
       $or: [{ user: userId }, { provider: userId }],
       status: 'completed',
     });
 
-    const totalEarnings = req.user?.earnings || 0;
-    const walletBalance = req.user?.wallet || 0;
+    const pendingConsultations = await Consultation.countDocuments({
+      $or: [{ user: userId }, { provider: userId }],
+      status: { $in: ['pending', 'ongoing'] },
+    });
+
+    // Provider-specific stats
+    let providerStats = {};
+    if (isProvider) {
+      const providerConsultations = await Consultation.find({ provider: userId, status: 'completed' })
+        .populate('user', 'fullName profilePhoto')
+        .sort({ createdAt: -1 })
+        .limit(5);
+
+      const pendingWithdrawals = await Transaction.aggregate([
+        { $match: { user: userId, type: 'withdrawal', status: 'pending' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+
+      const profileViews = req.user?.profileViews || 0;
+
+      providerStats = {
+        providerConsultations,
+        pendingWithdrawals: pendingWithdrawals[0]?.total || 0,
+        profileViews,
+        monthlyEarnings: req.user?.monthlyEarnings || 0,
+      };
+    }
+
+    // User-specific stats
+    let userStats = {};
+    if (!isProvider || req.user?.hasUserFeatures) {
+      const userActivity = await Transaction.find({ user: userId })
+        .sort({ createdAt: -1 })
+        .limit(5);
+
+      const totalSpent = await Transaction.aggregate([
+        { $match: { user: userId, type: { $in: ['consultation', 'subscription'] } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+
+      userStats = {
+        userActivity,
+        totalSpent: totalSpent[0]?.total || 0,
+        subscriptionStatus: req.user?.subscriptionStatus || 'Free',
+        upcomingAppointments: pendingConsultations,
+      };
+    }
 
     // Get rating summary for providers
     let ratingSummary = null;
-    if (req.user?.isServiceProvider) {
+    if (isProvider) {
       const reviews = await Review.find({ provider: userId, status: 'active' });
       ratingSummary = {
-        average: req.user.rating.average,
-        count: req.user.rating.count,
+        average: req.user.rating?.average || 0,
+        count: req.user.rating?.count || 0,
         breakdown: {
           5: reviews.filter(r => r.rating === 5).length,
           4: reviews.filter(r => r.rating === 4).length,
@@ -309,22 +417,84 @@ const getDashboard = async (req, res, next) => {
       };
     }
 
+    // Get notifications count
+    const notificationsCount = req.user?.notifications?.filter(n => !n.read).length || 0;
+
+    // Performance metrics for providers
+    let performanceMetrics = {};
+    if (isProvider) {
+      const thisMonth = new Date();
+      thisMonth.setDate(1);
+      thisMonth.setHours(0, 0, 0, 0);
+
+      const monthlyConsultations = await Consultation.countDocuments({
+        provider: userId,
+        createdAt: { $gte: thisMonth },
+      });
+
+      const completedThisMonth = await Consultation.countDocuments({
+        provider: userId,
+        status: 'completed',
+        createdAt: { $gte: thisMonth },
+      });
+
+      performanceMetrics = {
+        consultationRate: monthlyConsultations > 0 ? Math.round((completedThisMonth / monthlyConsultations) * 100) : 0,
+        clientSatisfaction: Math.round((req.user.rating?.average || 0) * 20), // Convert 5-star to percentage
+        responseTime: req.user?.averageResponseTime || 78, // Default or calculated
+        profileCompletion: calculateProfileCompletion(req.user),
+      };
+    }
+
     res.status(200).json({
       success: true,
       data: {
+        // Common data
         upcomingConsultations,
         recentTransactions,
         stats: {
           totalConsultations,
-          totalEarnings,
-          walletBalance,
+          totalEarnings: req.user?.earnings || 0,
+          walletBalance: req.user?.wallet || 0,
+          notifications: notificationsCount,
         },
         ratingSummary,
+        
+        // Provider-specific data
+        ...providerStats,
+        performanceMetrics,
+        
+        // User-specific data
+        ...userStats,
+        
+        // User info
+        user: {
+          fullName: req.user?.fullName,
+          isServiceProvider: isProvider,
+          profilePhoto: req.user?.profilePhoto,
+        },
       },
     });
   } catch (error) {
     next(error);
   }
+};
+
+// Helper function to calculate profile completion percentage
+const calculateProfileCompletion = (user) => {
+  const requiredFields = [
+    'fullName', 'email', 'profilePhoto', 'bio', 'skills', 
+    'languagesKnown', 'profession', 'place'
+  ];
+  
+  let completedFields = 0;
+  requiredFields.forEach(field => {
+    if (user[field] && (Array.isArray(user[field]) ? user[field].length > 0 : true)) {
+      completedFields++;
+    }
+  });
+  
+  return Math.round((completedFields / requiredFields.length) * 100);
 };
 
 // @desc    Update bank details
@@ -367,8 +537,24 @@ const updateBankDetails = async (req, res, next) => {
 // @route   GET /api/users/search
 // @access  Public
 const searchProviders = async (req, res, next) => {
+  
   try {
+    // Handle optional authentication
+    let currentUserId = null;
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (token) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        currentUserId = decoded.id;
+      } catch (error) {
+        // Invalid token, continue as guest
+      }
+    }
+
     const {
+      q, // General search query
       skill,
       category,
       language,
@@ -387,6 +573,28 @@ const searchProviders = async (req, res, next) => {
       isProfileHidden: false,
       status: 'active',
     };
+
+    // Exclude current user from results if authenticated
+    if (currentUserId) {
+      // Convert string ID to ObjectId for proper comparison
+      const mongoose = require('mongoose');
+      query._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+    }
+
+    // General search query - searches across multiple fields
+    if (q) {
+      const searchRegex = new RegExp(q, 'i');
+      query.$or = [
+        { fullName: searchRegex },
+        { profession: searchRegex },
+        { bio: searchRegex },
+        { skills: { $in: [searchRegex] } },
+        { languagesKnown: { $in: [searchRegex] } },
+        { 'place.city': searchRegex },
+        { 'place.state': searchRegex },
+        { 'place.country': searchRegex },
+      ];
+    }
 
     if (skill) {
       query.skills = { $in: [skill] };

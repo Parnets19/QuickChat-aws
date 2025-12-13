@@ -23,6 +23,15 @@ router.get('/search', searchProviders);
 // Private routes
 router.use(protect);
 router.get('/dashboard', getDashboard);
+
+// Test endpoint to check current user
+router.get('/test-auth', (req, res) => {
+  res.json({
+    success: true,
+    user: req.user,
+    message: 'Current authenticated user'
+  });
+});
 router.put('/profile', updateProfile);
 router.post('/profile-photo', uploadImage.single('photo'), uploadProfilePhoto);
 router.post(

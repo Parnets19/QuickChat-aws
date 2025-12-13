@@ -6,13 +6,14 @@ const { AppError } = require('../middlewares/errorHandler');
 // @access  Private
 const createConsultation = async (req, res, next) => {
   try {
-    const { providerId, type } = req.body;
+    const { providerId, type, paymentCompleted } = req.body;
 
     if (!providerId || !type) {
       return next(new AppError('Provider ID and consultation type are required', 400));
     }
 
     const provider = await User.findById(providerId);
+    
     if (!provider || !provider.isServiceProvider) {
       return next(new AppError('Provider not found', 404));
     }
@@ -22,17 +23,44 @@ const createConsultation = async (req, res, next) => {
       return next(new AppError(`${type} consultation is not available for this provider`, 400));
     }
 
-    // Get rate
-    const rate = provider.rates?.[type] || 0;
+    // Get rate based on provider's rate structure
+    let rate = 0;
+    
+    if (provider.rates) {
+      const defaultChargeType = provider.rates.defaultChargeType || 'per-minute';
+      
+      if (type === 'chat') {
+        rate = provider.rates.chat || 0;
+      } else if (defaultChargeType === 'per-minute' && provider.rates.perMinute) {
+        rate = provider.rates.perMinute[type] || provider.rates[type] || 0;
+      } else if (defaultChargeType === 'per-hour' && provider.rates.perHour) {
+        rate = provider.rates.perHour[type] || 0;
+      } else {
+        // Fallback to legacy rate structure
+        rate = provider.rates[type] || 0;
+      }
+    }
 
-    // Check user wallet balance
+    // Get user info (no wallet balance check for initial request)
     const user = await User.findById(req.user?._id);
     if (!user) {
       return next(new AppError('User not found', 404));
     }
 
-    if (user.wallet < rate) {
-      return next(new AppError('Insufficient wallet balance', 400));
+    // Determine initial status based on payment
+    let initialStatus = 'pending';
+    let notificationTitle = 'New Consultation Request';
+    let notificationMessage = `New ${type} consultation request from ${user.fullName}`;
+    let responseMessage = 'Consultation request sent successfully';
+
+    // If payment is completed (for audio/video), keep status as pending until provider accepts
+    // The provider still needs to accept/start the consultation even after payment
+    if (paymentCompleted && (type === 'audio' || type === 'video')) {
+      // Keep as pending - provider still needs to accept
+      initialStatus = 'pending';
+      notificationTitle = 'New Paid Consultation Request';
+      notificationMessage = `${user.fullName} has paid for a ${type} consultation. Accept to start the session.`;
+      responseMessage = 'Payment completed. Consultation request sent to provider.';
     }
 
     // Create consultation
@@ -41,21 +69,22 @@ const createConsultation = async (req, res, next) => {
       provider: providerId,
       type,
       rate,
-      status: 'pending',
+      status: initialStatus,
+      startTime: null, // Start time will be set when provider accepts/starts the consultation
     });
 
     // Create notification for provider
     await Notification.create({
       user: providerId,
-      title: 'New Consultation Request',
-      message: `New ${type} consultation request from ${user.fullName}`,
+      title: notificationTitle,
+      message: notificationMessage,
       type: 'consultation',
       data: { consultationId: consultation._id },
     });
 
     res.status(201).json({
       success: true,
-      message: 'Consultation request sent successfully',
+      message: responseMessage,
       data: consultation,
     });
   } catch (error) {
@@ -98,11 +127,21 @@ const getConsultation = async (req, res, next) => {
 // @access  Private
 const getMyConsultations = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, status } = req.query;
+    const { page = 1, limit = 20, status, role } = req.query;
 
-    const query = {
-      $or: [{ user: req.user?._id }, { provider: req.user?._id }],
-    };
+    let query;
+    
+    // Filter by role if specified
+    if (role === 'provider') {
+      query = { provider: req.user?._id };
+    } else if (role === 'client') {
+      query = { user: req.user?._id };
+    } else {
+      // Default: return all consultations where user is either client or provider
+      query = {
+        $or: [{ user: req.user?._id }, { provider: req.user?._id }],
+      };
+    }
 
     if (status) {
       query.status = status;
@@ -116,6 +155,13 @@ const getMyConsultations = async (req, res, next) => {
       .limit(parseInt(limit));
 
     const total = await Consultation.countDocuments(query);
+
+    // Debug logging
+    console.log(`Consultation query for user ${req.user?._id} with role ${role}:`, query);
+    console.log(`Found ${consultations.length} consultations`);
+    consultations.forEach(consultation => {
+      console.log(`Consultation ${consultation._id}: user=${consultation.user?._id}, provider=${consultation.provider?._id}`);
+    });
 
     res.status(200).json({
       success: true,
@@ -204,6 +250,11 @@ const endConsultation = async (req, res, next) => {
       return next(new AppError('Not authorized', 403));
     }
 
+    // Only allow ending consultations that are ongoing
+    if (consultation.status !== 'ongoing') {
+      return next(new AppError('Can only end ongoing consultations', 400));
+    }
+
     consultation.status = 'completed';
     consultation.endTime = new Date();
 
@@ -263,8 +314,11 @@ const cancelConsultation = async (req, res, next) => {
       return next(new AppError('Consultation not found', 404));
     }
 
-    // Only user can cancel pending consultations
-    if (consultation.user.toString() !== req.user?._id.toString()) {
+    // Both user and provider can cancel pending consultations
+    const isUser = consultation.user.toString() === req.user?._id.toString();
+    const isProvider = consultation.provider.toString() === req.user?._id.toString();
+    
+    if (!isUser && !isProvider) {
       return next(new AppError('Not authorized', 403));
     }
 
@@ -275,9 +329,12 @@ const cancelConsultation = async (req, res, next) => {
     consultation.status = 'cancelled';
     await consultation.save();
 
+    // Different message based on who cancelled
+    const message = isUser ? 'Consultation cancelled' : 'Consultation request rejected';
+
     res.status(200).json({
       success: true,
-      message: 'Consultation cancelled',
+      message,
       data: consultation,
     });
   } catch (error) {
