@@ -59,7 +59,7 @@ const initializeSocket = (io) => {
     // Join user's personal room
     socket.join(`user:${userId}`);
 
-    // Handle consultation join
+    // Handle consultation join with duplicate prevention
     socket.on('consultation:join', async (data) => {
       try {
         const consultation = await Consultation.findById(data.consultationId);
@@ -84,6 +84,13 @@ const initializeSocket = (io) => {
         
         if (isAlreadyInRoom) {
           console.log(`User ${userId} already in consultation room, skipping duplicate join`);
+          // Still send confirmation but don't notify others
+          const isProvider = consultation.provider.toString() === userId;
+          socket.emit('consultation:joined', { 
+            consultationId: data.consultationId,
+            isProvider: isProvider,
+            participantCount: room.size
+          });
           return;
         }
 
@@ -96,13 +103,7 @@ const initializeSocket = (io) => {
         // Determine user role
         const isProvider = consultation.provider.toString() === userId;
         
-        console.log('User joined consultation:', {
-          userId: userId,
-          consultationId: data.consultationId,
-          isProvider: isProvider,
-          participantCount: participantCount,
-          socketId: socket.id
-        });
+        console.log(`✅ User joined consultation: ${userId} as ${isProvider ? 'provider' : 'client'} (${participantCount} participants)`);
         
         socket.emit('consultation:joined', { 
           consultationId: data.consultationId,
@@ -110,12 +111,14 @@ const initializeSocket = (io) => {
           participantCount: participantCount
         });
 
-        // Only notify others if this is a new join (not a duplicate)
-        socket.to(`consultation:${data.consultationId}`).emit('participant:joined', {
-          userId: userId,
-          isProvider: isProvider,
-          participantCount: participantCount
-        });
+        // Only notify others if this is a new join and there are other participants
+        if (participantCount > 1) {
+          socket.to(`consultation:${data.consultationId}`).emit('participant:joined', {
+            userId: userId,
+            isProvider: isProvider,
+            participantCount: participantCount
+          });
+        }
 
         logger.info(`User ${userId} joined consultation ${data.consultationId} as ${isProvider ? 'provider' : 'client'} (${participantCount} total participants)`);
       } catch (error) {
@@ -260,14 +263,11 @@ const initializeSocket = (io) => {
     // Handle WebRTC signaling for audio/video calls
     socket.on('webrtc:offer', (data, callback) => {
       try {
-        console.log(`WebRTC offer from user ${userId} for consultation ${data.consultationId}`);
-        
         // Get room info to check if other party is connected
         const room = io.sockets.adapter.rooms.get(`consultation:${data.consultationId}`);
         const participantCount = room ? room.size : 0;
         
         if (participantCount < 2) {
-          console.log(`Not enough participants in consultation ${data.consultationId} (${participantCount})`);
           if (callback) callback({ success: false, error: 'No other participant connected' });
           return;
         }
@@ -277,7 +277,7 @@ const initializeSocket = (io) => {
           from: userId,
         });
         
-        console.log(`WebRTC offer forwarded successfully for consultation ${data.consultationId}`);
+        console.log(`📞 WebRTC offer forwarded`);
         if (callback) callback({ success: true });
         
       } catch (error) {
@@ -288,14 +288,12 @@ const initializeSocket = (io) => {
 
     socket.on('webrtc:answer', (data, callback) => {
       try {
-        console.log(`WebRTC answer from user ${userId} for consultation ${data.consultationId}`);
-        
         socket.to(`consultation:${data.consultationId}`).emit('webrtc:answer', {
           answer: data.answer,
           from: userId,
         });
         
-        console.log(`WebRTC answer forwarded successfully for consultation ${data.consultationId}`);
+        console.log(`📞 WebRTC answer forwarded`);
         if (callback) callback({ success: true });
         
       } catch (error) {
@@ -306,8 +304,6 @@ const initializeSocket = (io) => {
 
     socket.on('webrtc:ice-candidate', (data, callback) => {
       try {
-        console.log(`ICE candidate from user ${userId} for consultation ${data.consultationId}`);
-        
         socket.to(`consultation:${data.consultationId}`).emit('webrtc:ice-candidate', {
           candidate: data.candidate,
           from: userId,
