@@ -5,6 +5,9 @@ const { AppError } = require("../middlewares/errorHandler");
 // @route   POST /api/consultations
 // @access  Private
 const createConsultation = async (req, res, next) => {
+  console.log("🚨 CREATE CONSULTATION CALLED");
+  console.log("Request body:", req.body);
+  console.log("User:", req.user?.isGuest ? "Guest User" : req.user?.fullName);
   try {
     const { providerId, type, paymentCompleted } = req.body;
 
@@ -52,10 +55,17 @@ const createConsultation = async (req, res, next) => {
       }
     }
 
-    // Get user info (no wallet balance check for initial request)
-    const user = await User.findById(req.user?._id);
-    if (!user) {
-      return next(new AppError("User not found", 404));
+    // Get user info (handle both regular users and guests)
+    let user;
+    if (req.user?.isGuest) {
+      // For guest users, use the user object from auth middleware
+      user = req.user;
+    } else {
+      // For regular users, fetch from database
+      user = await User.findById(req.user?._id);
+      if (!user) {
+        return next(new AppError("User not found", 404));
+      }
     }
 
     // Determine initial status based on payment
@@ -75,9 +85,9 @@ const createConsultation = async (req, res, next) => {
         "Payment completed. Consultation request sent to provider.";
     }
 
-    // Create consultation
+    // Create consultation (handle guest users)
     const consultation = await Consultation.create({
-      user: req.user?._id,
+      user: req.user?.isGuest ? req.user.id : req.user?._id,
       provider: providerId,
       type,
       rate,
