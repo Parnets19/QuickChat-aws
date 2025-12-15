@@ -1,6 +1,6 @@
-const { User, Consultation, Review, Transaction } = require('../models');
-const { AppError } = require('../middlewares/errorHandler');
-const { uploadToCloudinary } = require('../utils/cloudinary');
+const { User, Consultation, Review, Transaction } = require("../models");
+const { AppError } = require("../middlewares/errorHandler");
+const { uploadToCloudinary } = require("../utils/cloudinary");
 
 // @desc    Get user profile
 // @route   GET /api/users/profile/:id
@@ -8,16 +8,16 @@ const { uploadToCloudinary } = require('../utils/cloudinary');
 const getUserProfile = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id)
-      .select('-wallet -earnings -bankDetails')
-      .populate('serviceCategories');
+      .select("-wallet -earnings -bankDetails")
+      .populate("serviceCategories");
 
     if (!user) {
-      return next(new AppError('User not found', 404));
+      return next(new AppError("User not found", 404));
     }
 
     // Don't show hidden profiles
     if (user.isProfileHidden) {
-      return next(new AppError('Profile not available', 404));
+      return next(new AppError("Profile not available", 404));
     }
 
     res.status(200).json({
@@ -35,36 +35,35 @@ const getUserProfile = async (req, res, next) => {
 const updateProfile = async (req, res, next) => {
   try {
     const allowedFields = [
-      'fullName',
-      'email',
-      'dateOfBirth',
-      'gender',
-      'place',
-      'address',
-      'profession',
-      'education',
-      'hobbies',
-      'skills',
-      'languagesKnown',
-      'bio',
+      "fullName",
+      "email",
+      "dateOfBirth",
+      "gender",
+      "place",
+      "address",
+      "profession",
+      "education",
+      "hobbies",
+      "skills",
+      "languagesKnown",
+      "bio",
     ];
 
     const updateData = {};
-    allowedFields.forEach(field => {
+    allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) {
         updateData[field] = req.body[field];
       }
     });
 
-    const user = await User.findByIdAndUpdate(
-      req.user?._id,
-      updateData,
-      { new: true, runValidators: true }
-    );
+    const user = await User.findByIdAndUpdate(req.user?._id, updateData, {
+      new: true,
+      runValidators: true,
+    });
 
     res.status(200).json({
       success: true,
-      message: 'Profile updated successfully',
+      message: "Profile updated successfully",
       data: user,
     });
   } catch (error) {
@@ -78,13 +77,13 @@ const updateProfile = async (req, res, next) => {
 const uploadProfilePhoto = async (req, res, next) => {
   try {
     if (!req.file) {
-      return next(new AppError('Please upload a file', 400));
+      return next(new AppError("Please upload a file", 400));
     }
 
-    const result = await uploadToCloudinary(req.file.path, 'skillhub/profiles');
+    const result = await uploadToCloudinary(req.file.path, "skillhub/profiles");
 
     if (!result) {
-      return next(new AppError('File upload failed', 500));
+      return next(new AppError("File upload failed", 500));
     }
 
     const user = await User.findByIdAndUpdate(
@@ -95,7 +94,7 @@ const uploadProfilePhoto = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Profile photo uploaded successfully',
+      message: "Profile photo uploaded successfully",
       data: {
         profilePhoto: result.url,
       },
@@ -114,18 +113,26 @@ const uploadAadhar = async (req, res, next) => {
     const files = req.files;
 
     if (!aadharNumber) {
-      return next(new AppError('Aadhar number is required', 400));
+      return next(new AppError("Aadhar number is required", 400));
     }
 
     if (!files || !files.front || !files.back) {
-      return next(new AppError('Please upload both front and back of Aadhar card', 400));
+      return next(
+        new AppError("Please upload both front and back of Aadhar card", 400)
+      );
     }
 
-    const frontResult = await uploadToCloudinary(files.front[0].path, 'skillhub/aadhar');
-    const backResult = await uploadToCloudinary(files.back[0].path, 'skillhub/aadhar');
+    const frontResult = await uploadToCloudinary(
+      files.front[0].path,
+      "skillhub/aadhar"
+    );
+    const backResult = await uploadToCloudinary(
+      files.back[0].path,
+      "skillhub/aadhar"
+    );
 
     if (!frontResult || !backResult) {
-      return next(new AppError('File upload failed', 500));
+      return next(new AppError("File upload failed", 500));
     }
 
     const user = await User.findByIdAndUpdate(
@@ -142,7 +149,7 @@ const uploadAadhar = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Aadhar documents uploaded successfully. Verification pending.',
+      message: "Aadhar documents uploaded successfully. Verification pending.",
       data: {
         aadharNumber,
         aadharDocuments: user?.aadharDocuments,
@@ -158,19 +165,24 @@ const uploadAadhar = async (req, res, next) => {
 // @access  Private
 const becomeProvider = async (req, res, next) => {
   try {
-    const {
-      serviceCategories,
-      consultationModes,
-      rates,
-      availability,
-    } = req.body;
+    const { serviceCategories, consultationModes, rates, availability } =
+      req.body;
 
     if (!serviceCategories || serviceCategories.length === 0) {
-      return next(new AppError('Please select at least one service category', 400));
+      return next(
+        new AppError("Please select at least one service category", 400)
+      );
     }
 
-    if (!consultationModes || (!consultationModes.chat && !consultationModes.audio && !consultationModes.video)) {
-      return next(new AppError('Please enable at least one consultation mode', 400));
+    if (
+      !consultationModes ||
+      (!consultationModes.chat &&
+        !consultationModes.audio &&
+        !consultationModes.video)
+    ) {
+      return next(
+        new AppError("Please enable at least one consultation mode", 400)
+      );
     }
 
     const user = await User.findByIdAndUpdate(
@@ -187,7 +199,7 @@ const becomeProvider = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'You are now a service provider!',
+      message: "You are now a service provider!",
       data: user,
     });
   } catch (error) {
@@ -201,22 +213,22 @@ const becomeProvider = async (req, res, next) => {
 const updateProviderSettings = async (req, res, next) => {
   try {
     if (!req.user?.isServiceProvider) {
-      return next(new AppError('You are not a service provider', 403));
+      return next(new AppError("You are not a service provider", 403));
     }
 
     // Get current user to preserve existing data
     const currentUser = await User.findById(req.user._id);
 
     const allowedFields = [
-      'serviceCategories',
-      'consultationModes',
-      'rates',
-      'availability',
-      'portfolioMedia',
+      "serviceCategories",
+      "consultationModes",
+      "rates",
+      "availability",
+      "portfolioMedia",
     ];
 
     const updateData = {};
-    allowedFields.forEach(field => {
+    allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) {
         updateData[field] = req.body[field];
       }
@@ -224,44 +236,62 @@ const updateProviderSettings = async (req, res, next) => {
 
     // Special handling for rates to ensure nested objects are properly updated
     if (updateData.rates) {
-
-      
       // Ensure the current user has the proper nested structure
       const currentRates = currentUser.rates || {};
       const currentPerMinute = currentRates.perMinute || { audio: 0, video: 0 };
       const currentPerHour = currentRates.perHour || { audio: 0, video: 0 };
-      
+
       // Build the complete rates object with all nested structures
       const completeRates = {
-        chat: updateData.rates.chat !== undefined ? updateData.rates.chat : (currentRates.chat || 0),
-        
+        chat:
+          updateData.rates.chat !== undefined
+            ? updateData.rates.chat
+            : currentRates.chat || 0,
+
         // Ensure perMinute object always exists with both audio and video
         perMinute: {
-          audio: updateData.rates.perMinute?.audio !== undefined 
-            ? updateData.rates.perMinute.audio 
-            : currentPerMinute.audio,
-          video: updateData.rates.perMinute?.video !== undefined 
-            ? updateData.rates.perMinute.video 
-            : currentPerMinute.video
+          audio:
+            updateData.rates.perMinute?.audio !== undefined
+              ? updateData.rates.perMinute.audio
+              : currentPerMinute.audio,
+          video:
+            updateData.rates.perMinute?.video !== undefined
+              ? updateData.rates.perMinute.video
+              : currentPerMinute.video,
         },
-        
+
         // Ensure perHour object always exists with both audio and video
         perHour: {
-          audio: updateData.rates.perHour?.audio !== undefined 
-            ? updateData.rates.perHour.audio 
-            : currentPerHour.audio,
-          video: updateData.rates.perHour?.video !== undefined 
-            ? updateData.rates.perHour.video 
-            : currentPerHour.video
+          audio:
+            updateData.rates.perHour?.audio !== undefined
+              ? updateData.rates.perHour.audio
+              : currentPerHour.audio,
+          video:
+            updateData.rates.perHour?.video !== undefined
+              ? updateData.rates.perHour.video
+              : currentPerHour.video,
         },
-        
+
         // Other rate fields
-        defaultChargeType: updateData.rates.defaultChargeType || currentRates.defaultChargeType || 'per-minute',
-        
+        defaultChargeType:
+          updateData.rates.defaultChargeType ||
+          currentRates.defaultChargeType ||
+          "per-minute",
+
         // Legacy fields for backward compatibility
-        audio: updateData.rates.audio !== undefined ? updateData.rates.audio : (currentRates.audio || 0),
-        video: updateData.rates.video !== undefined ? updateData.rates.video : (currentRates.video || 0),
-        chargeType: updateData.rates.chargeType || updateData.rates.defaultChargeType || currentRates.chargeType || 'per-minute'
+        audio:
+          updateData.rates.audio !== undefined
+            ? updateData.rates.audio
+            : currentRates.audio || 0,
+        video:
+          updateData.rates.video !== undefined
+            ? updateData.rates.video
+            : currentRates.video || 0,
+        chargeType:
+          updateData.rates.chargeType ||
+          updateData.rates.defaultChargeType ||
+          currentRates.chargeType ||
+          "per-minute",
       };
 
       // Update the user with the complete rates structure
@@ -276,18 +306,17 @@ const updateProviderSettings = async (req, res, next) => {
     }
 
     // Update other fields normally
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      updateData,
-      { new: true, runValidators: true }
-    );
+    const user = await User.findByIdAndUpdate(req.user._id, updateData, {
+      new: true,
+      runValidators: true,
+    });
 
     // Fetch the updated user to verify rates were saved correctly
     const updatedUser = await User.findById(req.user._id);
 
     res.status(200).json({
       success: true,
-      message: 'Provider settings updated successfully',
+      message: "Provider settings updated successfully",
       data: updatedUser, // Return the freshly fetched user data
     });
   } catch (error) {
@@ -303,7 +332,7 @@ const toggleProfileVisibility = async (req, res, next) => {
     const user = await User.findById(req.user?._id);
 
     if (!user) {
-      return next(new AppError('User not found', 404));
+      return next(new AppError("User not found", 404));
     }
 
     user.isProfileHidden = !user.isProfileHidden;
@@ -311,7 +340,7 @@ const toggleProfileVisibility = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: `Profile is now ${user.isProfileHidden ? 'hidden' : 'visible'}`,
+      message: `Profile is now ${user.isProfileHidden ? "hidden" : "visible"}`,
       data: {
         isProfileHidden: user.isProfileHidden,
       },
@@ -320,8 +349,6 @@ const toggleProfileVisibility = async (req, res, next) => {
     next(error);
   }
 };
-
-
 
 // @desc    Get user dashboard
 // @route   GET /api/users/dashboard
@@ -334,10 +361,10 @@ const getDashboard = async (req, res, next) => {
     // Get upcoming consultations
     const upcomingConsultations = await Consultation.find({
       $or: [{ user: userId }, { provider: userId }],
-      status: { $in: ['pending', 'ongoing'] },
+      status: { $in: ["pending", "ongoing"] },
     })
-      .populate('user', 'fullName profilePhoto')
-      .populate('provider', 'fullName profilePhoto')
+      .populate("user", "fullName profilePhoto")
+      .populate("provider", "fullName profilePhoto")
       .sort({ scheduledAt: 1 })
       .limit(5);
 
@@ -349,25 +376,28 @@ const getDashboard = async (req, res, next) => {
     // Get comprehensive stats
     const totalConsultations = await Consultation.countDocuments({
       $or: [{ user: userId }, { provider: userId }],
-      status: 'completed',
+      status: "completed",
     });
 
     const pendingConsultations = await Consultation.countDocuments({
       $or: [{ user: userId }, { provider: userId }],
-      status: { $in: ['pending', 'ongoing'] },
+      status: { $in: ["pending", "ongoing"] },
     });
 
     // Provider-specific stats
     let providerStats = {};
     if (isProvider) {
-      const providerConsultations = await Consultation.find({ provider: userId, status: 'completed' })
-        .populate('user', 'fullName profilePhoto')
+      const providerConsultations = await Consultation.find({
+        provider: userId,
+        status: "completed",
+      })
+        .populate("user", "fullName profilePhoto")
         .sort({ createdAt: -1 })
         .limit(5);
 
       const pendingWithdrawals = await Transaction.aggregate([
-        { $match: { user: userId, type: 'withdrawal', status: 'pending' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
+        { $match: { user: userId, type: "withdrawal", status: "pending" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
       ]);
 
       const profileViews = req.user?.profileViews || 0;
@@ -388,14 +418,19 @@ const getDashboard = async (req, res, next) => {
         .limit(5);
 
       const totalSpent = await Transaction.aggregate([
-        { $match: { user: userId, type: { $in: ['consultation', 'subscription'] } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
+        {
+          $match: {
+            user: userId,
+            type: { $in: ["consultation", "subscription"] },
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
       ]);
 
       userStats = {
         userActivity,
         totalSpent: totalSpent[0]?.total || 0,
-        subscriptionStatus: req.user?.subscriptionStatus || 'Free',
+        subscriptionStatus: req.user?.subscriptionStatus || "Free",
         upcomingAppointments: pendingConsultations,
       };
     }
@@ -403,22 +438,23 @@ const getDashboard = async (req, res, next) => {
     // Get rating summary for providers
     let ratingSummary = null;
     if (isProvider) {
-      const reviews = await Review.find({ provider: userId, status: 'active' });
+      const reviews = await Review.find({ provider: userId, status: "active" });
       ratingSummary = {
         average: req.user.rating?.average || 0,
         count: req.user.rating?.count || 0,
         breakdown: {
-          5: reviews.filter(r => r.rating === 5).length,
-          4: reviews.filter(r => r.rating === 4).length,
-          3: reviews.filter(r => r.rating === 3).length,
-          2: reviews.filter(r => r.rating === 2).length,
-          1: reviews.filter(r => r.rating === 1).length,
+          5: reviews.filter((r) => r.rating === 5).length,
+          4: reviews.filter((r) => r.rating === 4).length,
+          3: reviews.filter((r) => r.rating === 3).length,
+          2: reviews.filter((r) => r.rating === 2).length,
+          1: reviews.filter((r) => r.rating === 1).length,
         },
       };
     }
 
     // Get notifications count
-    const notificationsCount = req.user?.notifications?.filter(n => !n.read).length || 0;
+    const notificationsCount =
+      req.user?.notifications?.filter((n) => !n.read).length || 0;
 
     // Performance metrics for providers
     let performanceMetrics = {};
@@ -434,12 +470,15 @@ const getDashboard = async (req, res, next) => {
 
       const completedThisMonth = await Consultation.countDocuments({
         provider: userId,
-        status: 'completed',
+        status: "completed",
         createdAt: { $gte: thisMonth },
       });
 
       performanceMetrics = {
-        consultationRate: monthlyConsultations > 0 ? Math.round((completedThisMonth / monthlyConsultations) * 100) : 0,
+        consultationRate:
+          monthlyConsultations > 0
+            ? Math.round((completedThisMonth / monthlyConsultations) * 100)
+            : 0,
         clientSatisfaction: Math.round((req.user.rating?.average || 0) * 20), // Convert 5-star to percentage
         responseTime: req.user?.averageResponseTime || 78, // Default or calculated
         profileCompletion: calculateProfileCompletion(req.user),
@@ -459,14 +498,14 @@ const getDashboard = async (req, res, next) => {
           notifications: notificationsCount,
         },
         ratingSummary,
-        
+
         // Provider-specific data
         ...providerStats,
         performanceMetrics,
-        
+
         // User-specific data
         ...userStats,
-        
+
         // User info
         user: {
           fullName: req.user?.fullName,
@@ -483,17 +522,26 @@ const getDashboard = async (req, res, next) => {
 // Helper function to calculate profile completion percentage
 const calculateProfileCompletion = (user) => {
   const requiredFields = [
-    'fullName', 'email', 'profilePhoto', 'bio', 'skills', 
-    'languagesKnown', 'profession', 'place'
+    "fullName",
+    "email",
+    "profilePhoto",
+    "bio",
+    "skills",
+    "languagesKnown",
+    "profession",
+    "place",
   ];
-  
+
   let completedFields = 0;
-  requiredFields.forEach(field => {
-    if (user[field] && (Array.isArray(user[field]) ? user[field].length > 0 : true)) {
+  requiredFields.forEach((field) => {
+    if (
+      user[field] &&
+      (Array.isArray(user[field]) ? user[field].length > 0 : true)
+    ) {
       completedFields++;
     }
   });
-  
+
   return Math.round((completedFields / requiredFields.length) * 100);
 };
 
@@ -505,7 +553,7 @@ const updateBankDetails = async (req, res, next) => {
     const { accountNumber, ifscCode, accountHolderName, bankName } = req.body;
 
     if (!accountNumber || !ifscCode || !accountHolderName || !bankName) {
-      return next(new AppError('All bank details are required', 400));
+      return next(new AppError("All bank details are required", 400));
     }
 
     const user = await User.findByIdAndUpdate(
@@ -523,7 +571,7 @@ const updateBankDetails = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Bank details updated successfully',
+      message: "Bank details updated successfully",
       data: {
         bankDetails: user?.bankDetails,
       },
@@ -537,15 +585,14 @@ const updateBankDetails = async (req, res, next) => {
 // @route   GET /api/users/search
 // @access  Public
 const searchProviders = async (req, res, next) => {
-  
   try {
     // Handle optional authentication
     let currentUserId = null;
-    const token = req.headers.authorization?.split(' ')[1];
-    
+    const token = req.headers.authorization?.split(" ")[1];
+
     if (token) {
       try {
-        const jwt = require('jsonwebtoken');
+        const jwt = require("jsonwebtoken");
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         currentUserId = decoded.id;
       } catch (error) {
@@ -571,28 +618,36 @@ const searchProviders = async (req, res, next) => {
     const query = {
       isServiceProvider: true,
       isProfileHidden: false,
-      status: 'active',
+      status: "active",
     };
 
     // Exclude current user from results if authenticated
     if (currentUserId) {
       // Convert string ID to ObjectId for proper comparison
-      const mongoose = require('mongoose');
-      query._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+      const mongoose = require("mongoose");
+      try {
+        // Validate ObjectId format before conversion
+        if (mongoose.Types.ObjectId.isValid(currentUserId)) {
+          query._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+        }
+      } catch (error) {
+        console.log("Invalid user ID format for exclusion:", currentUserId);
+        // Continue without excluding user
+      }
     }
 
     // General search query - searches across multiple fields
     if (q) {
-      const searchRegex = new RegExp(q, 'i');
+      const searchRegex = new RegExp(q, "i");
       query.$or = [
         { fullName: searchRegex },
         { profession: searchRegex },
         { bio: searchRegex },
         { skills: { $in: [searchRegex] } },
         { languagesKnown: { $in: [searchRegex] } },
-        { 'place.city': searchRegex },
-        { 'place.state': searchRegex },
-        { 'place.country': searchRegex },
+        { "place.city": searchRegex },
+        { "place.state": searchRegex },
+        { "place.country": searchRegex },
       ];
     }
 
@@ -609,11 +664,11 @@ const searchProviders = async (req, res, next) => {
     }
 
     if (profession) {
-      query.profession = new RegExp(profession, 'i');
+      query.profession = new RegExp(profession, "i");
     }
 
     if (city) {
-      query['place.city'] = new RegExp(city, 'i');
+      query["place.city"] = new RegExp(city, "i");
     }
 
     if (gender) {
@@ -621,7 +676,7 @@ const searchProviders = async (req, res, next) => {
     }
 
     if (minRating) {
-      query['rating.average'] = { $gte: parseFloat(minRating) };
+      query["rating.average"] = { $gte: parseFloat(minRating) };
     }
 
     if (consultationType) {
@@ -629,13 +684,15 @@ const searchProviders = async (req, res, next) => {
     }
 
     if (maxPrice) {
-      query[`rates.${consultationType || 'chat'}`] = { $lte: parseFloat(maxPrice) };
+      query[`rates.${consultationType || "chat"}`] = {
+        $lte: parseFloat(maxPrice),
+      };
     }
 
     const providers = await User.find(query)
-      .select('-wallet -earnings -bankDetails -password')
-      .populate('serviceCategories')
-      .sort({ 'rating.average': -1, isOnline: -1 })
+      .select("-wallet -earnings -bankDetails -password")
+      .populate("serviceCategories")
+      .sort({ "rating.average": -1, isOnline: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
 
@@ -668,4 +725,3 @@ module.exports = {
   updateBankDetails,
   searchProviders,
 };
-
