@@ -266,18 +266,28 @@ const initializeSocket = (io) => {
         // Get room info to check if other party is connected
         const room = io.sockets.adapter.rooms.get(`consultation:${data.consultationId}`);
         const participantCount = room ? room.size : 0;
+        const roomMembers = room ? Array.from(room) : [];
+        
+        console.log(`📞 WebRTC offer received from ${userId} for consultation ${data.consultationId}`);
+        console.log(`📊 Room info: ${participantCount} participants, socket IDs: ${roomMembers.join(', ')}`);
         
         if (participantCount < 2) {
+          console.log(`⚠️ Cannot forward offer - only ${participantCount} participant(s) in room`);
           if (callback) callback({ success: false, error: 'No other participant connected' });
           return;
         }
         
+        // Get list of socket IDs in room (excluding sender)
+        const recipientSockets = roomMembers.filter(id => id !== socket.id);
+        console.log(`📤 Broadcasting offer to ${recipientSockets.length} recipient(s): ${recipientSockets.join(', ')}`);
+        
         socket.to(`consultation:${data.consultationId}`).emit('webrtc:offer', {
           offer: data.offer,
           from: userId,
+          consultationId: data.consultationId, // Include consultationId for verification
         });
         
-        console.log(`📞 WebRTC offer forwarded`);
+        console.log(`✅ WebRTC offer forwarded to room consultation:${data.consultationId} (${participantCount} total, ${recipientSockets.length} recipients)`);
         if (callback) callback({ success: true });
         
       } catch (error) {
@@ -288,12 +298,21 @@ const initializeSocket = (io) => {
 
     socket.on('webrtc:answer', (data, callback) => {
       try {
+        const room = io.sockets.adapter.rooms.get(`consultation:${data.consultationId}`);
+        const participantCount = room ? room.size : 0;
+        const roomMembers = room ? Array.from(room) : [];
+        const recipientSockets = roomMembers.filter(id => id !== socket.id);
+        
+        console.log(`📞 WebRTC answer received from ${userId} for consultation ${data.consultationId}`);
+        console.log(`📊 Room info: ${participantCount} participants, broadcasting to ${recipientSockets.length} recipient(s)`);
+        
         socket.to(`consultation:${data.consultationId}`).emit('webrtc:answer', {
           answer: data.answer,
           from: userId,
+          consultationId: data.consultationId, // Include consultationId for verification
         });
         
-        console.log(`📞 WebRTC answer forwarded`);
+        console.log(`✅ WebRTC answer forwarded to room consultation:${data.consultationId} (${recipientSockets.length} recipient(s))`);
         if (callback) callback({ success: true });
         
       } catch (error) {
