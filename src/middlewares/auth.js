@@ -20,7 +20,22 @@ const protect = async (req, res, next) => {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      // Get user from token
+      // Handle guest users
+      if (decoded.isGuest) {
+        // Create a guest user object for consistency
+        req.user = {
+          _id: decoded.id,
+          id: decoded.id,
+          fullName: decoded.name,
+          mobile: decoded.mobile,
+          isGuest: true,
+          isServiceProvider: false,
+          status: 'active'
+        };
+        return next();
+      }
+
+      // Get regular user from token
       const user = await User.findById(decoded.id);
 
       if (!user) {

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
 const { User, OTP } = require('../models');
 const { AppError } = require('../middlewares/errorHandler');
 const { sendOTPSMS } = require('../utils/sendSMS');
@@ -599,11 +600,24 @@ const guestLogin = async (req, res, next) => {
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
     };
 
+    // Generate JWT token for guest user
+    const token = jwt.sign(
+      { 
+        id: guestSession.id, 
+        isGuest: true,
+        mobile: mobile,
+        name: name
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
     res.status(200).json({
       success: true,
       message: 'Guest verification successful',
       data: {
         guest: guestSession,
+        token: token, // Add JWT token for guest authentication
       },
     });
   } catch (error) {

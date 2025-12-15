@@ -20,6 +20,21 @@ const initializeSocket = (io) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       console.log('Socket token decoded successfully for user:', decoded.id);
       
+      // Handle guest users
+      if (decoded.isGuest) {
+        console.log('Socket authentication successful for guest user:', decoded.name);
+        socket.data.userId = decoded.id;
+        socket.data.user = {
+          _id: decoded.id,
+          fullName: decoded.name,
+          mobile: decoded.mobile,
+          isGuest: true,
+          isServiceProvider: false
+        };
+        return next();
+      }
+      
+      // Handle regular users
       const user = await User.findById(decoded.id);
 
       if (!user) {
