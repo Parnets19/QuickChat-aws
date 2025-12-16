@@ -73,8 +73,9 @@ const initializeSocket = (io) => {
     // Send online status to all connections
     socket.broadcast.emit('user:online', { userId });
 
-    // Join user's personal room
+    // Join user's personal room for global notifications
     socket.join(`user:${userId}`);
+    console.log(`User ${userId} joined personal room: user:${userId}`);
 
     // Handle consultation join with duplicate prevention
     socket.on('consultation:join', async (data) => {

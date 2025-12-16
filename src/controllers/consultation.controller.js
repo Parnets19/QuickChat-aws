@@ -222,6 +222,24 @@ const createConsultation = async (req, res, next) => {
       data: { consultationId: consultation._id },
     });
 
+    // Send real-time ring notification for audio/video calls
+    if (type === 'audio' || type === 'video') {
+      const io = req.app.get('io'); // Get socket.io instance
+      if (io) {
+        // Send ring notification to all provider's connected sockets
+        io.to(`user:${providerId}`).emit('consultation:incoming-call', {
+          consultationId: consultation._id,
+          type: type,
+          clientName: user.fullName,
+          clientPhoto: user.profilePhoto,
+          amount: rate,
+          timestamp: new Date(),
+        });
+        
+        console.log(`🔔 Ring notification sent to provider ${providerId} for ${type} consultation`);
+      }
+    }
+
     res.status(201).json({
       success: true,
       message: responseMessage,
