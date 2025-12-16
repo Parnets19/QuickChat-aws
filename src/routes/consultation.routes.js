@@ -7,6 +7,8 @@ const {
   endConsultation,
   cancelConsultation,
   getConsultationHistory,
+  submitRating,
+  getProviderRatings,
 } = require("../controllers/consultation.controller");
 const { protect } = require("../middlewares/auth");
 
@@ -27,5 +29,9 @@ router.get("/:id", getConsultation);
 router.put("/:id/start", startConsultation);
 router.put("/:id/end", endConsultation);
 router.put("/:id/cancel", cancelConsultation);
+router.post("/:id/rating", submitRating);
+
+// Public route for getting provider ratings
+router.get("/provider/:providerId/ratings", getProviderRatings);
 
 module.exports = router;

@@ -4,6 +4,7 @@ const Transaction = require('./Transaction.model');
 const Subscription = require('./Subscription.model');
 const Category = require('./Category.model');
 const Review = require('./Review.model');
+const Rating = require('./Rating.model');
 const Notification = require('./Notification.model');
 const Withdrawal = require('./Withdrawal.model');
 const OTP = require('./OTP.model');
@@ -17,6 +18,7 @@ module.exports = {
   Subscription,
   Category,
   Review,
+  Rating,
   Notification,
   Withdrawal,
   OTP,

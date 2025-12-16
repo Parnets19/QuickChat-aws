@@ -1,4 +1,4 @@
-const { Consultation, User, Transaction, Notification } = require("../models");
+const { Consultation, User, Transaction, Notification, Rating } = require("../models");
 const { AppError } = require("../middlewares/errorHandler");
 
 // Helper function to populate consultation with user data (handles guest users)
@@ -85,7 +85,14 @@ const createConsultation = async (req, res, next) => {
       );
     }
 
-    // Get rate based on provider's rate structure
+    // Check if provider is busy (in another call)
+    if (provider.isInCall && (type === "audio" || type === "video")) {
+      return next(
+        new AppError("Provider is currently busy in another call", 400)
+      );
+    }
+
+    // Get rate based on provider's unified rate structure
     let rate = 0;
 
     if (provider.rates) {
@@ -94,16 +101,22 @@ const createConsultation = async (req, res, next) => {
 
       if (type === "chat") {
         rate = provider.rates.chat || 0;
-      } else if (
-        defaultChargeType === "per-minute" &&
-        provider.rates.perMinute
-      ) {
-        rate = provider.rates.perMinute[type] || provider.rates[type] || 0;
-      } else if (defaultChargeType === "per-hour" && provider.rates.perHour) {
-        rate = provider.rates.perHour[type] || 0;
-      } else {
-        // Fallback to legacy rate structure
-        rate = provider.rates[type] || 0;
+      } else if (type === "audio" || type === "video") {
+        // Use unified audioVideo rate for both audio and video
+        if (
+          defaultChargeType === "per-minute" &&
+          provider.rates.perMinute
+        ) {
+          rate = provider.rates.perMinute.audioVideo || 
+                 provider.rates.perMinute[type] || 
+                 provider.rates[type] || 0;
+        } else if (defaultChargeType === "per-hour" && provider.rates.perHour) {
+          rate = provider.rates.perHour.audioVideo || 
+                 provider.rates.perHour[type] || 0;
+        } else {
+          // Fallback to legacy rate structure
+          rate = provider.rates[type] || 0;
+        }
       }
     }
 
@@ -587,6 +600,136 @@ const cancelConsultation = async (req, res, next) => {
   }
 };
 
+// @desc    Submit rating for consultation
+// @route   POST /api/consultations/:id/rating
+// @access  Private
+const submitRating = async (req, res, next) => {
+  try {
+    const { stars, review, tags, isAnonymous } = req.body;
+    const consultationId = req.params.id;
+
+    if (!stars || stars < 1 || stars > 5) {
+      return next(new AppError("Rating must be between 1 and 5 stars", 400));
+    }
+
+    const consultation = await Consultation.findById(consultationId);
+
+    if (!consultation) {
+      return next(new AppError("Consultation not found", 404));
+    }
+
+    // Check if user is part of consultation (handle guest users)
+    const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
+    const requestingUserId = req.user?.isGuest ? req.user.id : req.user?._id.toString();
+    
+    if (consultationUserId !== requestingUserId) {
+      return next(new AppError("Only the client can rate the consultation", 403));
+    }
+
+    // Check if consultation is completed
+    if (consultation.status !== "completed") {
+      return next(new AppError("Can only rate completed consultations", 400));
+    }
+
+    // Check if already rated
+    const existingRating = await Rating.findOne({ consultation: consultationId });
+    if (existingRating) {
+      return next(new AppError("Consultation already rated", 400));
+    }
+
+    // Create rating
+    const rating = await Rating.create({
+      consultation: consultationId,
+      provider: consultation.provider,
+      user: req.user?.isGuest ? req.user.id : req.user?._id,
+      userName: isAnonymous ? "Anonymous" : req.user?.fullName,
+      stars,
+      review,
+      tags: tags || [],
+      isAnonymous: isAnonymous || false,
+    });
+
+    // Update provider's rating
+    const provider = await User.findById(consultation.provider);
+    if (provider) {
+      provider.rating.totalStars += stars;
+      provider.rating.count += 1;
+      provider.rating.average = provider.rating.totalStars / provider.rating.count;
+      
+      // Add to reviews array (keep last 50 reviews)
+      provider.rating.reviews.unshift({
+        consultationId,
+        userId: req.user?.isGuest ? req.user.id : req.user?._id,
+        userName: isAnonymous ? "Anonymous" : req.user?.fullName,
+        stars,
+        review,
+        tags: tags || [],
+      });
+      
+      // Keep only last 50 reviews
+      if (provider.rating.reviews.length > 50) {
+        provider.rating.reviews = provider.rating.reviews.slice(0, 50);
+      }
+      
+      await provider.save();
+    }
+
+    // Update consultation with rating
+    consultation.rating = {
+      stars,
+      review,
+      tags: tags || [],
+      submittedAt: new Date(),
+    };
+    await consultation.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Rating submitted successfully",
+      data: rating,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get provider ratings
+// @route   GET /api/consultations/provider/:providerId/ratings
+// @access  Public
+const getProviderRatings = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+    const providerId = req.params.providerId;
+
+    const ratings = await Rating.find({ provider: providerId })
+      .populate('consultation', 'type createdAt')
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit));
+
+    const total = await Rating.countDocuments({ provider: providerId });
+    
+    // Get provider rating summary
+    const provider = await User.findById(providerId).select('rating');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ratings,
+        summary: provider?.rating || { average: 0, count: 0 },
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / parseInt(limit)),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createConsultation,
   getConsultation,
@@ -595,4 +738,6 @@ module.exports = {
   endConsultation,
   cancelConsultation,
   getConsultationHistory,
+  submitRating,
+  getProviderRatings,
 };

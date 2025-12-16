@@ -186,6 +186,14 @@ const initializeSocket = (io) => {
         consultation.startTime = new Date();
         await consultation.save();
 
+        // Mark provider as busy if it's an audio/video call
+        if (consultation.type === 'audio' || consultation.type === 'video') {
+          await User.findByIdAndUpdate(consultation.provider, {
+            isInCall: true,
+            currentConsultationId: consultation._id,
+          });
+        }
+
         io.to(`consultation:${data.consultationId}`).emit('consultation:started', {
           consultationId: data.consultationId,
           startTime: consultation.startTime,
@@ -194,6 +202,49 @@ const initializeSocket = (io) => {
         logger.info(`Consultation started: ${data.consultationId}`);
       } catch (error) {
         socket.emit('error', { message: 'Failed to start consultation' });
+      }
+    });
+
+    // Handle incoming call notification (ring system)
+    socket.on('consultation:ring', async (data) => {
+      try {
+        const consultation = await Consultation.findById(data.consultationId)
+          .populate('user', 'fullName profilePhoto')
+          .populate('provider', 'fullName');
+
+        if (!consultation) {
+          socket.emit('error', { message: 'Consultation not found' });
+          return;
+        }
+
+        // Only allow ringing for audio/video consultations
+        if (consultation.type !== 'audio' && consultation.type !== 'video') {
+          return;
+        }
+
+        // Check if provider is online
+        const providerSockets = onlineUsers.get(consultation.provider._id.toString());
+        if (providerSockets && providerSockets.length > 0) {
+          // Send ring notification to all provider's sockets
+          providerSockets.forEach(socketId => {
+            const providerSocket = io.sockets.sockets.get(socketId);
+            if (providerSocket) {
+              providerSocket.emit('consultation:incoming-call', {
+                consultationId: consultation._id,
+                type: consultation.type,
+                clientName: consultation.user?.fullName || 'Guest User',
+                clientPhoto: consultation.user?.profilePhoto,
+                amount: consultation.rate,
+                timestamp: new Date(),
+              });
+            }
+          });
+
+          logger.info(`Ring notification sent to provider ${consultation.provider._id} for consultation ${data.consultationId}`);
+        }
+      } catch (error) {
+        console.error('Error sending ring notification:', error);
+        socket.emit('error', { message: 'Failed to send ring notification' });
       }
     });
 
@@ -267,6 +318,14 @@ const initializeSocket = (io) => {
             );
             consultation.duration = duration;
             consultation.totalAmount = duration * consultation.rate;
+          }
+
+          // Mark provider as no longer busy
+          if (consultation.type === 'audio' || consultation.type === 'video') {
+            await User.findByIdAndUpdate(consultation.provider, {
+              isInCall: false,
+              currentConsultationId: null,
+            });
           }
 
           await consultation.save();

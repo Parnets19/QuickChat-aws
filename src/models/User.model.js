@@ -104,8 +104,13 @@ const UserSchema = new mongoose.Schema(
         type: Number,
         default: 0,
       },
-      // Per-minute rates
+      // Unified audio/video rates (no difference between audio and video)
       perMinute: {
+        audioVideo: {
+          type: Number,
+          default: 0,
+        },
+        // Legacy fields for backward compatibility
         audio: {
           type: Number,
           default: 0,
@@ -115,8 +120,12 @@ const UserSchema = new mongoose.Schema(
           default: 0,
         },
       },
-      // Per-hour rates
       perHour: {
+        audioVideo: {
+          type: Number,
+          default: 0,
+        },
+        // Legacy fields for backward compatibility
         audio: {
           type: Number,
           default: 0,
@@ -211,6 +220,43 @@ const UserSchema = new mongoose.Schema(
         type: Number,
         default: 0,
       },
+      totalStars: {
+        type: Number,
+        default: 0,
+      },
+      reviews: [{
+        consultationId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Consultation'
+        },
+        userId: {
+          type: mongoose.Schema.Types.Mixed, // Support both ObjectId and string for guest users
+        },
+        userName: String,
+        stars: {
+          type: Number,
+          min: 1,
+          max: 5,
+          required: true
+        },
+        review: String,
+        tags: [String],
+        createdAt: {
+          type: Date,
+          default: Date.now
+        }
+      }]
+    },
+    
+    // Provider status tracking
+    isInCall: {
+      type: Boolean,
+      default: false,
+    },
+    currentConsultationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Consultation',
+      default: null,
     },
     socialLogins: {
       google: String,
