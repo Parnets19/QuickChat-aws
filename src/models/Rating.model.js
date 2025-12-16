@@ -20,6 +20,15 @@ const RatingSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    ratedUser: {
+      type: mongoose.Schema.Types.Mixed, // The user being rated (ObjectId or string for guest)
+      required: true,
+    },
+    ratedUserType: {
+      type: String,
+      enum: ['provider', 'client'],
+      required: true,
+    },
     stars: {
       type: Number,
       min: 1,

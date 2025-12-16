@@ -1455,3 +1455,6 @@
 {"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-16 12:09:56"}
 {"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-16 12:09:58"}
 {"level":"error","message":"Please verify your mobile number or email first","service":"skillhub-api","stack":"Error: Please verify your mobile number or email first\n    at register (C:\\Users\\Dell\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:195:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":400,"timestamp":"2025-12-16 12:10:35"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-16 17:21:15"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-00.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-16 17:21:19"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-16 17:21:19"}

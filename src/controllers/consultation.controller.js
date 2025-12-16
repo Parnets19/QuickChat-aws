@@ -636,12 +636,16 @@ const submitRating = async (req, res, next) => {
       return next(new AppError("Consultation not found", 404));
     }
 
-    // Check if user is part of consultation (handle guest users)
+    // Check if user is part of consultation (handle guest users and providers)
     const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
     const requestingUserId = req.user?.isGuest ? req.user.id : req.user?._id.toString();
+    const consultationProviderId = consultation.provider.toString();
     
-    if (consultationUserId !== requestingUserId) {
-      return next(new AppError("Only the client can rate the consultation", 403));
+    const isClient = consultationUserId === requestingUserId;
+    const isProvider = consultationProviderId === req.user?._id?.toString();
+    
+    if (!isClient && !isProvider) {
+      return next(new AppError("Only participants can rate the consultation", 403));
     }
 
     // Check if consultation is completed
@@ -649,17 +653,26 @@ const submitRating = async (req, res, next) => {
       return next(new AppError("Can only rate completed consultations", 400));
     }
 
-    // Check if already rated
-    const existingRating = await Rating.findOne({ consultation: consultationId });
+    // Check if already rated by this user
+    const existingRating = await Rating.findOne({ 
+      consultation: consultationId,
+      user: req.user?.isGuest ? req.user.id : req.user?._id
+    });
     if (existingRating) {
-      return next(new AppError("Consultation already rated", 400));
+      return next(new AppError("You have already rated this consultation", 400));
     }
+
+    // Determine who is being rated
+    const ratedUserId = isProvider ? consultation.user : consultation.provider;
+    const ratedUserType = isProvider ? 'client' : 'provider';
 
     // Create rating
     const rating = await Rating.create({
       consultation: consultationId,
       provider: consultation.provider,
       user: req.user?.isGuest ? req.user.id : req.user?._id,
+      ratedUser: ratedUserId,
+      ratedUserType,
       userName: isAnonymous ? "Anonymous" : req.user?.fullName,
       stars,
       review,
@@ -667,29 +680,31 @@ const submitRating = async (req, res, next) => {
       isAnonymous: isAnonymous || false,
     });
 
-    // Update provider's rating
-    const provider = await User.findById(consultation.provider);
-    if (provider) {
-      provider.rating.totalStars += stars;
-      provider.rating.count += 1;
-      provider.rating.average = provider.rating.totalStars / provider.rating.count;
-      
-      // Add to reviews array (keep last 50 reviews)
-      provider.rating.reviews.unshift({
-        consultationId,
-        userId: req.user?.isGuest ? req.user.id : req.user?._id,
-        userName: isAnonymous ? "Anonymous" : req.user?.fullName,
-        stars,
-        review,
-        tags: tags || [],
-      });
-      
-      // Keep only last 50 reviews
-      if (provider.rating.reviews.length > 50) {
-        provider.rating.reviews = provider.rating.reviews.slice(0, 50);
+    // Update the rated user's rating (only for providers for now)
+    if (ratedUserType === 'provider') {
+      const provider = await User.findById(consultation.provider);
+      if (provider) {
+        provider.rating.totalStars += stars;
+        provider.rating.count += 1;
+        provider.rating.average = provider.rating.totalStars / provider.rating.count;
+        
+        // Add to reviews array (keep last 50 reviews)
+        provider.rating.reviews.unshift({
+          consultationId,
+          userId: req.user?.isGuest ? req.user.id : req.user?._id,
+          userName: isAnonymous ? "Anonymous" : req.user?.fullName,
+          stars,
+          review,
+          tags: tags || [],
+        });
+        
+        // Keep only last 50 reviews
+        if (provider.rating.reviews.length > 50) {
+          provider.rating.reviews = provider.rating.reviews.slice(0, 50);
+        }
+        
+        await provider.save();
       }
-      
-      await provider.save();
     }
 
     // Update consultation with rating
