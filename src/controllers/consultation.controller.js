@@ -1,6 +1,58 @@
 const { Consultation, User, Transaction, Notification } = require("../models");
 const { AppError } = require("../middlewares/errorHandler");
 
+// Helper function to populate consultation with user data (handles guest users)
+const populateConsultationUser = async (consultation) => {
+  if (!consultation) return consultation;
+  
+  // Handle array of consultations
+  if (Array.isArray(consultation)) {
+    return Promise.all(consultation.map(populateConsultationUser));
+  }
+  
+  // Convert to plain object if it's a mongoose document
+  const consultationObj = consultation.toObject ? consultation.toObject() : consultation;
+  
+  // Handle user field
+  if (consultationObj.user) {
+    if (typeof consultationObj.user === 'string' && consultationObj.user.startsWith('guest_')) {
+      // Guest user - create a mock user object
+      consultationObj.user = {
+        _id: consultationObj.user,
+        fullName: 'Guest User',
+        profilePhoto: null,
+        isGuest: true
+      };
+    } else if (typeof consultationObj.user === 'string' || consultationObj.user._id) {
+      // Regular user - populate from database
+      try {
+        const userId = typeof consultationObj.user === 'string' ? consultationObj.user : consultationObj.user._id;
+        const user = await User.findById(userId).select('fullName profilePhoto');
+        if (user) {
+          consultationObj.user = user;
+        }
+      } catch (error) {
+        console.error('Error populating user:', error);
+      }
+    }
+  }
+  
+  // Handle provider field (always ObjectId)
+  if (consultationObj.provider && (typeof consultationObj.provider === 'string' || consultationObj.provider._id)) {
+    try {
+      const providerId = typeof consultationObj.provider === 'string' ? consultationObj.provider : consultationObj.provider._id;
+      const provider = await User.findById(providerId).select('fullName profilePhoto rates');
+      if (provider) {
+        consultationObj.provider = provider;
+      }
+    } catch (error) {
+      console.error('Error populating provider:', error);
+    }
+  }
+  
+  return consultationObj;
+};
+
 // @desc    Create consultation booking
 // @route   POST /api/consultations
 // @access  Private
@@ -136,13 +188,12 @@ const getConsultation = async (req, res, next) => {
       return next(new AppError("Invalid consultation ID format", 400));
     }
 
-    // Debug: Find all consultations for this user
+    // Debug: Find all consultations for this user (handle guest users)
+    const userId = req.user?.isGuest ? req.user.id : req.user._id;
     const userConsultations = await Consultation.find({
-      $or: [{ user: req.user._id }, { provider: req.user._id }],
+      $or: [{ user: userId }, { provider: req.user._id }],
     })
-      .select("_id user provider status type")
-      .populate("user", "fullName")
-      .populate("provider", "fullName");
+      .select("_id user provider status type");
 
     console.log(
       "🔍 DEBUG - User's consultations:",
@@ -155,9 +206,8 @@ const getConsultation = async (req, res, next) => {
       }))
     );
 
-    const consultation = await Consultation.findById(req.params.id)
-      .populate("user", "fullName profilePhoto")
-      .populate("provider", "fullName profilePhoto rates");
+    const consultation = await Consultation.findById(req.params.id);
+    const populatedConsultation = await populateConsultationUser(consultation);
 
     if (!consultation) {
       console.log("❌ DEBUG - Consultation not found:", req.params.id);
@@ -171,11 +221,12 @@ const getConsultation = async (req, res, next) => {
       status: consultation.status,
     });
 
-    // Check if user is part of consultation
-    const isUser =
-      consultation.user?._id?.toString() === req.user?._id?.toString();
-    const isProvider =
-      consultation.provider?._id?.toString() === req.user?._id?.toString();
+    // Check if user is part of consultation (handle guest users)
+    const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user?._id?.toString();
+    const requestingUserId = req.user?.isGuest ? req.user.id : req.user?._id?.toString();
+    
+    const isUser = consultationUserId === requestingUserId;
+    const isProvider = consultation.provider?._id?.toString() === req.user?._id?.toString();
 
     console.log("🔍 DEBUG - Authorization check:", {
       isUser,
@@ -205,7 +256,7 @@ const getConsultation = async (req, res, next) => {
     console.log("✅ DEBUG - Authorization successful");
     res.status(200).json({
       success: true,
-      data: consultation,
+      data: populatedConsultation,
     });
   } catch (error) {
     console.error("❌ DEBUG - getConsultation error:", error);
@@ -221,16 +272,17 @@ const getMyConsultations = async (req, res, next) => {
     const { page = 1, limit = 20, status, role } = req.query;
 
     let query;
+    const userId = req.user?.isGuest ? req.user.id : req.user?._id;
 
     // Filter by role if specified
     if (role === "provider") {
       query = { provider: req.user?._id };
     } else if (role === "client") {
-      query = { user: req.user?._id };
+      query = { user: userId };
     } else {
       // Default: return all consultations where user is either client or provider
       query = {
-        $or: [{ user: req.user?._id }, { provider: req.user?._id }],
+        $or: [{ user: userId }, { provider: req.user?._id }],
       };
     }
 
@@ -239,11 +291,12 @@ const getMyConsultations = async (req, res, next) => {
     }
 
     const consultations = await Consultation.find(query)
-      .populate("user", "fullName profilePhoto")
-      .populate("provider", "fullName profilePhoto")
       .sort({ createdAt: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
+    
+    // Populate consultations with user data (handles guest users)
+    const populatedConsultations = await populateConsultationUser(consultations);
 
     const total = await Consultation.countDocuments(query);
 
@@ -261,7 +314,7 @@ const getMyConsultations = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: consultations,
+      data: populatedConsultations,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),

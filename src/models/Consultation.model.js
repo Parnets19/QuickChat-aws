@@ -9,8 +9,7 @@ const ConsultationSchema = new mongoose.Schema(
       default: () => `CON-${uuidv4().substring(0, 8).toUpperCase()}`,
     },
     user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String for guest users
       required: true,
     },
     provider: {
@@ -45,8 +44,7 @@ const ConsultationSchema = new mongoose.Schema(
     messages: [
       {
         sender: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'User',
+          type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String for guest users
         },
         message: String,
         timestamp: {

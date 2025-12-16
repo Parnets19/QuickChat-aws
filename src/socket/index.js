@@ -65,8 +65,10 @@ const initializeSocket = (io) => {
       onlineUsers.set(userId, [socket.id]);
     }
 
-    // Update user online status
-    User.findByIdAndUpdate(userId, { isOnline: true, lastActive: new Date() }).exec();
+    // Update user online status (only for regular users, not guests)
+    if (!socket.data.user?.isGuest) {
+      User.findByIdAndUpdate(userId, { isOnline: true, lastActive: new Date() }).exec();
+    }
 
     // Send online status to all connections
     socket.broadcast.emit('user:online', { userId });
@@ -84,11 +86,11 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Check if user is part of consultation
-        if (
-          consultation.user.toString() !== userId &&
-          consultation.provider.toString() !== userId
-        ) {
+        // Check if user is part of consultation (handle guest users)
+        const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
+        const consultationProviderId = consultation.provider.toString();
+        
+        if (consultationUserId !== userId && consultationProviderId !== userId) {
           socket.emit('error', { message: 'Unauthorized' });
           return;
         }
@@ -100,7 +102,7 @@ const initializeSocket = (io) => {
         if (isAlreadyInRoom) {
           console.log(`User ${userId} already in consultation room, skipping duplicate join`);
           // Still send confirmation but don't notify others
-          const isProvider = consultation.provider.toString() === userId;
+          const isProvider = consultationProviderId === userId;
           socket.emit('consultation:joined', { 
             consultationId: data.consultationId,
             isProvider: isProvider,
@@ -116,7 +118,7 @@ const initializeSocket = (io) => {
         const participantCount = updatedRoom ? updatedRoom.size : 1;
         
         // Determine user role
-        const isProvider = consultation.provider.toString() === userId;
+        const isProvider = consultationProviderId === userId;
         
         console.log(`✅ User joined consultation: ${userId} as ${isProvider ? 'provider' : 'client'} (${participantCount} participants)`);
         
@@ -177,11 +179,11 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Check if user is part of consultation
-        if (
-          consultation.user.toString() !== userId &&
-          consultation.provider.toString() !== userId
-        ) {
+        // Check if user is part of consultation (handle guest users)
+        const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
+        const consultationProviderId = consultation.provider.toString();
+        
+        if (consultationUserId !== userId && consultationProviderId !== userId) {
           socket.emit('error', { message: 'Unauthorized' });
           return;
         }
@@ -216,11 +218,11 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Either party can end the consultation
-        if (
-          consultation.user.toString() !== userId &&
-          consultation.provider.toString() !== userId
-        ) {
+        // Either party can end the consultation (handle guest users)
+        const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
+        const consultationProviderId = consultation.provider.toString();
+        
+        if (consultationUserId !== userId && consultationProviderId !== userId) {
           socket.emit('error', { message: 'Unauthorized' });
           return;
         }
@@ -372,10 +374,12 @@ const initializeSocket = (io) => {
           userSockets.splice(index, 1);
         }
 
-        // If no more sockets for this user, mark as offline
+        // If no more sockets for this user, mark as offline (only for regular users, not guests)
         if (userSockets.length === 0) {
           onlineUsers.delete(userId);
-          User.findByIdAndUpdate(userId, { isOnline: false, lastActive: new Date() }).exec();
+          if (!socket.data.user?.isGuest) {
+            User.findByIdAndUpdate(userId, { isOnline: false, lastActive: new Date() }).exec();
+          }
           socket.broadcast.emit('user:offline', { userId });
         }
       }
