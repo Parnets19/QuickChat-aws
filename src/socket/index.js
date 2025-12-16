@@ -117,15 +117,43 @@ const initializeSocket = (io) => {
         const updatedRoom = io.sockets.adapter.rooms.get(`consultation:${data.consultationId}`);
         const participantCount = updatedRoom ? updatedRoom.size : 1;
         
-        // Determine user role
-        const isProvider = consultationProviderId === userId;
+        // Determine user role - handle provider-to-provider consultations
+        let isProvider = consultationProviderId === userId;
+        
+        // For provider-to-provider consultations, use consultation-specific roles
+        if (consultation.isProviderToProvider) {
+          console.log(`🔍 SOCKET DEBUG - Provider-to-provider consultation detected`);
+          
+          // Check consultation-specific role from participantRoles
+          if (consultation.participantRoles) {
+            if (consultationUserId === userId) {
+              // This is the booking provider (user field) - they are the client in this consultation
+              isProvider = consultation.participantRoles.bookingProvider === 'provider';
+              console.log(`🔍 SOCKET DEBUG - Booking provider role: ${consultation.participantRoles.bookingProvider}`);
+            } else if (consultationProviderId === userId) {
+              // This is the booked provider (provider field) - they are the provider in this consultation
+              isProvider = consultation.participantRoles.bookedProvider === 'provider';
+              console.log(`🔍 SOCKET DEBUG - Booked provider role: ${consultation.participantRoles.bookedProvider}`);
+            }
+          }
+          
+          console.log(`🔍 SOCKET DEBUG - Provider-to-provider role determination:`, {
+            userId,
+            consultationUserId,
+            consultationProviderId,
+            finalIsProvider: isProvider,
+            bookingProviderRole: consultation.participantRoles?.bookingProvider,
+            bookedProviderRole: consultation.participantRoles?.bookedProvider
+          });
+        }
         
         console.log(`✅ User joined consultation: ${userId} as ${isProvider ? 'provider' : 'client'} (${participantCount} participants)`);
         
         socket.emit('consultation:joined', { 
           consultationId: data.consultationId,
           isProvider: isProvider,
-          participantCount: participantCount
+          participantCount: participantCount,
+          isProviderToProvider: consultation.isProviderToProvider || false
         });
 
         // Only notify others if this is a new join and there are other participants

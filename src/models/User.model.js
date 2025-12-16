@@ -222,6 +222,29 @@ const UserSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    
+    // Consultation role tracking for provider-to-provider consultations
+    consultationRoles: [{
+      consultationId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'Consultation' 
+      },
+      role: { 
+        type: String, 
+        enum: ['client', 'provider'], 
+        required: true 
+      },
+      createdAt: { 
+        type: Date, 
+        default: Date.now 
+      }
+    }],
+    
+    // Track provider-to-provider consultations
+    providerToProviderConsultations: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Consultation'
+    }],
   },
   {
     timestamps: true,

@@ -137,15 +137,68 @@ const createConsultation = async (req, res, next) => {
         "Payment completed. Consultation request sent to provider.";
     }
 
-    // Create consultation (handle guest users)
-    const consultation = await Consultation.create({
+    // Detect provider-to-provider consultation
+    const isProviderToProvider = !req.user?.isGuest && 
+                                 req.user?.isServiceProvider && 
+                                 provider.isServiceProvider;
+    
+    console.log("🔍 CONSULTATION DEBUG - Provider-to-provider detection:", {
+      isGuest: req.user?.isGuest,
+      userIsProvider: req.user?.isServiceProvider,
+      targetIsProvider: provider.isServiceProvider,
+      isProviderToProvider
+    });
+
+    // Create consultation (handle guest users and provider-to-provider)
+    const consultationData = {
       user: req.user?.isGuest ? req.user.id : req.user?._id,
       provider: providerId,
       type,
       rate,
       status: initialStatus,
       startTime: null, // Start time will be set when provider accepts/starts the consultation
-    });
+    };
+
+    // Add provider-to-provider specific fields
+    if (isProviderToProvider) {
+      consultationData.isProviderToProvider = true;
+      consultationData.bookingProviderIsClient = true;
+      consultationData.participantRoles = {
+        bookingProvider: 'client',
+        bookedProvider: 'provider'
+      };
+      
+      console.log("✅ CONSULTATION DEBUG - Provider-to-provider consultation detected");
+    }
+
+    const consultation = await Consultation.create(consultationData);
+
+    // Store consultation-specific roles for provider-to-provider consultations
+    if (isProviderToProvider) {
+      // Update booking provider (user) - they are the client in this consultation
+      await User.findByIdAndUpdate(req.user._id, {
+        $push: {
+          consultationRoles: {
+            consultationId: consultation._id,
+            role: 'client'
+          },
+          providerToProviderConsultations: consultation._id
+        }
+      });
+
+      // Update booked provider - they are the provider in this consultation
+      await User.findByIdAndUpdate(providerId, {
+        $push: {
+          consultationRoles: {
+            consultationId: consultation._id,
+            role: 'provider'
+          },
+          providerToProviderConsultations: consultation._id
+        }
+      });
+
+      console.log("✅ CONSULTATION DEBUG - Consultation roles stored for both providers");
+    }
 
     // Create notification for provider
     await Notification.create({
@@ -190,9 +243,20 @@ const getConsultation = async (req, res, next) => {
 
     // Debug: Find all consultations for this user (handle guest users)
     const userId = req.user?.isGuest ? req.user.id : req.user._id;
-    const userConsultations = await Consultation.find({
-      $or: [{ user: userId }, { provider: req.user._id }],
-    })
+    
+    // Build query that handles both ObjectId and string user IDs
+    let userQuery;
+    if (req.user?.isGuest) {
+      // For guest users, only check user field as string (guests can't be providers)
+      userQuery = { user: userId };
+    } else {
+      // For regular users, check both user and provider fields
+      userQuery = {
+        $or: [{ user: userId }, { provider: req.user._id }],
+      };
+    }
+    
+    const userConsultations = await Consultation.find(userQuery)
       .select("_id user provider status type");
 
     console.log(
@@ -276,14 +340,25 @@ const getMyConsultations = async (req, res, next) => {
 
     // Filter by role if specified
     if (role === "provider") {
-      query = { provider: req.user?._id };
+      // Only regular users can be providers
+      if (req.user?.isGuest) {
+        query = { _id: { $exists: false } }; // Guest users can't be providers, return empty result
+      } else {
+        query = { provider: req.user?._id };
+      }
     } else if (role === "client") {
       query = { user: userId };
     } else {
       // Default: return all consultations where user is either client or provider
-      query = {
-        $or: [{ user: userId }, { provider: req.user?._id }],
-      };
+      if (req.user?.isGuest) {
+        // Guest users can only be clients, never providers
+        query = { user: userId };
+      } else {
+        // Regular users can be both clients and providers
+        query = {
+          $or: [{ user: userId }, { provider: req.user?._id }],
+        };
+      }
     }
 
     if (status) {
@@ -362,7 +437,7 @@ const startConsultation = async (req, res, next) => {
     }
 
     // Only provider can start consultation
-    if (consultation.provider.toString() !== req.user?._id.toString()) {
+    if (consultation.provider.toString() !== req.user?._id?.toString()) {
       return next(new AppError("Not authorized", 403));
     }
 
@@ -391,11 +466,15 @@ const endConsultation = async (req, res, next) => {
       return next(new AppError("Consultation not found", 404));
     }
 
-    // Either party can end consultation
-    if (
-      consultation.user.toString() !== req.user?._id.toString() &&
-      consultation.provider.toString() !== req.user?._id.toString()
-    ) {
+    // Either party can end consultation (handle guest users)
+    const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
+    const requestingUserId = req.user?.isGuest ? req.user.id : req.user?._id.toString();
+    const consultationProviderId = consultation.provider.toString();
+    
+    const isUser = consultationUserId === requestingUserId;
+    const isProvider = consultationProviderId === req.user?._id?.toString();
+    
+    if (!isUser && !isProvider) {
       return next(new AppError("Not authorized", 403));
     }
 
@@ -416,28 +495,36 @@ const endConsultation = async (req, res, next) => {
       consultation.duration = duration;
       consultation.totalAmount = duration * consultation.rate;
 
-      // Transfer money to provider
-      const user = await User.findById(consultation.user);
+      // Transfer money to provider (skip for guest users as they don't have wallets)
       const provider = await User.findById(consultation.provider);
+      
+      // Only handle wallet transactions for regular users, not guests
+      if (!req.user?.isGuest && typeof consultation.user !== 'string') {
+        const user = await User.findById(consultation.user);
+        
+        if (user && provider) {
+          user.wallet -= consultation.totalAmount;
+          provider.earnings += consultation.totalAmount;
 
-      if (user && provider) {
-        user.wallet -= consultation.totalAmount;
+          await user.save();
+          await provider.save();
+
+          // Create transaction
+          await Transaction.create({
+            user: consultation.user,
+            type: "debit",
+            category: "consultation",
+            amount: consultation.totalAmount,
+            balanceBefore: user.wallet + consultation.totalAmount,
+            balanceAfter: user.wallet,
+            status: "completed",
+            description: `${consultation.type} consultation with ${provider.fullName}`,
+          });
+        }
+      } else if (provider) {
+        // For guest users, just update provider earnings (payment was handled separately)
         provider.earnings += consultation.totalAmount;
-
-        await user.save();
         await provider.save();
-
-        // Create transaction
-        await Transaction.create({
-          user: consultation.user,
-          type: "debit",
-          category: "consultation",
-          amount: consultation.totalAmount,
-          balanceBefore: user.wallet + consultation.totalAmount,
-          balanceAfter: user.wallet,
-          status: "completed",
-          description: `${consultation.type} consultation with ${provider.fullName}`,
-        });
       }
     }
 
@@ -464,10 +551,13 @@ const cancelConsultation = async (req, res, next) => {
       return next(new AppError("Consultation not found", 404));
     }
 
-    // Both user and provider can cancel pending consultations
-    const isUser = consultation.user.toString() === req.user?._id.toString();
-    const isProvider =
-      consultation.provider.toString() === req.user?._id.toString();
+    // Both user and provider can cancel pending consultations (handle guest users)
+    const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
+    const requestingUserId = req.user?.isGuest ? req.user.id : req.user?._id.toString();
+    const consultationProviderId = consultation.provider.toString();
+    
+    const isUser = consultationUserId === requestingUserId;
+    const isProvider = consultationProviderId === req.user?._id?.toString();
 
     if (!isUser && !isProvider) {
       return next(new AppError("Not authorized", 403));

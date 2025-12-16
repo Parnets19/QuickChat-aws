@@ -68,6 +68,28 @@ const ConsultationSchema = new mongoose.Schema(
       tags: [String],
     },
     invoice: String,
+    
+    // Provider-to-Provider consultation fields
+    isProviderToProvider: {
+      type: Boolean,
+      default: false,
+    },
+    bookingProviderIsClient: {
+      type: Boolean,
+      default: false,
+    },
+    participantRoles: {
+      bookingProvider: { 
+        type: String, 
+        enum: ['client', 'provider'],
+        default: 'client'
+      },
+      bookedProvider: { 
+        type: String, 
+        enum: ['client', 'provider'],
+        default: 'provider'
+      }
+    },
   },
   {
     timestamps: true,
