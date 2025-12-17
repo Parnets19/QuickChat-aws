@@ -273,6 +273,7 @@ const initializeSocket = (io) => {
           message: data.message,
           timestamp: new Date(),
           type: data.type || 'text',
+          file: data.file || null, // Include file data for file messages
         };
 
         consultation.messages.push(messageData);

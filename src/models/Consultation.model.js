@@ -56,6 +56,13 @@ const ConsultationSchema = new mongoose.Schema(
           enum: ['text', 'image', 'file'],
           default: 'text',
         },
+        file: {
+          name: String,
+          size: Number,
+          type: String,
+          url: String,
+          isImage: Boolean,
+        },
       },
     ],
     rating: {
