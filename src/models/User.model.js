@@ -199,6 +199,11 @@ const UserSchema = new mongoose.Schema(
       enum: ['active', 'inactive', 'suspended'],
       default: 'active',
     },
+    consultationStatus: {
+      type: String,
+      enum: ['available', 'busy', 'offline'],
+      default: 'available',
+    },
     subscription: {
       plan: {
         type: mongoose.Schema.Types.ObjectId,

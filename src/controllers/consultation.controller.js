@@ -1,5 +1,37 @@
 const { Consultation, User, Transaction, Notification, Rating } = require("../models");
+const { addEarnings } = require('./earnings.controller');
 const { AppError } = require("../middlewares/errorHandler");
+
+// Helper function to update provider consultation status
+const updateProviderStatus = async (providerId, status) => {
+  try {
+    await User.findByIdAndUpdate(providerId, { 
+      consultationStatus: status 
+    });
+    console.log(`📱 Provider ${providerId} status updated to: ${status}`);
+  } catch (error) {
+    console.error('Error updating provider status:', error);
+  }
+};
+
+// Helper function to check if provider has any ongoing consultations
+const checkProviderBusyStatus = async (providerId) => {
+  try {
+    const ongoingConsultations = await Consultation.countDocuments({
+      provider: providerId,
+      status: 'ongoing'
+    });
+    
+    const newStatus = ongoingConsultations > 0 ? 'busy' : 'available';
+    await updateProviderStatus(providerId, newStatus);
+    
+    console.log(`📱 Provider ${providerId} has ${ongoingConsultations} ongoing consultations, status: ${newStatus}`);
+    return newStatus;
+  } catch (error) {
+    console.error('Error checking provider busy status:', error);
+    return 'available';
+  }
+};
 
 // Helper function to populate consultation with user data (handles guest users)
 const populateConsultationUser = async (consultation) => {
@@ -476,6 +508,9 @@ const startConsultation = async (req, res, next) => {
     consultation.startTime = new Date();
     await consultation.save();
 
+    // Update provider status to busy
+    await updateProviderStatus(consultation.provider, 'busy');
+
     res.status(200).json({
       success: true,
       message: "Consultation started",
@@ -526,40 +561,60 @@ const endConsultation = async (req, res, next) => {
       consultation.duration = duration;
       consultation.totalAmount = duration * consultation.rate;
 
-      // Transfer money to provider (skip for guest users as they don't have wallets)
+      // Add earnings to provider
       const provider = await User.findById(consultation.provider);
       
-      // Only handle wallet transactions for regular users, not guests
-      if (!req.user?.isGuest && typeof consultation.user !== 'string') {
-        const user = await User.findById(consultation.user);
-        
-        if (user && provider) {
-          user.wallet -= consultation.totalAmount;
-          provider.earnings += consultation.totalAmount;
-
-          await user.save();
-          await provider.save();
-
-          // Create transaction
-          await Transaction.create({
-            user: consultation.user,
-            type: "debit",
-            category: "consultation",
-            amount: consultation.totalAmount,
-            balanceBefore: user.wallet + consultation.totalAmount,
-            balanceAfter: user.wallet,
-            status: "completed",
-            description: `${consultation.type} consultation with ${provider.fullName}`,
-          });
+      if (provider && consultation.totalAmount > 0) {
+        // Determine client name for transaction description
+        let clientName = 'Guest User';
+        if (typeof consultation.user !== 'string') {
+          const user = await User.findById(consultation.user);
+          if (user) {
+            clientName = user.fullName;
+          }
         }
-      } else if (provider) {
-        // For guest users, just update provider earnings (payment was handled separately)
-        provider.earnings += consultation.totalAmount;
-        await provider.save();
+
+        // Add earnings to provider
+        await addEarnings(
+          consultation.provider,
+          consultation._id,
+          consultation.totalAmount,
+          `${consultation.type.charAt(0).toUpperCase() + consultation.type.slice(1)} Consultation - ${clientName}`,
+          {
+            clientName,
+            consultationType: consultation.type,
+            duration: consultation.duration,
+            rate: consultation.rate
+          }
+        );
+
+        // For regular users (not guests), deduct from user wallet
+        if (!req.user?.isGuest && typeof consultation.user !== 'string') {
+          const user = await User.findById(consultation.user);
+          if (user && user.wallet >= consultation.totalAmount) {
+            user.wallet -= consultation.totalAmount;
+            await user.save();
+
+            // Create debit transaction for user
+            await Transaction.create({
+              user: consultation.user,
+              type: "debit",
+              category: "consultation",
+              amount: consultation.totalAmount,
+              balanceBefore: user.wallet + consultation.totalAmount,
+              balanceAfter: user.wallet,
+              status: "completed",
+              description: `${consultation.type} consultation with ${provider.fullName}`,
+            });
+          }
+        }
       }
     }
 
     await consultation.save();
+
+    // Check if provider has any other ongoing consultations and update status accordingly
+    await checkProviderBusyStatus(consultation.provider);
 
     res.status(200).json({
       success: true,

@@ -24,7 +24,7 @@ const ConsultationSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'ongoing', 'completed', 'cancelled'],
+      enum: ['pending', 'ongoing', 'completed', 'cancelled', 'missed', 'no_answer'],
       default: 'pending',
     },
     startTime: Date,

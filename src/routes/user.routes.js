@@ -10,6 +10,7 @@ const {
   getDashboard,
   updateBankDetails,
   searchProviders,
+  updateConsultationStatus,
 } = require('../controllers/user.controller');
 const { protect, isServiceProvider } = require('../middlewares/auth');
 const { uploadImage, upload } = require('../middlewares/upload');
@@ -29,7 +30,9 @@ router.get('/test-auth', (req, res) => {
   res.json({
     success: true,
     user: req.user,
-    message: 'Current authenticated user'
+    message: 'Current authenticated user',
+    consultationStatus: req.user?.consultationStatus,
+    isServiceProvider: req.user?.isServiceProvider
   });
 });
 router.put('/profile', updateProfile);
@@ -46,6 +49,7 @@ router.post('/become-provider', becomeProvider);
 router.put('/provider-settings', isServiceProvider, updateProviderSettings);
 router.put('/toggle-visibility', toggleProfileVisibility);
 router.put('/bank-details', updateBankDetails);
+router.put('/consultation-status', isServiceProvider, updateConsultationStatus);
 
 module.exports = router;
 

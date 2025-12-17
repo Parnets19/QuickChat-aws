@@ -8,6 +8,7 @@ const reviewRoutes = require('./review.routes');
 const notificationRoutes = require('./notification.routes');
 const categoryRoutes = require('./category.routes');
 const adminRoutes = require('./admin.routes');
+const earningsRoutes = require('./earnings.routes');
 
 const router = express.Router();
 
@@ -21,6 +22,7 @@ router.use('/reviews', reviewRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/admin', adminRoutes);
+router.use('/earnings', earningsRoutes);
 
 module.exports = router;
 

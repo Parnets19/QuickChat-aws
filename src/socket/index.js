@@ -187,13 +187,12 @@ const initializeSocket = (io) => {
         consultation.startTime = new Date();
         await consultation.save();
 
-        // Mark provider as busy if it's an audio/video call
-        if (consultation.type === 'audio' || consultation.type === 'video') {
-          await User.findByIdAndUpdate(consultation.provider, {
-            isInCall: true,
-            currentConsultationId: consultation._id,
-          });
-        }
+        // Mark provider as busy for all consultation types
+        await User.findByIdAndUpdate(consultation.provider, {
+          consultationStatus: 'busy',
+          isInCall: true,
+          currentConsultationId: consultation._id,
+        });
 
         io.to(`consultation:${data.consultationId}`).emit('consultation:started', {
           consultationId: data.consultationId,
@@ -240,6 +239,68 @@ const initializeSocket = (io) => {
               });
             }
           });
+
+          // Set 1-minute timeout for unanswered calls
+          setTimeout(async () => {
+            try {
+              const currentConsultation = await Consultation.findById(data.consultationId);
+              
+              // Only mark as no_answer if still pending (not answered)
+              if (currentConsultation && currentConsultation.status === 'pending') {
+                console.log(`⏰ Call timeout: Marking consultation ${data.consultationId} as no_answer`);
+                
+                // Update consultation status to no_answer
+                currentConsultation.status = 'no_answer';
+                currentConsultation.endTime = new Date();
+                await currentConsultation.save();
+
+                // Update provider status back to available if they were set to busy
+                await User.findByIdAndUpdate(consultation.provider._id, {
+                  consultationStatus: 'available'
+                });
+
+                // Notify both client and provider about the timeout
+                io.to(`consultation:${data.consultationId}`).emit('consultation:timeout', {
+                  consultationId: data.consultationId,
+                  message: 'Call was not answered within 1 minute',
+                  status: 'no_answer'
+                });
+
+                // Send specific notification to client
+                const clientSockets = onlineUsers.get(consultation.user?.toString() || consultation.user?._id?.toString());
+                if (clientSockets) {
+                  clientSockets.forEach(socketId => {
+                    const clientSocket = io.sockets.sockets.get(socketId);
+                    if (clientSocket) {
+                      clientSocket.emit('consultation:no-answer', {
+                        consultationId: data.consultationId,
+                        providerName: consultation.provider.fullName,
+                        message: 'Provider did not answer the call'
+                      });
+                    }
+                  });
+                }
+
+                // Send notification to provider about missed call
+                if (providerSockets) {
+                  providerSockets.forEach(socketId => {
+                    const providerSocket = io.sockets.sockets.get(socketId);
+                    if (providerSocket) {
+                      providerSocket.emit('consultation:missed-call', {
+                        consultationId: data.consultationId,
+                        clientName: consultation.user?.fullName || 'Guest User',
+                        message: 'You missed a call'
+                      });
+                    }
+                  });
+                }
+
+                logger.info(`Call timeout: Consultation ${data.consultationId} marked as no_answer`);
+              }
+            } catch (error) {
+              console.error('Error handling call timeout:', error);
+            }
+          }, 60000); // 1 minute timeout
 
           logger.info(`Ring notification sent to provider ${consultation.provider._id} for consultation ${data.consultationId}`);
         }
@@ -338,12 +399,22 @@ const initializeSocket = (io) => {
           }
 
           // Mark provider as no longer busy
-          if (consultation.type === 'audio' || consultation.type === 'video') {
-            await User.findByIdAndUpdate(consultation.provider, {
-              isInCall: false,
-              currentConsultationId: null,
-            });
-          }
+          // Check if provider has any other ongoing consultations
+          const ongoingConsultations = await Consultation.countDocuments({
+            provider: consultation.provider,
+            status: 'ongoing',
+            _id: { $ne: consultation._id } // Exclude current consultation
+          });
+          
+          const newStatus = ongoingConsultations > 0 ? 'busy' : 'available';
+          
+          await User.findByIdAndUpdate(consultation.provider, {
+            consultationStatus: newStatus,
+            isInCall: ongoingConsultations > 0,
+            currentConsultationId: ongoingConsultations > 0 ? consultation.currentConsultationId : null,
+          });
+          
+          console.log(`📱 Provider ${consultation.provider} status updated to: ${newStatus} (${ongoingConsultations} ongoing consultations)`)
 
           await consultation.save();
           console.log(`Consultation ${data.consultationId} marked as completed`);

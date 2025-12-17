@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const WithdrawalSchema = new mongoose.Schema(
   {
-    user: {
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
@@ -10,8 +10,9 @@ const WithdrawalSchema = new mongoose.Schema(
     amount: {
       type: Number,
       required: true,
+      min: 500, // Minimum withdrawal amount
     },
-    fee: {
+    processingFee: {
       type: Number,
       default: 0,
     },
@@ -39,25 +40,34 @@ const WithdrawalSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected', 'completed'],
+      enum: ['pending', 'processing', 'processed', 'failed', 'cancelled'],
       default: 'pending',
     },
-    approvedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+    transactionId: {
+      type: String,
+      unique: true,
+      sparse: true,
     },
-    approvedAt: Date,
-    rejectionReason: String,
-    transactionId: String,
+    processedAt: Date,
+    failureReason: String,
+    notes: String,
   },
   {
     timestamps: true,
   }
 );
 
-// Indexes
-WithdrawalSchema.index({ user: 1, status: 1 });
-WithdrawalSchema.index({ createdAt: -1 });
+// Index for better query performance
+WithdrawalSchema.index({ userId: 1, createdAt: -1 });
+WithdrawalSchema.index({ status: 1 });
+WithdrawalSchema.index({ transactionId: 1 });
+
+// Generate unique transaction ID
+WithdrawalSchema.pre('save', function (next) {
+  if (!this.transactionId && this.status === 'processing') {
+    this.transactionId = `WD${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+  }
+  next();
+});
 
 module.exports = mongoose.model('Withdrawal', WithdrawalSchema);
-

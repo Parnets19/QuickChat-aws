@@ -91,7 +91,10 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api', routes);
 
-app.use('/',(req,res)=> res.status(200).json({message:"Welcome to Quick Chat api"}))
+// Welcome route (only for root path)
+app.get('/', (req, res) => {
+  res.status(200).json({message:"Welcome to Quick Chat api"});
+});
 
 // Error handling middleware
 app.use(errorHandler);

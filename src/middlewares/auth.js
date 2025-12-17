@@ -22,11 +22,6 @@ const protect = async (req, res, next) => {
     try {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log("🔍 AUTH DEBUG - Token decoded:", {
-        id: decoded.id,
-        isGuest: decoded.isGuest,
-        isServiceProvider: decoded.isServiceProvider,
-      });
 
       // Handle guest users
       if (decoded.isGuest) {
@@ -44,19 +39,11 @@ const protect = async (req, res, next) => {
       }
 
       // Get regular user from token
-      console.log("🔍 AUTH DEBUG - Looking up user:", decoded.id);
       const user = await User.findById(decoded.id);
 
       if (!user) {
-        console.log("❌ AUTH DEBUG - User not found:", decoded.id);
         return next(new AppError("User not found", 404));
       }
-
-      console.log("✅ AUTH DEBUG - User found:", {
-        id: user._id,
-        name: user.fullName,
-        isServiceProvider: user.isServiceProvider,
-      });
 
       if (user.status !== "active") {
         return next(new AppError("Your account has been suspended", 403));

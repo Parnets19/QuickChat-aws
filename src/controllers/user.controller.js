@@ -379,6 +379,18 @@ const getDashboard = async (req, res, next) => {
       status: "completed",
     });
 
+    // Get provider-specific consultation count (only where user was the provider)
+    const providerConsultationCount = await Consultation.countDocuments({
+      provider: userId,
+      status: "completed",
+    });
+
+    // Get client-specific consultation count (only where user was the client)
+    const clientConsultationCount = await Consultation.countDocuments({
+      user: userId,
+      status: "completed",
+    });
+
     const pendingConsultations = await Consultation.countDocuments({
       $or: [{ user: userId }, { provider: userId }],
       status: { $in: ["pending", "ongoing"] },
@@ -493,6 +505,8 @@ const getDashboard = async (req, res, next) => {
         recentTransactions,
         stats: {
           totalConsultations,
+          providerConsultationCount,
+          clientConsultationCount,
           totalEarnings: req.user?.earnings || 0,
           walletBalance: req.user?.wallet || 0,
           notifications: notificationsCount,
@@ -713,6 +727,85 @@ const searchProviders = async (req, res, next) => {
   }
 };
 
+// @desc    Update consultation status (manual offline/online toggle)
+// @route   PUT /api/users/consultation-status
+// @access  Private (Service Provider only)
+const updateConsultationStatus = async (req, res, next) => {
+  try {
+    const { status } = req.body;
+
+    if (!status || !['available', 'offline'].includes(status)) {
+      return next(new AppError('Invalid status. Must be "available" or "offline"', 400));
+    }
+
+    // Check if provider is currently in an active consultation
+    const activeConsultation = await Consultation.findOne({
+      provider: req.user._id,
+      status: { $in: ['ongoing', 'pending'] }
+    });
+
+    // Debug logging
+    console.log('🔍 STATUS DEBUG - Provider ID:', req.user._id);
+    console.log('🔍 STATUS DEBUG - Active consultation found:', activeConsultation);
+    if (activeConsultation) {
+      console.log('🔍 STATUS DEBUG - Consultation details:', {
+        id: activeConsultation._id,
+        status: activeConsultation.status,
+        createdAt: activeConsultation.createdAt,
+        startTime: activeConsultation.startTime,
+        endTime: activeConsultation.endTime
+      });
+    }
+
+    // Prevent going offline during active consultations
+    if (status === 'offline' && activeConsultation) {
+      // Check if the consultation is really active (has a recent startTime or is truly ongoing)
+      const now = new Date();
+      const consultationAge = now - new Date(activeConsultation.createdAt);
+      const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+      
+      // If consultation is older than 24 hours and still pending/ongoing, mark it as cancelled
+      if (consultationAge > maxAge) {
+        console.log('🧹 CLEANUP: Found old stuck consultation, marking as cancelled:', activeConsultation._id);
+        activeConsultation.status = 'cancelled';
+        activeConsultation.endTime = now;
+        await activeConsultation.save();
+        
+        // Continue with status update since we cleaned up the stuck consultation
+      } else {
+        return next(new AppError('Cannot go offline during an active consultation', 400));
+      }
+    }
+
+    // Update the consultation status
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { consultationStatus: status },
+      { new: true }
+    ).select('consultationStatus fullName');
+
+    // Emit status change to all connected clients via socket
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('providerStatusChanged', {
+        providerId: req.user._id,
+        status: status,
+        providerName: user.fullName
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Status updated to ${status}`,
+      data: {
+        consultationStatus: user.consultationStatus
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateProfile,
@@ -724,4 +817,5 @@ module.exports = {
   getDashboard,
   updateBankDetails,
   searchProviders,
+  updateConsultationStatus,
 };
