@@ -252,9 +252,17 @@ const initializeSocket = (io) => {
     // Handle chat message
     socket.on('consultation:message', async (data) => {
       try {
+        console.log('📨 BACKEND: Received message data:', data);
+        console.log('📨 BACKEND: Message type:', data.type);
+        console.log('📨 BACKEND: Has file:', !!data.file);
+        if (data.file) {
+          console.log('📨 BACKEND: File details:', data.file);
+        }
+
         const consultation = await Consultation.findById(data.consultationId);
 
         if (!consultation) {
+          console.log('❌ BACKEND: Consultation not found:', data.consultationId);
           socket.emit('error', { message: 'Consultation not found' });
           return;
         }
@@ -264,6 +272,7 @@ const initializeSocket = (io) => {
         const consultationProviderId = consultation.provider.toString();
         
         if (consultationUserId !== userId && consultationProviderId !== userId) {
+          console.log('❌ BACKEND: Unauthorized user:', userId);
           socket.emit('error', { message: 'Unauthorized' });
           return;
         }
@@ -276,13 +285,19 @@ const initializeSocket = (io) => {
           file: data.file || null, // Include file data for file messages
         };
 
+        console.log('📨 BACKEND: Saving message data:', messageData);
+
         consultation.messages.push(messageData);
         await consultation.save();
 
+        console.log('📨 BACKEND: Broadcasting message to room:', `consultation:${data.consultationId}`);
+        console.log('📨 BACKEND: Message data being broadcast:', messageData);
+
         io.to(`consultation:${data.consultationId}`).emit('consultation:message', messageData);
 
-        logger.info(`Message sent in consultation ${data.consultationId}`);
+        logger.info(`Message sent in consultation ${data.consultationId} - Type: ${messageData.type}, Has file: ${!!messageData.file}`);
       } catch (error) {
+        console.error('❌ BACKEND: Error handling message:', error);
         socket.emit('error', { message: 'Failed to send message' });
       }
     });
