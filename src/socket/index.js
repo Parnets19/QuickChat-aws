@@ -392,6 +392,11 @@ const initializeSocket = (io) => {
         console.log(`📞 WebRTC offer received from ${userId} for consultation ${data.consultationId}`);
         console.log(`📊 Room info: ${participantCount} participants, socket IDs: ${roomMembers.join(', ')}`);
         
+        // Log if this is an upgrade offer
+        if (data.isUpgrade) {
+          console.log(`📹 BACKEND: Video upgrade offer detected from ${userId}`);
+        }
+        
         if (participantCount < 2) {
           console.log(`⚠️ Cannot forward offer - only ${participantCount} participant(s) in room`);
           if (callback) callback({ success: false, error: 'No other participant connected' });
@@ -406,6 +411,7 @@ const initializeSocket = (io) => {
           offer: data.offer,
           from: userId,
           consultationId: data.consultationId, // Include consultationId for verification
+          isUpgrade: data.isUpgrade, // Forward the upgrade flag
         });
         
         console.log(`✅ WebRTC offer forwarded to room consultation:${data.consultationId} (${participantCount} total, ${recipientSockets.length} recipients)`);
@@ -427,10 +433,16 @@ const initializeSocket = (io) => {
         console.log(`📞 WebRTC answer received from ${userId} for consultation ${data.consultationId}`);
         console.log(`📊 Room info: ${participantCount} participants, broadcasting to ${recipientSockets.length} recipient(s)`);
         
+        // Log if this is an upgrade answer
+        if (data.isUpgrade) {
+          console.log(`📹 BACKEND: Video upgrade answer detected from ${userId}`);
+        }
+        
         socket.to(`consultation:${data.consultationId}`).emit('webrtc:answer', {
           answer: data.answer,
           from: userId,
           consultationId: data.consultationId, // Include consultationId for verification
+          isUpgrade: data.isUpgrade, // Forward the upgrade flag
         });
         
         console.log(`✅ WebRTC answer forwarded to room consultation:${data.consultationId} (${recipientSockets.length} recipient(s))`);
@@ -454,6 +466,24 @@ const initializeSocket = (io) => {
       } catch (error) {
         console.error('Error handling ICE candidate:', error);
         if (callback) callback({ success: false, error: error.message });
+      }
+    });
+
+    // Handle video upgrade notification
+    socket.on('consultation:upgrade-to-video', (data) => {
+      try {
+        console.log(`📹 User ${userId} is upgrading consultation ${data.consultationId} to video`);
+        
+        // Broadcast upgrade notification to other participants
+        socket.to(`consultation:${data.consultationId}`).emit('consultation:upgrade-to-video', {
+          from: userId,
+          consultationId: data.consultationId,
+        });
+        
+        logger.info(`Video upgrade initiated by user ${userId} in consultation ${data.consultationId}`);
+      } catch (error) {
+        console.error('Error handling video upgrade:', error);
+        socket.emit('error', { message: 'Failed to process video upgrade' });
       }
     });
 
