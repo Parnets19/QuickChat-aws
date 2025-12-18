@@ -1,4 +1,6 @@
 const User = require('./User.model');
+const Admin = require('./Admin.model');
+const Guest = require('./Guest.model');
 const Consultation = require('./Consultation.model');
 const Transaction = require('./Transaction.model');
 const Subscription = require('./Subscription.model');
@@ -15,6 +17,8 @@ const WithdrawalRequest = require('./Withdrawal.model');
 
 module.exports = {
   User,
+  Admin,
+  Guest,
   Consultation,
   Transaction,
   Subscription,

@@ -186,6 +186,27 @@ const UserSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Provider verification status
+    providerVerificationStatus: {
+      type: String,
+      enum: ['pending', 'verified', 'rejected'],
+      default: 'pending',
+    },
+    verificationNotes: {
+      type: String,
+      default: '',
+    },
+    verifiedAt: {
+      type: Date,
+    },
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+    },
+    isAdmin: {
+      type: Boolean,
+      default: false,
+    },
     isProfileHidden: {
       type: Boolean,
       default: false,

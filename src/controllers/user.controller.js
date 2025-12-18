@@ -80,17 +80,27 @@ const uploadProfilePhoto = async (req, res, next) => {
       return next(new AppError("Please upload a file", 400));
     }
 
+    console.log('🔍 Upload Debug - File path:', req.file.path);
+    console.log('🔍 Upload Debug - File name:', req.file.filename);
+    console.log('🔍 Upload Debug - Original name:', req.file.originalname);
+
     const result = await uploadToCloudinary(req.file.path, "skillhub/profiles");
+
+    console.log('🔍 Upload Debug - Result URL:', result.url);
 
     if (!result) {
       return next(new AppError("File upload failed", 500));
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user?._id,
-      { profilePhoto: result.url },
-      { new: true }
-    );
+    // If user is authenticated, update their profile
+    if (req.user?._id) {
+      const user = await User.findByIdAndUpdate(
+        req.user._id,
+        { profilePhoto: result.url },
+        { new: true }
+      );
+      console.log('🔍 Upload Debug - User updated:', user.fullName, 'Photo:', user.profilePhoto);
+    }
 
     res.status(200).json({
       success: true,
@@ -116,9 +126,9 @@ const uploadAadhar = async (req, res, next) => {
       return next(new AppError("Aadhar number is required", 400));
     }
 
-    if (!files || !files.front || !files.back) {
+    if (!files || !files.front) {
       return next(
-        new AppError("Please upload both front and back of Aadhar card", 400)
+        new AppError("Please upload Aadhar card document", 400)
       );
     }
 
@@ -126,33 +136,91 @@ const uploadAadhar = async (req, res, next) => {
       files.front[0].path,
       "skillhub/aadhar"
     );
-    const backResult = await uploadToCloudinary(
-      files.back[0].path,
-      "skillhub/aadhar"
-    );
+    
+    let backResult = null;
+    if (files.back && files.back[0]) {
+      backResult = await uploadToCloudinary(
+        files.back[0].path,
+        "skillhub/aadhar"
+      );
+    }
 
-    if (!frontResult || !backResult) {
+    if (!frontResult) {
       return next(new AppError("File upload failed", 500));
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user?._id,
-      {
-        aadharNumber,
-        aadharDocuments: {
-          front: frontResult.url,
-          back: backResult.url,
+    // If user is authenticated, update their profile
+    let user = null;
+    if (req.user?._id) {
+      user = await User.findByIdAndUpdate(
+        req.user._id,
+        {
+          aadharNumber,
+          aadharDocuments: {
+            front: frontResult.url,
+            back: backResult ? backResult.url : '',
+          },
         },
-      },
-      { new: true }
-    );
+        { new: true }
+      );
+    }
 
     res.status(200).json({
       success: true,
       message: "Aadhar documents uploaded successfully. Verification pending.",
       data: {
         aadharNumber,
-        aadharDocuments: user?.aadharDocuments,
+        aadharDocuments: user?.aadharDocuments || {
+          front: frontResult.url,
+          back: backResult ? backResult.url : '',
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Upload portfolio media
+// @route   POST /api/users/portfolio
+// @access  Private
+const uploadPortfolio = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return next(new AppError("Please upload a file", 400));
+    }
+
+    const result = await uploadToCloudinary(req.file.path, "skillhub/portfolio");
+
+    if (!result) {
+      return next(new AppError("File upload failed", 500));
+    }
+
+    // If user is authenticated, add to their portfolio
+    if (req.user?._id) {
+      const user = await User.findById(req.user._id);
+      
+      if (!user.portfolioMedia) {
+        user.portfolioMedia = [];
+      }
+      
+      // Determine media type based on file extension
+      const fileExtension = req.file.originalname.split('.').pop().toLowerCase();
+      const mediaType = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExtension) ? 'image' : 'video';
+      
+      user.portfolioMedia.push({
+        type: mediaType,
+        url: result.url
+      });
+      
+      await user.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Portfolio media uploaded successfully",
+      data: {
+        url: result.url,
       },
     });
   } catch (error) {
@@ -193,6 +261,7 @@ const becomeProvider = async (req, res, next) => {
         consultationModes,
         rates,
         availability,
+        providerVerificationStatus: 'pending', // Set to pending when becoming provider
       },
       { new: true }
     );
@@ -633,6 +702,7 @@ const searchProviders = async (req, res, next) => {
       isServiceProvider: true,
       isProfileHidden: false,
       status: "active",
+      providerVerificationStatus: "verified", // Only show verified providers
     };
 
     // Exclude current user from results if authenticated
@@ -727,6 +797,263 @@ const searchProviders = async (req, res, next) => {
   }
 };
 
+// @desc    Get user documents
+// @route   GET /api/users/documents
+// @access  Private
+const getUserDocuments = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).select(
+      'profilePhoto aadharDocuments portfolioMedia aadharNumber isAadharVerified'
+    );
+
+    if (!user) {
+      return next(new AppError('User not found', 404));
+    }
+
+    // Helper function to ensure full URL
+    const ensureFullUrl = (url) => {
+      if (!url) return null;
+      if (url.startsWith('http')) return url;
+      const baseUrl = process.env.BASE_URL || 'http://localhost:5001';
+      return url.startsWith('/') ? `${baseUrl}${url}` : `${baseUrl}/${url}`;
+    };
+
+    // Format documents for frontend
+    const documents = [];
+    const currentDate = new Date().toISOString();
+
+    // Helper function to get file size
+    const getFileSize = async (filePath) => {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        
+        // Extract filename from URL - handle both full URLs and relative paths
+        let fileName = filePath;
+        
+        // If it's a full URL, extract the path part
+        if (filePath.includes('http://') || filePath.includes('https://')) {
+          const url = new URL(filePath);
+          fileName = url.pathname; // Gets /uploads/photo-123.png
+        }
+        
+        // Remove leading slash if present
+        if (fileName.startsWith('/')) {
+          fileName = fileName.substring(1);
+        }
+        
+        // Handle Windows backslashes
+        fileName = fileName.replace(/\\/g, '/');
+        
+        // If the path already includes 'uploads/', use it as is
+        // Otherwise, prepend 'uploads/'
+        let fullPath;
+        if (fileName.startsWith('uploads/')) {
+          fullPath = fileName;
+        } else {
+          fullPath = path.join('uploads', fileName);
+        }
+        
+        console.log(`🔍 File size check - Original: ${filePath}, Resolved: ${fullPath}`);
+        
+        if (fs.existsSync(fullPath)) {
+          const stats = fs.statSync(fullPath);
+          const fileSizeInBytes = stats.size;
+          
+          // Convert to human readable format
+          if (fileSizeInBytes < 1024) {
+            return `${fileSizeInBytes} B`;
+          } else if (fileSizeInBytes < 1024 * 1024) {
+            return `${(fileSizeInBytes / 1024).toFixed(1)} KB`;
+          } else {
+            return `${(fileSizeInBytes / (1024 * 1024)).toFixed(1)} MB`;
+          }
+        } else {
+          console.log(`⚠️ File not found: ${fullPath}`);
+        }
+        return null;
+      } catch (error) {
+        console.error(`❌ Error getting file size:`, error.message);
+        return null;
+      }
+    };
+
+    // Profile Photo
+    if (user.profilePhoto) {
+      const fileSize = await getFileSize(user.profilePhoto);
+      documents.push({
+        id: 'profile-photo',
+        name: 'Profile Photo',
+        type: 'profile',
+        url: ensureFullUrl(user.profilePhoto),
+        size: fileSize,
+        date: user.updatedAt || user.createdAt || currentDate,
+        status: 'verified'
+      });
+    }
+
+    // Aadhar Documents
+    if (user.aadharDocuments?.front) {
+      const fileSize = await getFileSize(user.aadharDocuments.front);
+      documents.push({
+        id: 'aadhar-front',
+        name: 'Aadhar Card (Front)',
+        type: 'id',
+        url: ensureFullUrl(user.aadharDocuments.front),
+        size: fileSize,
+        date: user.updatedAt || user.createdAt || currentDate,
+        status: user.isAadharVerified ? 'verified' : 'pending',
+        aadharNumber: user.aadharNumber
+      });
+    }
+
+    if (user.aadharDocuments?.back) {
+      const fileSize = await getFileSize(user.aadharDocuments.back);
+      documents.push({
+        id: 'aadhar-back',
+        name: 'Aadhar Card (Back)',
+        type: 'id',
+        url: ensureFullUrl(user.aadharDocuments.back),
+        size: fileSize,
+        date: user.updatedAt || user.createdAt || currentDate,
+        status: user.isAadharVerified ? 'verified' : 'pending',
+        aadharNumber: user.aadharNumber
+      });
+    }
+
+    // Portfolio Media
+    if (user.portfolioMedia && user.portfolioMedia.length > 0) {
+      for (let index = 0; index < user.portfolioMedia.length; index++) {
+        const media = user.portfolioMedia[index];
+        const fileSize = await getFileSize(media.url);
+        documents.push({
+          id: `portfolio-${index}`,
+          name: `Portfolio ${media.type === 'image' ? 'Image' : 'Video'} ${index + 1}`,
+          type: 'portfolio',
+          url: ensureFullUrl(media.url),
+          size: fileSize,
+          date: user.updatedAt || user.createdAt || currentDate,
+          status: 'verified',
+          mediaType: media.type
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        documents,
+        summary: {
+          total: documents.length,
+          verified: documents.filter(d => d.status === 'verified').length,
+          pending: documents.filter(d => d.status === 'pending').length,
+          rejected: documents.filter(d => d.status === 'rejected').length
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Update document (re-upload)
+// @route   PUT /api/users/documents/:documentId
+// @access  Private
+const updateDocument = async (req, res, next) => {
+  try {
+    const { documentId } = req.params;
+    const { documentType } = req.body;
+
+    if (!req.file) {
+      return next(new AppError('Please upload a file', 400));
+    }
+
+    const result = await uploadToCloudinary(req.file.path, `skillhub/${documentType}`);
+
+    if (!result) {
+      return next(new AppError('File upload failed', 500));
+    }
+
+    const user = await User.findById(req.user._id);
+    
+    // Update the appropriate document based on documentId
+    if (documentId === 'profile-photo') {
+      user.profilePhoto = result.url;
+    } else if (documentId === 'aadhar-front') {
+      if (!user.aadharDocuments) user.aadharDocuments = {};
+      user.aadharDocuments.front = result.url;
+      user.isAadharVerified = false; // Reset verification status
+    } else if (documentId === 'aadhar-back') {
+      if (!user.aadharDocuments) user.aadharDocuments = {};
+      user.aadharDocuments.back = result.url;
+      user.isAadharVerified = false; // Reset verification status
+    } else if (documentId.startsWith('portfolio-')) {
+      const index = parseInt(documentId.split('-')[1]);
+      if (user.portfolioMedia && user.portfolioMedia[index]) {
+        user.portfolioMedia[index].url = result.url;
+      }
+    } else {
+      return next(new AppError('Invalid document ID', 400));
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Document updated successfully',
+      data: {
+        documentId,
+        url: result.url
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Delete document
+// @route   DELETE /api/users/documents/:documentId
+// @access  Private
+const deleteDocument = async (req, res, next) => {
+  try {
+    const { documentId } = req.params;
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return next(new AppError('User not found', 404));
+    }
+
+    // Delete the appropriate document based on documentId
+    if (documentId === 'profile-photo') {
+      user.profilePhoto = null;
+    } else if (documentId === 'aadhar-front') {
+      if (user.aadharDocuments) {
+        user.aadharDocuments.front = null;
+      }
+    } else if (documentId === 'aadhar-back') {
+      if (user.aadharDocuments) {
+        user.aadharDocuments.back = null;
+      }
+    } else if (documentId.startsWith('portfolio-')) {
+      const index = parseInt(documentId.split('-')[1]);
+      if (user.portfolioMedia && user.portfolioMedia[index]) {
+        user.portfolioMedia.splice(index, 1);
+      }
+    } else {
+      return next(new AppError('Invalid document ID', 400));
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Document deleted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Update consultation status (manual offline/online toggle)
 // @route   PUT /api/users/consultation-status
 // @access  Private (Service Provider only)
@@ -806,16 +1133,54 @@ const updateConsultationStatus = async (req, res, next) => {
   }
 };
 
+// @desc    Get provider verification status
+// @route   GET /api/users/verification-status
+// @access  Private (Service Provider only)
+const getVerificationStatus = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id)
+      .select('providerVerificationStatus verificationNotes verifiedAt verifiedBy isServiceProvider')
+      .populate('verifiedBy', 'fullName email');
+
+    if (!user) {
+      return next(new AppError('User not found', 404));
+    }
+
+    if (!user.isServiceProvider) {
+      return next(new AppError('Not a service provider', 403));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        status: user.providerVerificationStatus,
+        notes: user.verificationNotes,
+        verifiedAt: user.verifiedAt,
+        verifiedBy: user.verifiedBy,
+        isVerified: user.providerVerificationStatus === 'verified',
+        canAccessFeatures: user.providerVerificationStatus === 'verified'
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateProfile,
   uploadProfilePhoto,
   uploadAadhar,
+  uploadPortfolio,
   becomeProvider,
   updateProviderSettings,
   toggleProfileVisibility,
   getDashboard,
   updateBankDetails,
   searchProviders,
+  getUserDocuments,
+  updateDocument,
+  deleteDocument,
   updateConsultationStatus,
+  getVerificationStatus,
 };

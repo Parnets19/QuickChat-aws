@@ -88,6 +88,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Static file serving for uploads
+app.use('/uploads', express.static('uploads'));
+
 // API Routes
 app.use('/api', routes);
 

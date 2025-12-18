@@ -1,10 +1,19 @@
 const jwt = require("jsonwebtoken");
 const { User } = require("../models");
+const Admin = require("../models/Admin.model");
 const { AppError } = require("./errorHandler");
 
 const protect = async (req, res, next) => {
   try {
     let token;
+
+    // Debug logging
+    console.log('🔐 AUTH DEBUG - Headers:', {
+      authorization: req.headers.authorization,
+      userAgent: req.headers['user-agent'],
+      url: req.url,
+      method: req.method
+    });
 
     // Check for token in headers
     if (
@@ -12,16 +21,47 @@ const protect = async (req, res, next) => {
       req.headers.authorization.startsWith("Bearer")
     ) {
       token = req.headers.authorization.split(" ")[1];
+      console.log('🔐 AUTH DEBUG - Token found, length:', token?.length);
     }
 
     // Make sure token exists
     if (!token) {
+      console.log('🔐 AUTH DEBUG - No token found');
       return next(new AppError("Not authorized to access this route", 401));
     }
 
     try {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log('🔐 AUTH DEBUG - Token decoded:', { 
+        id: decoded.id, 
+        isGuest: decoded.isGuest, 
+        isAdmin: decoded.isAdmin,
+        email: decoded.email 
+      });
+
+      // Handle admin users
+      if (decoded.isAdmin) {
+        const admin = await Admin.findById(decoded.id);
+        
+        if (!admin) {
+          console.log('🔐 AUTH DEBUG - Admin not found in database:', decoded.id);
+          return next(new AppError("Admin not found", 404));
+        }
+
+        if (!admin.isActive) {
+          console.log('🔐 AUTH DEBUG - Admin account deactivated:', admin.email);
+          return next(new AppError("Admin account is deactivated", 403));
+        }
+
+        console.log('🔐 AUTH DEBUG - Admin authenticated:', { email: admin.email, id: admin._id, role: admin.role });
+        req.user = {
+          ...admin.toObject(),
+          isAdmin: true,
+          id: admin._id
+        };
+        return next();
+      }
 
       // Handle guest users
       if (decoded.isGuest) {
@@ -35,6 +75,7 @@ const protect = async (req, res, next) => {
           isServiceProvider: false,
           status: "active",
         };
+        console.log('🔐 AUTH DEBUG - Guest user authenticated');
         return next();
       }
 
@@ -42,16 +83,20 @@ const protect = async (req, res, next) => {
       const user = await User.findById(decoded.id);
 
       if (!user) {
+        console.log('🔐 AUTH DEBUG - User not found in database:', decoded.id);
         return next(new AppError("User not found", 404));
       }
 
       if (user.status !== "active") {
+        console.log('🔐 AUTH DEBUG - User account suspended:', user.email);
         return next(new AppError("Your account has been suspended", 403));
       }
 
+      console.log('🔐 AUTH DEBUG - User authenticated:', { email: user.email, id: user._id });
       req.user = user;
       next();
     } catch (err) {
+      console.log('🔐 AUTH DEBUG - Token verification failed:', err.message);
       return next(new AppError("Not authorized to access this route", 401));
     }
   } catch (error) {
@@ -96,9 +141,87 @@ const isAadharVerified = async (req, res, next) => {
   next();
 };
 
+// Check if user is admin
+const adminOnly = async (req, res, next) => {
+  console.log('🔧 ADMIN CHECK - User:', {
+    email: req.user?.email,
+    id: req.user?._id?.toString() || req.user?.id,
+    isAdmin: req.user?.isAdmin,
+    role: req.user?.role
+  });
+
+  // Check if user is authenticated admin
+  if (!req.user?.isAdmin) {
+    console.log('🔧 ADMIN CHECK - Access denied: Not an admin');
+    return next(new AppError("Admin access required", 403));
+  }
+
+  console.log('🔧 ADMIN CHECK - Access granted');
+  next();
+};
+
+// Guest-only authentication middleware
+const guestAuth = async (req, res, next) => {
+  try {
+    let token;
+
+    // Check for token in headers
+    if (
+      req.headers.authorization &&
+      req.headers.authorization.startsWith("Bearer")
+    ) {
+      token = req.headers.authorization.split(" ")[1];
+    }
+
+    if (!token) {
+      return next(new AppError("Not authorized to access this route", 401));
+    }
+
+    try {
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // Only allow guest users
+      if (!decoded.isGuest) {
+        return next(new AppError("Guest access required", 403));
+      }
+
+      // Get guest from database
+      const { Guest } = require("../models");
+      const guest = await Guest.findById(decoded.id);
+
+      if (!guest) {
+        return next(new AppError("Guest not found", 404));
+      }
+
+      if (guest.status !== "active") {
+        return next(new AppError("Your account has been suspended", 403));
+      }
+
+      // Update last active
+      guest.lastActive = new Date();
+      await guest.save();
+
+      req.user = {
+        ...guest.toObject(),
+        id: guest._id,
+        isGuest: true
+      };
+      
+      next();
+    } catch (err) {
+      return next(new AppError("Not authorized to access this route", 401));
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   protect,
   authorize,
   isServiceProvider,
   isAadharVerified,
+  adminOnly,
+  guestAuth,
 };

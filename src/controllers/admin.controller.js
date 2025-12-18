@@ -1,476 +1,636 @@
-const { User, Consultation, Transaction, Review, Withdrawal, Category, Banner, Settings } = require('../models');
-const { AppError } = require('../middlewares/errorHandler');
-const mongoose = require('mongoose');
+const User = require('../models/User.model');
+const Consultation = require('../models/Consultation.model');
 
-// @desc    Get admin dashboard stats
-// @route   GET /api/admin/dashboard
-// @access  Private/Admin
-const getDashboardStats = async (req, res, next) => {
+// Get all providers with filtering and pagination
+const getAllProviders = async (req, res) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const {
+      page = 1,
+      limit = 20,
+      search = '',
+      status = 'all',
+      role = 'all',
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
 
-    // Total users
-    const totalUsers = await User.countDocuments();
-    const newUsersToday = await User.countDocuments({ createdAt: { $gte: today } });
+    // Build filter query
+    const filter = {};
+    
+    // Role filter
+    if (role === 'provider') {
+      filter.isServiceProvider = true;
+    } else if (role === 'user') {
+      filter.isServiceProvider = false;
+    }
 
-    // Total providers
-    const totalProviders = await User.countDocuments({ isServiceProvider: true });
+    // Status filter
+    if (status !== 'all') {
+      filter.status = status;
+    }
 
-    // Consultations
-    const totalConsultations = await Consultation.countDocuments({ status: 'completed' });
-    const consultationsToday = await Consultation.countDocuments({
-      status: 'completed',
-      endTime: { $gte: today },
+    // Search filter
+    if (search) {
+      filter.$or = [
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { mobile: { $regex: search, $options: 'i' } },
+        { profession: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Build sort object
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Execute query with pagination
+    const skip = (page - 1) * limit;
+    const providers = await User.find(filter)
+      .select('-password -fcmTokens -socialLogins')
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+
+    // Get total count for pagination
+    const total = await User.countDocuments(filter);
+
+    // Enhance provider data with consultation counts
+    const enhancedProviders = await Promise.all(
+      providers.map(async (provider) => {
+        const consultationCount = await Consultation.countDocuments({
+          providerId: provider._id
+        });
+
+        return {
+          ...provider,
+          consultationCount,
+          totalEarnings: provider.earnings || 0,
+          walletBalance: provider.wallet || 0,
+          lastActiveFormatted: provider.lastActive ? new Date(provider.lastActive).toLocaleDateString() : 'Never',
+          joinedDate: provider.createdAt ? new Date(provider.createdAt).toLocaleDateString() : 'Unknown'
+        };
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      data: enhancedProviders,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        itemsPerPage: parseInt(limit)
+      }
     });
+  } catch (error) {
+    console.error('Error fetching providers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch providers',
+      error: error.message
+    });
+  }
+};
 
-    // Revenue
-    const revenueData = await Transaction.aggregate([
-      { $match: { category: 'consultation', status: 'completed' } },
+// Get specific provider by ID
+const getProviderById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const provider = await User.findById(id)
+      .select('-password -fcmTokens')
+      .lean();
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    // Get consultation statistics
+    const consultationStats = await Consultation.aggregate([
+      { $match: { providerId: provider._id } },
       {
         $group: {
           _id: null,
-          total: { $sum: '$amount' },
-        },
-      },
+          totalConsultations: { $sum: 1 },
+          completedConsultations: {
+            $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+          },
+          totalEarnings: { $sum: '$providerEarnings' }
+        }
+      }
     ]);
-    const totalRevenue = revenueData[0]?.total || 0;
 
-    const todayRevenueData = await Transaction.aggregate([
-      {
-        $match: {
-          category: 'consultation',
-          status: 'completed',
-          createdAt: { $gte: today },
-        },
+    const stats = consultationStats[0] || {
+      totalConsultations: 0,
+      completedConsultations: 0,
+      totalEarnings: 0
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...provider,
+        consultationStats: stats
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching provider:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch provider details',
+      error: error.message
+    });
+  }
+};
+
+// Update provider information
+const updateProvider = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    // Remove sensitive fields that shouldn't be updated via admin
+    delete updateData.password;
+    delete updateData.fcmTokens;
+    delete updateData.socialLogins;
+
+    const provider = await User.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).select('-password -fcmTokens');
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Provider updated successfully',
+      data: provider
+    });
+  } catch (error) {
+    console.error('Error updating provider:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update provider',
+      error: error.message
+    });
+  }
+};
+
+// Update provider status (active/suspended/inactive)
+const updateProviderStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!['active', 'suspended', 'inactive'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be active, suspended, or inactive'
+      });
+    }
+
+    const provider = await User.findByIdAndUpdate(
+      id,
+      { 
+        $set: { 
+          status,
+          // If suspended, also hide profile and set offline
+          ...(status === 'suspended' && {
+            isProfileHidden: true,
+            consultationStatus: 'offline',
+            isOnline: false
+          })
+        }
       },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$amount' },
-        },
-      },
+      { new: true }
+    ).select('-password -fcmTokens');
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    // TODO: Send notification to provider about status change
+    // TODO: Log admin action
+
+    res.status(200).json({
+      success: true,
+      message: `Provider status updated to ${status}`,
+      data: provider
+    });
+  } catch (error) {
+    console.error('Error updating provider status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update provider status',
+      error: error.message
+    });
+  }
+};
+
+// Toggle provider profile visibility
+const toggleProviderVisibility = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const provider = await User.findById(id);
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    // Toggle visibility
+    provider.isProfileHidden = !provider.isProfileHidden;
+    await provider.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Provider profile ${provider.isProfileHidden ? 'hidden' : 'visible'}`,
+      data: {
+        id: provider._id,
+        isProfileHidden: provider.isProfileHidden
+      }
+    });
+  } catch (error) {
+    console.error('Error toggling provider visibility:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to toggle provider visibility',
+      error: error.message
+    });
+  }
+};
+
+// Get admin dashboard statistics
+const getAdminStats = async (req, res) => {
+  try {
+    const [
+      totalUsers,
+      totalProviders,
+      activeProviders,
+      suspendedProviders,
+      totalConsultations,
+      todayConsultations
+    ] = await Promise.all([
+      User.countDocuments({ isServiceProvider: false }),
+      User.countDocuments({ isServiceProvider: true }),
+      User.countDocuments({ isServiceProvider: true, status: 'active' }),
+      User.countDocuments({ isServiceProvider: true, status: 'suspended' }),
+      Consultation.countDocuments(),
+      Consultation.countDocuments({
+        createdAt: {
+          $gte: new Date(new Date().setHours(0, 0, 0, 0))
+        }
+      })
     ]);
-    const todayRevenue = todayRevenueData[0]?.total || 0;
-
-    // Pending withdrawals
-    const pendingWithdrawals = await Withdrawal.countDocuments({ status: 'pending' });
 
     res.status(200).json({
       success: true,
       data: {
         users: {
           total: totalUsers,
-          newToday: newUsersToday,
-        },
-        providers: {
-          total: totalProviders,
+          providers: totalProviders,
+          activeProviders,
+          suspendedProviders
         },
         consultations: {
           total: totalConsultations,
-          today: consultationsToday,
-        },
-        revenue: {
-          total: totalRevenue,
-          today: todayRevenue,
-        },
-        pendingWithdrawals,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get all users
-// @route   GET /api/admin/users
-// @access  Private/Admin
-const getAllUsers = async (req, res, next) => {
-  try {
-    const { page = 1, limit = 20, role, status } = req.query;
-
-    const query = {};
-    if (role === 'provider') query.isServiceProvider = true;
-    if (status) query.status = status;
-
-    const users = await User.find(query)
-      .select('-password')
-      .sort({ createdAt: -1 })
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .limit(parseInt(limit));
-
-    const total = await User.countDocuments(query);
-
-    res.status(200).json({
-      success: true,
-      data: users,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / parseInt(limit)),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Update user status
-// @route   PUT /api/admin/users/:id/status
-// @access  Private/Admin
-const updateUserStatus = async (req, res, next) => {
-  try {
-    const { status } = req.body;
-
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-
-    if (!user) {
-      return next(new AppError('User not found', 404));
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'User status updated',
-      data: user,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Verify Aadhar
-// @route   PUT /api/admin/users/:id/verify-aadhar
-// @access  Private/Admin
-const verifyAadhar = async (req, res, next) => {
-  try {
-    const { verified } = req.body;
-
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { isAadharVerified: verified },
-      { new: true }
-    );
-
-    if (!user) {
-      return next(new AppError('User not found', 404));
-    }
-
-    res.status(200).json({
-      success: true,
-      message: `Aadhar ${verified ? 'verified' : 'unverified'}`,
-      data: user,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get all withdrawals
-// @route   GET /api/admin/withdrawals
-// @access  Private/Admin
-const getAllWithdrawals = async (req, res, next) => {
-  try {
-    const withdrawals = await Withdrawal.find()
-      .populate('user', 'fullName mobile')
-      .sort({ createdAt: -1 });
-
-    res.status(200).json({
-      success: true,
-      data: withdrawals,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Process withdrawal
-// @route   PUT /api/admin/withdrawals/:id/process
-// @access  Private/Admin
-const processWithdrawal = async (req, res, next) => {
-  try {
-    const { status, rejectionReason } = req.body;
-
-    const withdrawal = await Withdrawal.findById(req.params.id).populate('user');
-    if (!withdrawal) {
-      return next(new AppError('Withdrawal not found', 404));
-    }
-
-    withdrawal.status = status;
-    if (status === 'rejected') {
-      withdrawal.rejectionReason = rejectionReason;
-      // Refund amount to user wallet
-      const user = await User.findById(withdrawal.user);
-      if (user) {
-        user.wallet += withdrawal.amount;
-        await user.save();
+          today: todayConsultations
+        }
       }
-    } else if (status === 'completed') {
-      withdrawal.approvedAt = new Date();
-      withdrawal.transactionId = `TXN-${Date.now()}`;
-    }
-
-    await withdrawal.save();
-
-    res.status(200).json({
-      success: true,
-      message: `Withdrawal ${status}`,
-      data: withdrawal,
     });
   } catch (error) {
-    next(error);
+    console.error('Error fetching admin stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch admin statistics',
+      error: error.message
+    });
   }
 };
 
-// @desc    Get all reviews
-// @route   GET /api/admin/reviews
-// @access  Private/Admin
-const getAllReviews = async (req, res, next) => {
+// Temporary endpoint to make current user admin (for testing)
+const makeCurrentUserAdmin = async (req, res, next) => {
   try {
-    const reviews = await Review.find()
-      .populate('user', 'fullName')
-      .populate('provider', 'fullName')
-      .sort({ createdAt: -1 });
-
-    res.status(200).json({
-      success: true,
-      data: reviews,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Moderate review
-// @route   PUT /api/admin/reviews/:id/moderate
-// @access  Private/Admin
-const moderateReview = async (req, res, next) => {
-  try {
-    const { status } = req.body;
-
-    const review = await Review.findByIdAndUpdate(
-      req.params.id,
-      { status },
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { isAdmin: true },
       { new: true }
     );
 
-    if (!review) {
-      return next(new AppError('Review not found', 404));
-    }
-
     res.status(200).json({
       success: true,
-      message: `Review ${status}`,
-      data: review,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get analytics
-// @route   GET /api/admin/analytics
-// @access  Private/Admin
-const getAnalytics = async (req, res, next) => {
-  try {
-    // Monthly revenue for last 12 months
-    const monthlyRevenue = await Transaction.aggregate([
-      {
-        $match: {
-          category: 'consultation',
-          status: 'completed',
-          createdAt: { $gte: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000) }
-        }
-      },
-      {
-        $group: {
-          _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' }
-          },
-          revenue: { $sum: '$amount' },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { '_id.year': 1, '_id.month': 1 } }
-    ]);
-
-    res.status(200).json({
-      success: true,
+      message: 'User is now an admin',
       data: {
-        monthlyRevenue,
-      },
+        id: user._id,
+        email: user.email,
+        isAdmin: user.isAdmin
+      }
     });
   } catch (error) {
-    next(error);
+    console.error('Error making user admin:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to make user admin',
+      error: error.message
+    });
   }
 };
 
-// @desc    Get monetization overview
-// @route   GET /api/admin/monetization
-// @access  Private/Admin
-const getMonetizationOverview = async (req, res, next) => {
+// Create admin user if it doesn't exist
+const createAdminUser = async (req, res, next) => {
   try {
-    const { startDate, endDate } = req.query;
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
 
-    const dateFilter = {};
-    if (startDate || endDate) {
-      dateFilter.createdAt = {};
-      if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
-      if (endDate) dateFilter.createdAt.$lte = new Date(endDate);
+    if (!adminEmail || !adminPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin credentials not configured in environment variables'
+      });
     }
 
-    // Commission revenue from consultations
-    const commissionRevenue = await Transaction.aggregate([
-      {
-        $match: {
-          category: 'consultation',
-          status: 'completed',
-          ...dateFilter,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$amount' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    // Check if admin user already exists
+    let adminUser = await User.findOne({ email: adminEmail });
 
-    // Subscription revenue
-    const subscriptionRevenue = await Transaction.aggregate([
-      {
-        $match: {
-          category: 'subscription',
-          status: 'completed',
-          ...dateFilter,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$amount' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    if (adminUser) {
+      // Update existing user to be admin
+      adminUser.isAdmin = true;
+      adminUser.isServiceProvider = true; // Make admin also a service provider for testing
+      await adminUser.save();
 
-    // Wallet recharge fees
-    const walletRevenue = await Transaction.aggregate([
-      {
-        $match: {
-          category: 'wallet_recharge',
-          status: 'completed',
-          ...dateFilter,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$amount' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+      return res.status(200).json({
+        success: true,
+        message: 'Admin user already exists and has been updated',
+        data: {
+          id: adminUser._id,
+          email: adminUser.email,
+          isAdmin: adminUser.isAdmin
+        }
+      });
+    }
 
-    // Get settings for commission rates
-    const commissionSetting = await Settings.findOne({ key: 'platformCommission' });
-    const walletFeeSetting = await Settings.findOne({ key: 'walletRechargeFee' });
+    // Create new admin user
+    adminUser = new User({
+      fullName: 'System Administrator',
+      email: adminEmail,
+      mobile: '+91 9999999999', // Default admin mobile
+      password: adminPassword,
+      isAdmin: true,
+      isServiceProvider: true,
+      isEmailVerified: true,
+      isMobileVerified: true,
+      status: 'active'
+    });
 
-    res.status(200).json({
+    await adminUser.save();
+
+    res.status(201).json({
       success: true,
+      message: 'Admin user created successfully',
       data: {
-        commission: {
-          revenue: commissionRevenue[0]?.total || 0,
-          transactions: commissionRevenue[0]?.count || 0,
-          rate: commissionSetting?.value || 0,
-        },
-        subscriptions: {
-          revenue: subscriptionRevenue[0]?.total || 0,
-          count: subscriptionRevenue[0]?.count || 0,
-        },
-        walletRecharges: {
-          revenue: walletRevenue[0]?.total || 0,
-          count: walletRevenue[0]?.count || 0,
-          feePercentage: walletFeeSetting?.value || 0,
-        },
-        totalRevenue:
-          (commissionRevenue[0]?.total || 0) +
-          (subscriptionRevenue[0]?.total || 0) +
-          (walletRevenue[0]?.total || 0),
-      },
+        id: adminUser._id,
+        email: adminUser.email,
+        isAdmin: adminUser.isAdmin
+      }
     });
   } catch (error) {
-    next(error);
+    console.error('Error creating admin user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create admin user',
+      error: error.message
+    });
   }
 };
 
-// @desc    Get settings
-// @route   GET /api/admin/settings
-// @access  Private/Admin
-const getSettings = async (req, res, next) => {
+// Get all KYC requests with filtering
+const getKycRequests = async (req, res) => {
   try {
-    const settings = await Settings.find();
-    const settingsMap = {};
+    const {
+      page = 1,
+      limit = 20,
+      status = 'all',
+      search = ''
+    } = req.query;
 
-    settings.forEach(setting => {
-      settingsMap[setting.key] = {
-        value: setting.value,
-        type: setting.type,
-        description: setting.description,
-      };
-    });
+    // Build filter query - only service providers
+    const filter = { isServiceProvider: true };
+    
+    // Status filter
+    if (status !== 'all') {
+      filter.providerVerificationStatus = status;
+    }
+
+    // Search filter
+    if (search) {
+      filter.$or = [
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { mobile: { $regex: search, $options: 'i' } },
+        { aadharNumber: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Execute query with pagination
+    const skip = (page - 1) * limit;
+    const kycRequests = await User.find(filter)
+      .select('fullName email mobile aadharNumber aadharDocuments profilePhoto portfolioMedia providerVerificationStatus verificationNotes verifiedAt verifiedBy createdAt updatedAt')
+      .populate('verifiedBy', 'fullName email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+
+    // Get total count for pagination
+    const total = await User.countDocuments(filter);
 
     res.status(200).json({
       success: true,
-      data: settingsMap,
+      data: kycRequests,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        itemsPerPage: parseInt(limit)
+      }
     });
   } catch (error) {
-    next(error);
+    console.error('Error fetching KYC requests:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch KYC requests',
+      error: error.message
+    });
   }
 };
 
-// @desc    Update settings
-// @route   PUT /api/admin/settings
-// @access  Private/Admin
-const updateSettings = async (req, res, next) => {
+// Get specific KYC request by ID
+const getKycRequestById = async (req, res) => {
   try {
-    const updates = req.body;
+    const { id } = req.params;
 
-    for (const [key, value] of Object.entries(updates)) {
-      await Settings.findOneAndUpdate(
-        { key },
-        { value },
-        { upsert: true }
-      );
+    const kycRequest = await User.findById(id)
+      .select('fullName email mobile dateOfBirth gender place profession education hobbies skills languagesKnown bio aadharNumber aadharDocuments profilePhoto portfolioMedia serviceCategories consultationModes rates availability bankDetails providerVerificationStatus verificationNotes verifiedAt verifiedBy createdAt updatedAt')
+      .populate('verifiedBy', 'fullName email')
+      .populate('serviceCategories')
+      .lean();
+
+    if (!kycRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'KYC request not found'
+      });
     }
 
     res.status(200).json({
       success: true,
-      message: 'Settings updated',
+      data: kycRequest
     });
   } catch (error) {
-    next(error);
+    console.error('Error fetching KYC request:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch KYC request details',
+      error: error.message
+    });
+  }
+};
+
+// Verify/Approve KYC request
+const verifyKycRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    if (!['verified', 'rejected'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be verified or rejected'
+      });
+    }
+
+    const updateData = {
+      providerVerificationStatus: status,
+      verificationNotes: notes || '',
+      verifiedAt: new Date(),
+      verifiedBy: req.user._id
+    };
+
+    // If verified, also mark Aadhar as verified
+    if (status === 'verified') {
+      updateData.isAadharVerified = true;
+    }
+
+    const provider = await User.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true }
+    ).select('-password -fcmTokens');
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    // TODO: Send notification to provider about verification status
+    // TODO: Log admin action
+
+    res.status(200).json({
+      success: true,
+      message: `Provider ${status === 'verified' ? 'verified' : 'rejected'} successfully`,
+      data: provider
+    });
+  } catch (error) {
+    console.error('Error verifying KYC request:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify KYC request',
+      error: error.message
+    });
+  }
+};
+
+// Bulk verify existing providers (for migration)
+const bulkVerifyExistingProviders = async (req, res) => {
+  try {
+    // Find all existing service providers who don't have verification status set
+    const existingProviders = await User.find({
+      isServiceProvider: true,
+      $or: [
+        { providerVerificationStatus: { $exists: false } },
+        { providerVerificationStatus: 'pending' }
+      ]
+    });
+
+    console.log(`Found ${existingProviders.length} existing providers to verify`);
+
+    // Update all existing providers to verified status
+    const updateResult = await User.updateMany(
+      {
+        isServiceProvider: true,
+        $or: [
+          { providerVerificationStatus: { $exists: false } },
+          { providerVerificationStatus: 'pending' }
+        ]
+      },
+      {
+        $set: {
+          providerVerificationStatus: 'verified',
+          verificationNotes: 'Bulk verified - existing provider',
+          verifiedAt: new Date(),
+          verifiedBy: req.user._id,
+          isAadharVerified: true
+        }
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully verified ${updateResult.modifiedCount} existing providers`,
+      data: {
+        foundProviders: existingProviders.length,
+        modifiedCount: updateResult.modifiedCount
+      }
+    });
+  } catch (error) {
+    console.error('Error bulk verifying providers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to bulk verify providers',
+      error: error.message
+    });
   }
 };
 
 module.exports = {
-  getDashboardStats,
-  getAllUsers,
-  updateUserStatus,
-  verifyAadhar,
-  getAllWithdrawals,
-  processWithdrawal,
-  getAllReviews,
-  moderateReview,
-  getAnalytics,
-  getSettings,
-  updateSettings,
-  getMonetizationOverview,
+  getAllProviders,
+  getProviderById,
+  updateProvider,
+  updateProviderStatus,
+  toggleProviderVisibility,
+  getAdminStats,
+  makeCurrentUserAdmin,
+  createAdminUser,
+  getKycRequests,
+  getKycRequestById,
+  verifyKycRequest,
+  bulkVerifyExistingProviders
 };
-
