@@ -7,6 +7,7 @@ const {
   endConsultation,
   cancelConsultation,
   getConsultationHistory,
+  getGuestConsultationHistory,
   submitRating,
   getProviderRatings,
 } = require("../controllers/consultation.controller");
@@ -19,6 +20,7 @@ router.use(protect);
 router.post("/", createConsultation);
 router.get("/", getMyConsultations);
 router.get("/history", getConsultationHistory);
+router.get("/guest-history", getGuestConsultationHistory);
 // Test endpoint to verify code updates
 router.get("/test-debug", (req, res) => {
   console.log("🚨 TEST ENDPOINT CALLED - Code is updated!");

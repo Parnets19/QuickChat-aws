@@ -898,6 +898,120 @@ const getProviderRatings = async (req, res, next) => {
   }
 };
 
+// @desc    Get guest consultation history
+// @route   GET /api/consultations/guest-history
+// @access  Private (Guest)
+const getGuestConsultationHistory = async (req, res, next) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { page = 1, limit = 20, status } = req.query;
+
+    console.log('📋 Fetching guest consultation history:', {
+      userId,
+      page,
+      limit,
+      status
+    });
+
+    // Build query for guest consultations
+    const query = {
+      user: userId,
+      userType: 'Guest'
+    };
+
+    // Add status filter if provided
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+
+    // Get consultations with pagination
+    const consultations = await Consultation.find(query)
+      .populate('provider', 'fullName profilePhoto rates')
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit));
+
+    // Get total count for pagination
+    const total = await Consultation.countDocuments(query);
+
+    // Format consultations with additional details
+    const formattedConsultations = consultations.map(consultation => {
+      const consultationObj = consultation.toObject();
+      
+      // Calculate duration in a readable format
+      let durationText = 'N/A';
+      if (consultationObj.duration && consultationObj.duration > 0) {
+        const minutes = consultationObj.duration;
+        if (minutes < 60) {
+          durationText = `${minutes} min${minutes !== 1 ? 's' : ''}`;
+        } else {
+          const hours = Math.floor(minutes / 60);
+          const remainingMinutes = minutes % 60;
+          durationText = `${hours}h ${remainingMinutes}m`;
+        }
+      }
+
+      // Format time range
+      let timeRange = 'N/A';
+      if (consultationObj.startTime && consultationObj.endTime) {
+        const startTime = new Date(consultationObj.startTime);
+        const endTime = new Date(consultationObj.endTime);
+        timeRange = `${startTime.toLocaleTimeString()} - ${endTime.toLocaleTimeString()}`;
+      }
+
+      // Get consultation type icon
+      const getTypeIcon = (type) => {
+        switch (type) {
+          case 'video': return 'video';
+          case 'audio': return 'phone';
+          case 'chat': return 'message-circle';
+          default: return 'help-circle';
+        }
+      };
+
+      return {
+        ...consultationObj,
+        durationText,
+        timeRange,
+        typeIcon: getTypeIcon(consultationObj.type),
+        providerName: consultationObj.provider?.fullName || 'Unknown Provider',
+        providerPhoto: consultationObj.provider?.profilePhoto,
+        rate: consultationObj.rate || 0,
+        formattedDate: new Date(consultationObj.createdAt).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        }),
+        formattedTime: new Date(consultationObj.createdAt).toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      };
+    });
+
+    console.log(`✅ Found ${formattedConsultations.length} guest consultations`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        consultations: formattedConsultations,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / parseInt(limit)),
+          hasNext: parseInt(page) < Math.ceil(total / parseInt(limit)),
+          hasPrev: parseInt(page) > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching guest consultation history:', error);
+    next(error);
+  }
+};
+
 module.exports = {
   createConsultation,
   getConsultation,
@@ -906,6 +1020,7 @@ module.exports = {
   endConsultation,
   cancelConsultation,
   getConsultationHistory,
+  getGuestConsultationHistory,
   submitRating,
   getProviderRatings,
 };

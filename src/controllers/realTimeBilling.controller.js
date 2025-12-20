@@ -492,9 +492,8 @@ const processRealTimeBilling = async (req, res) => {
 
     // Deduct money from user wallet
     userModel.wallet -= ratePerMinute;
-    if (!isGuest) {
-      userModel.totalSpent = (userModel.totalSpent || 0) + ratePerMinute;
-    }
+    // Update totalSpent for both regular users and guest users
+    userModel.totalSpent = (userModel.totalSpent || 0) + ratePerMinute;
     await userModel.save();
 
     // Calculate platform commission and provider earnings

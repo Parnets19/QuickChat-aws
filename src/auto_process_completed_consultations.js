@@ -1,5 +1,5 @@
 // Auto-process completed consultations that have no transactions
-const { Consultation, User, Transaction } = require('./models');
+const { Consultation, User, Guest, Transaction } = require('./models');
 const { addEarnings } = require('./controllers/earnings.controller');
 
 async function autoProcessCompletedConsultations() {
@@ -33,14 +33,26 @@ async function autoProcessCompletedConsultations() {
         console.log(`   Client transaction exists: ${!!existingClientTx}`);
         console.log(`   Provider transaction exists: ${!!existingProviderTx}`);
 
-        // Get users
-        const client = await User.findById(consultation.user);
-        const provider = await User.findById(consultation.provider);
+        // Get users - handle both regular users and guest users
+        let client, provider;
+        
+        // Get client (could be User or Guest)
+        if (consultation.userType === 'Guest') {
+          client = await Guest.findById(consultation.user);
+        } else {
+          client = await User.findById(consultation.user);
+        }
+        
+        // Provider is always a User
+        provider = await User.findById(consultation.provider);
 
         if (!client || !provider) {
-          console.log('   ❌ Users not found, skipping...');
+          console.log(`   ❌ Users not found (client: ${!!client}, provider: ${!!provider}), skipping...`);
           continue;
         }
+
+        console.log(`   👤 Client: ${client.fullName || client.name} (${consultation.userType})`);
+        console.log(`   👤 Provider: ${provider.fullName}`);
 
         const totalAmount = consultation.totalAmount;
         const PLATFORM_COMMISSION_RATE = 0.05;
@@ -51,12 +63,15 @@ async function autoProcessCompletedConsultations() {
         if (!existingClientTx) {
           console.log(`   💸 Deducting ₹${totalAmount} from client`);
           client.wallet -= totalAmount;
+          
+          // Update totalSpent for both regular users and guest users
           client.totalSpent = (client.totalSpent || 0) + totalAmount;
+          
           await client.save();
 
           await Transaction.create({
             user: client._id,
-            userType: 'User',
+            userType: consultation.userType, // Use the correct userType
             type: 'consultation_payment',
             category: 'consultation',
             amount: totalAmount,
@@ -83,11 +98,11 @@ async function autoProcessCompletedConsultations() {
             amount: providerEarnings,
             balance: provider.wallet,
             status: 'completed',
-            description: `${consultation.type.charAt(0).toUpperCase() + consultation.type.slice(1)} Consultation - ${client.fullName}`,
+            description: `${consultation.type.charAt(0).toUpperCase() + consultation.type.slice(1)} Consultation - ${client.fullName || client.name}`,
             consultationId: consultation._id,
             transactionId: `AUTO_PROVIDER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             metadata: {
-              clientName: client.fullName,
+              clientName: client.fullName || client.name,
               consultationType: consultation.type,
               duration: consultation.duration,
               rate: consultation.rate,

@@ -22,6 +22,7 @@ const getWalletBalance = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: {
+        balance: guest.wallet, // Frontend expects this structure
         wallet: {
           balance: guest.wallet,
           totalSpent: guest.totalSpent,
@@ -68,7 +69,9 @@ const addMoneyToWallet = async (req, res, next) => {
       user: guest._id,
       userType: 'Guest',
       type: 'wallet_credit',
+      category: 'deposit', // Required field
       amount: amount,
+      balance: guest.wallet + amount, // Required field - balance after transaction
       status: 'completed',
       description: `Wallet top-up via ${paymentMethod}`,
       transactionId,
@@ -148,7 +151,9 @@ const withdrawFromWallet = async (req, res, next) => {
       user: guest._id,
       userType: 'Guest',
       type: 'withdrawal',
+      category: 'withdrawal', // Required field
       amount: amount,
+      balance: guest.wallet - amount, // Required field - balance after transaction
       status: 'pending', // Withdrawals typically need approval
       description: `Wallet withdrawal to ${bankDetails.accountNumber}`,
       transactionId,
@@ -263,7 +268,9 @@ const payForConsultation = async (req, res, next) => {
       user: guest._id,
       userType: 'Guest',
       type: 'consultation_payment',
+      category: 'consultation', // Required field
       amount: amount,
+      balance: guest.wallet - amount, // Required field - balance after transaction
       status: 'completed',
       description: `Payment for consultation ${consultationId}`,
       transactionId,
