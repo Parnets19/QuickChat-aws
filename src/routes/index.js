@@ -9,10 +9,13 @@ const notificationRoutes = require('./notification.routes');
 const categoryRoutes = require('./category.routes');
 const adminRoutes = require('./admin.routes');
 const adminAuthRoutes = require('./adminAuth.routes');
+const adminWalletRoutes = require('./adminWallet.routes');
 const earningsRoutes = require('./earnings.routes');
 const uploadRoutes = require('./upload.routes');
 const guestAuthRoutes = require('./guestAuth.routes');
 const guestWalletRoutes = require('./guestWallet.routes');
+const realTimeBillingRoutes = require('./realTimeBilling.routes');
+const walletRoutes = require('./wallet.routes');
 
 const router = express.Router();
 
@@ -28,9 +31,12 @@ router.use('/notifications', notificationRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/admin', adminRoutes);
 router.use('/admin-auth', adminAuthRoutes);
+router.use('/admin/wallet', adminWalletRoutes);
 router.use('/earnings', earningsRoutes);
 router.use('/guest-auth', guestAuthRoutes);
 router.use('/guest-wallet', guestWalletRoutes);
+router.use('/billing', realTimeBillingRoutes); // Real-time billing system
+router.use('/wallet', walletRoutes); // Wallet balance API
 
 module.exports = router;
 

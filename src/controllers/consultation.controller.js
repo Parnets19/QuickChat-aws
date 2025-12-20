@@ -254,23 +254,9 @@ const createConsultation = async (req, res, next) => {
       data: { consultationId: consultation._id },
     });
 
-    // Send real-time ring notification for audio/video calls
-    if (type === 'audio' || type === 'video') {
-      const io = req.app.get('io'); // Get socket.io instance
-      if (io) {
-        // Send ring notification to all provider's connected sockets
-        io.to(`user:${providerId}`).emit('consultation:incoming-call', {
-          consultationId: consultation._id,
-          type: type,
-          clientName: user.fullName,
-          clientPhoto: user.profilePhoto,
-          amount: rate,
-          timestamp: new Date(),
-        });
-        
-        console.log(`🔔 Ring notification sent to provider ${providerId} for ${type} consultation`);
-      }
-    }
+    // NOTE: Ring notifications are now handled by real-time billing controller only
+    // This prevents duplicate notifications to providers
+    // Real-time billing system sends the notification when consultation starts
 
     res.status(201).json({
       success: true,
@@ -400,6 +386,7 @@ const getMyConsultations = async (req, res, next) => {
 
     let query;
     const userId = req.user?.isGuest ? req.user.id : req.user?._id;
+    const userIdString = req.user?.isGuest ? req.user.id : req.user?._id?.toString();
 
     // Filter by role if specified
     if (role === "provider") {
@@ -410,16 +397,32 @@ const getMyConsultations = async (req, res, next) => {
         query = { provider: req.user?._id };
       }
     } else if (role === "client") {
-      query = { user: userId };
+      // Handle both string and ObjectId formats for user field
+      query = {
+        $or: [
+          { user: userId },
+          { user: userIdString }
+        ]
+      };
     } else {
       // Default: return all consultations where user is either client or provider
       if (req.user?.isGuest) {
         // Guest users can only be clients, never providers
-        query = { user: userId };
+        query = {
+          $or: [
+            { user: userId },
+            { user: userIdString }
+          ]
+        };
       } else {
         // Regular users can be both clients and providers
+        // Handle both string and ObjectId formats for user field
         query = {
-          $or: [{ user: userId }, { provider: req.user?._id }],
+          $or: [
+            { user: userId }, 
+            { user: userIdString },
+            { provider: req.user?._id }
+          ],
         };
       }
     }
@@ -526,11 +529,28 @@ const startConsultation = async (req, res, next) => {
 // @access  Private
 const endConsultation = async (req, res, next) => {
   try {
+    console.log('🛑 END CONSULTATION CALLED:', {
+      consultationId: req.params.id,
+      userId: req.user?.id || req.user?._id,
+      userRole: req.user?.isServiceProvider ? 'provider' : 'client',
+      timestamp: new Date().toISOString()
+    });
+
     const consultation = await Consultation.findById(req.params.id);
 
     if (!consultation) {
+      console.log('❌ CONSULTATION NOT FOUND:', req.params.id);
       return next(new AppError("Consultation not found", 404));
     }
+
+    console.log('📋 CONSULTATION FOUND:', {
+      id: consultation._id,
+      status: consultation.status,
+      user: consultation.user,
+      provider: consultation.provider,
+      totalAmount: consultation.totalAmount,
+      duration: consultation.duration
+    });
 
     // Either party can end consultation (handle guest users)
     const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
@@ -574,39 +594,87 @@ const endConsultation = async (req, res, next) => {
           }
         }
 
-        // Add earnings to provider
+        // Calculate platform commission and provider earnings
+        const PLATFORM_COMMISSION_RATE = 0.05;
+        const platformCommission = Math.round(consultation.totalAmount * PLATFORM_COMMISSION_RATE * 100) / 100;
+        const providerEarnings = Math.round((consultation.totalAmount - platformCommission) * 100) / 100;
+        
+        console.log('💰 COMMISSION CALCULATION:', {
+          totalAmount: consultation.totalAmount,
+          platformCommission,
+          providerEarnings,
+          commissionRate: PLATFORM_COMMISSION_RATE
+        });
+
+        // Add earnings to provider (only the provider's share, not full amount)
         await addEarnings(
           consultation.provider,
           consultation._id,
-          consultation.totalAmount,
+          providerEarnings, // Use provider earnings, not full amount
           `${consultation.type.charAt(0).toUpperCase() + consultation.type.slice(1)} Consultation - ${clientName}`,
           {
             clientName,
             consultationType: consultation.type,
             duration: consultation.duration,
-            rate: consultation.rate
+            rate: consultation.rate,
+            platformCommission,
+            grossAmount: consultation.totalAmount,
+            netAmount: providerEarnings
           }
         );
 
         // For regular users (not guests), deduct from user wallet
-        if (!req.user?.isGuest && typeof consultation.user !== 'string') {
-          const user = await User.findById(consultation.user);
-          if (user && user.wallet >= consultation.totalAmount) {
-            user.wallet -= consultation.totalAmount;
-            await user.save();
+        // Note: consultation.user can be either ObjectId or string, so we need to handle both
+        const consultationUserId = consultation.user.toString();
+        const user = await User.findById(consultationUserId);
+        
+        console.log('💸 CHECKING CLIENT DEDUCTION:', {
+          consultationUserId,
+          userFound: !!user,
+          userWallet: user?.wallet,
+          consultationAmount: consultation.totalAmount,
+          canAfford: user ? user.wallet >= consultation.totalAmount : false
+        });
+        
+        if (user && user.wallet >= consultation.totalAmount) {
+          console.log('💰 DEDUCTING FROM CLIENT WALLET:', {
+            userId: user._id,
+            previousBalance: user.wallet,
+            deductionAmount: consultation.totalAmount
+          });
+          
+          user.wallet -= consultation.totalAmount;
+          user.totalSpent = (user.totalSpent || 0) + consultation.totalAmount;
+          await user.save();
 
-            // Create debit transaction for user
-            await Transaction.create({
-              user: consultation.user,
-              type: "debit",
-              category: "consultation",
-              amount: consultation.totalAmount,
-              balanceBefore: user.wallet + consultation.totalAmount,
-              balanceAfter: user.wallet,
-              status: "completed",
-              description: `${consultation.type} consultation with ${provider.fullName}`,
-            });
-          }
+          console.log('✅ CLIENT WALLET UPDATED:', {
+            userId: user._id,
+            newBalance: user.wallet,
+            totalSpent: user.totalSpent
+          });
+
+          // Create debit transaction for user
+          await Transaction.create({
+            user: consultationUserId,
+            userType: 'User', // Assume User for now, can be enhanced later
+            type: "consultation_payment",
+            category: "consultation",
+            amount: consultation.totalAmount,
+            balance: user.wallet, // Current balance after transaction
+            status: "completed",
+            description: `${consultation.type} consultation with ${provider.fullName}`,
+            consultationId: consultation._id,
+            transactionId: `CONSULT_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          });
+          
+          console.log('✅ CLIENT DEBIT TRANSACTION CREATED');
+        } else {
+          console.log('❌ CANNOT DEDUCT FROM CLIENT:', {
+            userFound: !!user,
+            userWallet: user?.wallet || 0,
+            consultationAmount: consultation.totalAmount,
+            reason: !user ? 'User not found' : 'Insufficient wallet balance'
+          });
         }
       }
     }
@@ -616,12 +684,24 @@ const endConsultation = async (req, res, next) => {
     // Check if provider has any other ongoing consultations and update status accordingly
     await checkProviderBusyStatus(consultation.provider);
 
+    console.log('✅ END CONSULTATION COMPLETED SUCCESSFULLY:', {
+      consultationId: consultation._id,
+      finalStatus: consultation.status,
+      totalAmount: consultation.totalAmount,
+      duration: consultation.duration
+    });
+
     res.status(200).json({
       success: true,
       message: "Consultation ended",
       data: consultation,
     });
   } catch (error) {
+    console.error('❌ END CONSULTATION ERROR:', {
+      consultationId: req.params?.id,
+      error: error.message,
+      stack: error.stack
+    });
     next(error);
   }
 };

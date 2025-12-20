@@ -170,6 +170,11 @@ const UserSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    totalSpent: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     isEmailVerified: {
       type: Boolean,
       default: false,

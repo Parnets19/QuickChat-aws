@@ -428,31 +428,61 @@ const getMe = async (req, res, next) => {
       .populate('subscription.plan');
 
     // Ensure user has proper nested rate structure for backward compatibility
-    if (user && user.rates && (!user.rates.perMinute || !user.rates.perHour)) {
+    if (user && user.rates) {
+      let needsUpdate = false;
       const currentChargeType = user.rates.chargeType || 'per-minute';
       
-      const updatedRates = {
-        ...user.rates,
-        perMinute: user.rates.perMinute || {
+      const updatedRates = { ...user.rates };
+      
+      // Ensure perMinute exists with audioVideo field
+      if (!user.rates.perMinute) {
+        updatedRates.perMinute = {
+          audioVideo: currentChargeType === 'per-minute' ? (user.rates.audio || user.rates.video || 0) : 0,
           audio: currentChargeType === 'per-minute' ? (user.rates.audio || 0) : 0,
           video: currentChargeType === 'per-minute' ? (user.rates.video || 0) : 0
-        },
-        perHour: user.rates.perHour || {
+        };
+        needsUpdate = true;
+      } else if (user.rates.perMinute.audioVideo === undefined) {
+        updatedRates.perMinute = {
+          ...user.rates.perMinute,
+          audioVideo: user.rates.perMinute.audio || user.rates.perMinute.video || 0
+        };
+        needsUpdate = true;
+      }
+      
+      // Ensure perHour exists with audioVideo field
+      if (!user.rates.perHour) {
+        updatedRates.perHour = {
+          audioVideo: currentChargeType === 'per-hour' ? (user.rates.audio || user.rates.video || 0) : 0,
           audio: currentChargeType === 'per-hour' ? (user.rates.audio || 0) : 0,
           video: currentChargeType === 'per-hour' ? (user.rates.video || 0) : 0
-        },
-        defaultChargeType: user.rates.defaultChargeType || user.rates.chargeType || 'per-minute'
-      };
+        };
+        needsUpdate = true;
+      } else if (user.rates.perHour.audioVideo === undefined) {
+        updatedRates.perHour = {
+          ...user.rates.perHour,
+          audioVideo: user.rates.perHour.audio || user.rates.perHour.video || 0
+        };
+        needsUpdate = true;
+      }
+      
+      // Ensure defaultChargeType exists
+      if (!user.rates.defaultChargeType) {
+        updatedRates.defaultChargeType = user.rates.chargeType || 'per-minute';
+        needsUpdate = true;
+      }
 
-      // Update the user in database with proper structure
-      await User.findByIdAndUpdate(
-        user._id,
-        { $set: { rates: updatedRates } },
-        { new: true }
-      );
+      if (needsUpdate) {
+        // Update the user in database with proper structure
+        await User.findByIdAndUpdate(
+          user._id,
+          { $set: { rates: updatedRates } },
+          { new: true }
+        );
 
-      // Update the user object to return
-      user.rates = updatedRates;
+        // Update the user object to return
+        user.rates = updatedRates;
+      }
     }
 
     res.status(200).json({

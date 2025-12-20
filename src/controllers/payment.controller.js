@@ -25,11 +25,11 @@ const initiateWalletRecharge = async (req, res, next) => {
     const transaction = await Transaction.create({
       transactionId: orderId,
       user: user._id,
+      userType: 'User',
       type: 'credit',
-      category: 'wallet_recharge',
+      category: 'deposit',
       amount,
-      balanceBefore: user.wallet,
-      balanceAfter: user.wallet + amount,
+      balance: user.wallet + amount, // Balance after transaction
       status: 'pending',
       paymentMethod: 'phonepe',
       description: 'Wallet recharge',

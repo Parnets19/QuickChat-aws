@@ -1,5 +1,6 @@
 const User = require('../models/User.model');
 const Consultation = require('../models/Consultation.model');
+const { sendStatusChangeNotification, sendVerificationNotification, sendProfileVisibilityNotification } = require('../utils/notifications');
 
 // Get all providers with filtering and pagination
 const getAllProviders = async (req, res) => {
@@ -222,8 +223,13 @@ const updateProviderStatus = async (req, res) => {
       });
     }
 
-    // TODO: Send notification to provider about status change
-    // TODO: Log admin action
+    // Send notification to provider about status change
+    try {
+      await sendStatusChangeNotification(provider._id, status, req.io);
+    } catch (notificationError) {
+      console.error('Error sending status change notification:', notificationError);
+      // Don't fail the request if notification fails
+    }
 
     res.status(200).json({
       success: true,
@@ -257,6 +263,14 @@ const toggleProviderVisibility = async (req, res) => {
     // Toggle visibility
     provider.isProfileHidden = !provider.isProfileHidden;
     await provider.save();
+
+    // Send notification to provider about visibility change
+    try {
+      await sendProfileVisibilityNotification(provider._id, provider.isProfileHidden, req.io);
+    } catch (notificationError) {
+      console.error('Error sending profile visibility notification:', notificationError);
+      // Don't fail the request if notification fails
+    }
 
     res.status(200).json({
       success: true,
@@ -450,8 +464,9 @@ const getKycRequests = async (req, res) => {
     // Execute query with pagination
     const skip = (page - 1) * limit;
     const kycRequests = await User.find(filter)
-      .select('fullName email mobile aadharNumber aadharDocuments profilePhoto portfolioMedia providerVerificationStatus verificationNotes verifiedAt verifiedBy createdAt updatedAt')
+      .select('-password -fcmTokens -socialLogins') // Exclude sensitive fields only
       .populate('verifiedBy', 'fullName email')
+      .populate('serviceCategories')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -550,8 +565,13 @@ const verifyKycRequest = async (req, res) => {
       });
     }
 
-    // TODO: Send notification to provider about verification status
-    // TODO: Log admin action
+    // Send notification to provider about verification status
+    try {
+      await sendVerificationNotification(provider._id, status, notes, req.io);
+    } catch (notificationError) {
+      console.error('Error sending verification notification:', notificationError);
+      // Don't fail the request if notification fails
+    }
 
     res.status(200).json({
       success: true,

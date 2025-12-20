@@ -206,108 +206,15 @@ const initializeSocket = (io) => {
     });
 
     // Handle incoming call notification (ring system)
+    // NOTE: Ring notifications are now handled by real-time billing controller
+    // This socket handler is disabled to prevent duplicate notifications
     socket.on('consultation:ring', async (data) => {
-      try {
-        const consultation = await Consultation.findById(data.consultationId)
-          .populate('user', 'fullName profilePhoto')
-          .populate('provider', 'fullName');
-
-        if (!consultation) {
-          socket.emit('error', { message: 'Consultation not found' });
-          return;
-        }
-
-        // Only allow ringing for audio/video consultations
-        if (consultation.type !== 'audio' && consultation.type !== 'video') {
-          return;
-        }
-
-        // Check if provider is online
-        const providerSockets = onlineUsers.get(consultation.provider._id.toString());
-        if (providerSockets && providerSockets.length > 0) {
-          // Send ring notification to all provider's sockets
-          providerSockets.forEach(socketId => {
-            const providerSocket = io.sockets.sockets.get(socketId);
-            if (providerSocket) {
-              providerSocket.emit('consultation:incoming-call', {
-                consultationId: consultation._id,
-                type: consultation.type,
-                clientName: consultation.user?.fullName || 'Guest User',
-                clientPhoto: consultation.user?.profilePhoto,
-                amount: consultation.rate,
-                timestamp: new Date(),
-              });
-            }
-          });
-
-          // Set 1-minute timeout for unanswered calls
-          setTimeout(async () => {
-            try {
-              const currentConsultation = await Consultation.findById(data.consultationId);
-              
-              // Only mark as no_answer if still pending (not answered)
-              if (currentConsultation && currentConsultation.status === 'pending') {
-                console.log(`⏰ Call timeout: Marking consultation ${data.consultationId} as no_answer`);
-                
-                // Update consultation status to no_answer
-                currentConsultation.status = 'no_answer';
-                currentConsultation.endTime = new Date();
-                await currentConsultation.save();
-
-                // Update provider status back to available if they were set to busy
-                await User.findByIdAndUpdate(consultation.provider._id, {
-                  consultationStatus: 'available'
-                });
-
-                // Notify both client and provider about the timeout
-                io.to(`consultation:${data.consultationId}`).emit('consultation:timeout', {
-                  consultationId: data.consultationId,
-                  message: 'Call was not answered within 1 minute',
-                  status: 'no_answer'
-                });
-
-                // Send specific notification to client
-                const clientSockets = onlineUsers.get(consultation.user?.toString() || consultation.user?._id?.toString());
-                if (clientSockets) {
-                  clientSockets.forEach(socketId => {
-                    const clientSocket = io.sockets.sockets.get(socketId);
-                    if (clientSocket) {
-                      clientSocket.emit('consultation:no-answer', {
-                        consultationId: data.consultationId,
-                        providerName: consultation.provider.fullName,
-                        message: 'Provider did not answer the call'
-                      });
-                    }
-                  });
-                }
-
-                // Send notification to provider about missed call
-                if (providerSockets) {
-                  providerSockets.forEach(socketId => {
-                    const providerSocket = io.sockets.sockets.get(socketId);
-                    if (providerSocket) {
-                      providerSocket.emit('consultation:missed-call', {
-                        consultationId: data.consultationId,
-                        clientName: consultation.user?.fullName || 'Guest User',
-                        message: 'You missed a call'
-                      });
-                    }
-                  });
-                }
-
-                logger.info(`Call timeout: Consultation ${data.consultationId} marked as no_answer`);
-              }
-            } catch (error) {
-              console.error('Error handling call timeout:', error);
-            }
-          }, 60000); // 1 minute timeout
-
-          logger.info(`Ring notification sent to provider ${consultation.provider._id} for consultation ${data.consultationId}`);
-        }
-      } catch (error) {
-        console.error('Error sending ring notification:', error);
-        socket.emit('error', { message: 'Failed to send ring notification' });
-      }
+      console.log('⚠️ DEPRECATED: consultation:ring event received - notifications now handled by real-time billing controller');
+      console.log('📋 Consultation ID:', data.consultationId);
+      console.log('💡 Ring notifications are sent automatically when consultation starts via real-time billing');
+      
+      // This handler is intentionally disabled to prevent duplicate notifications
+      // The real-time billing controller now handles all incoming call notifications
     });
 
     // Handle chat message
@@ -384,7 +291,8 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Only update if consultation is ongoing (not pending or already completed)
+        // Only update if consultation is ongoing (not pending, already completed, or auto-cancelled)
+        // Don't override statuses like 'no_answer', 'cancelled', 'missed' that were set by system
         if (consultation.status === 'ongoing') {
           consultation.status = 'completed';
           consultation.endTime = new Date();
@@ -397,30 +305,31 @@ const initializeSocket = (io) => {
             consultation.duration = duration;
             consultation.totalAmount = duration * consultation.rate;
           }
-
-          // Mark provider as no longer busy
-          // Check if provider has any other ongoing consultations
-          const ongoingConsultations = await Consultation.countDocuments({
-            provider: consultation.provider,
-            status: 'ongoing',
-            _id: { $ne: consultation._id } // Exclude current consultation
-          });
-          
-          const newStatus = ongoingConsultations > 0 ? 'busy' : 'available';
-          
-          await User.findByIdAndUpdate(consultation.provider, {
-            consultationStatus: newStatus,
-            isInCall: ongoingConsultations > 0,
-            currentConsultationId: ongoingConsultations > 0 ? consultation.currentConsultationId : null,
-          });
-          
-          console.log(`📱 Provider ${consultation.provider} status updated to: ${newStatus} (${ongoingConsultations} ongoing consultations)`)
-
-          await consultation.save();
-          console.log(`Consultation ${data.consultationId} marked as completed`);
-        } else {
-          console.log(`Cannot end consultation ${data.consultationId} - current status: ${consultation.status}`);
+        } else if (['no_answer', 'cancelled', 'missed'].includes(consultation.status)) {
+          console.log(`⚠️ Not overriding consultation status '${consultation.status}' - keeping system-set status`);
+          // Don't change the status, but still update provider availability
         }
+
+        // Mark provider as no longer busy
+        // Check if provider has any other ongoing consultations
+        const ongoingConsultations = await Consultation.countDocuments({
+          provider: consultation.provider,
+          status: 'ongoing',
+          _id: { $ne: consultation._id } // Exclude current consultation
+        });
+        
+        const newStatus = ongoingConsultations > 0 ? 'busy' : 'available';
+        
+        await User.findByIdAndUpdate(consultation.provider, {
+          consultationStatus: newStatus,
+          isInCall: ongoingConsultations > 0,
+          currentConsultationId: ongoingConsultations > 0 ? consultation.currentConsultationId : null,
+        });
+        
+        console.log(`📱 Provider ${consultation.provider} status updated to: ${newStatus} (${ongoingConsultations} ongoing consultations)`);
+
+        await consultation.save();
+        console.log(`Consultation ${data.consultationId} status: ${consultation.status}`);
 
         // Notify ALL participants in the consultation room that it has ended
         console.log(`Broadcasting consultation end to room: consultation:${data.consultationId}`);
@@ -555,6 +464,44 @@ const initializeSocket = (io) => {
       } catch (error) {
         console.error('Error handling video upgrade:', error);
         socket.emit('error', { message: 'Failed to process video upgrade' });
+      }
+    });
+
+    // Handle billing room join
+    socket.on('billing:join-room', (data) => {
+      try {
+        const { consultationId } = data;
+        console.log(`💰 User ${userId} joining billing room: ${consultationId}`);
+        
+        socket.join(`billing:${consultationId}`);
+        
+        socket.emit('billing:joined', {
+          consultationId,
+          message: 'Successfully joined billing room'
+        });
+        
+        logger.info(`User ${userId} joined billing room: ${consultationId}`);
+      } catch (error) {
+        console.error('Error joining billing room:', error);
+        socket.emit('error', { message: 'Failed to join billing room' });
+      }
+    });
+
+    // Handle billing updates (called from billing controller)
+    socket.on('billing:update-request', async (data) => {
+      try {
+        const { consultationId } = data;
+        console.log(`💰 Billing update requested for consultation: ${consultationId}`);
+        
+        // This will be used by the billing controller to request real-time updates
+        // The actual billing logic remains in the controller
+        socket.emit('billing:update-acknowledged', {
+          consultationId,
+          timestamp: new Date()
+        });
+        
+      } catch (error) {
+        console.error('Error handling billing update request:', error);
       }
     });
 

@@ -2,10 +2,22 @@ const mongoose = require('mongoose');
 
 const WithdrawalSchema = new mongoose.Schema(
   {
+    // Support both regular users and guest users
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      refPath: 'userType'
+    },
+    userType: {
+      type: String,
+      required: true,
+      enum: ['User', 'Guest'],
+      default: 'User'
+    },
+    // Legacy field for backward compatibility
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
     },
     amount: {
       type: Number,
@@ -37,11 +49,28 @@ const WithdrawalSchema = new mongoose.Schema(
         type: String,
         required: true,
       },
+      upiId: {
+        type: String,
+      },
     },
     status: {
       type: String,
-      enum: ['pending', 'processing', 'processed', 'failed', 'cancelled'],
+      enum: ['pending', 'approved', 'rejected', 'processing', 'processed', 'failed', 'cancelled'],
       default: 'pending',
+    },
+    // Admin review tracking
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User', // Admin user
+    },
+    reviewedAt: Date,
+    adminNotes: String,
+    rejectionReason: String,
+    
+    // Processing tracking
+    processedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User', // Admin user
     },
     transactionId: {
       type: String,
@@ -51,6 +80,13 @@ const WithdrawalSchema = new mongoose.Schema(
     processedAt: Date,
     failureReason: String,
     notes: String,
+    
+    // Payment method for processing
+    paymentMethod: {
+      type: String,
+      enum: ['bank_transfer', 'upi', 'cheque'],
+      default: 'bank_transfer',
+    },
   },
   {
     timestamps: true,
@@ -58,9 +94,13 @@ const WithdrawalSchema = new mongoose.Schema(
 );
 
 // Index for better query performance
-WithdrawalSchema.index({ userId: 1, createdAt: -1 });
+WithdrawalSchema.index({ user: 1, createdAt: -1 });
+WithdrawalSchema.index({ userId: 1, createdAt: -1 }); // Legacy support
 WithdrawalSchema.index({ status: 1 });
+WithdrawalSchema.index({ userType: 1 });
 WithdrawalSchema.index({ transactionId: 1 });
+WithdrawalSchema.index({ reviewedBy: 1 });
+WithdrawalSchema.index({ processedBy: 1 });
 
 // Generate unique transaction ID
 WithdrawalSchema.pre('save', function (next) {

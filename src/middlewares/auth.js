@@ -7,45 +7,28 @@ const protect = async (req, res, next) => {
   try {
     let token;
 
-    // Debug logging
-    console.log('🔐 AUTH DEBUG - Headers:', {
-      authorization: req.headers.authorization,
-      userAgent: req.headers['user-agent'],
-      url: req.url,
-      method: req.method
-    });
-
     // Check for token in headers
     if (
       req.headers.authorization &&
       req.headers.authorization.startsWith("Bearer")
     ) {
       token = req.headers.authorization.split(" ")[1];
-      console.log('🔐 AUTH DEBUG - Token found, length:', token?.length);
     }
 
     // Make sure token exists
     if (!token) {
-      console.log('🔐 AUTH DEBUG - No token found');
       return next(new AppError("Not authorized to access this route", 401));
     }
 
     try {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log('🔐 AUTH DEBUG - Token decoded:', { 
-        id: decoded.id, 
-        isGuest: decoded.isGuest, 
-        isAdmin: decoded.isAdmin,
-        email: decoded.email 
-      });
 
       // Handle admin users
       if (decoded.isAdmin) {
         const admin = await Admin.findById(decoded.id);
         
         if (!admin) {
-          console.log('🔐 AUTH DEBUG - Admin not found in database:', decoded.id);
           return next(new AppError("Admin not found", 404));
         }
 
@@ -75,7 +58,6 @@ const protect = async (req, res, next) => {
           isServiceProvider: false,
           status: "active",
         };
-        console.log('🔐 AUTH DEBUG - Guest user authenticated');
         return next();
       }
 
@@ -83,20 +65,16 @@ const protect = async (req, res, next) => {
       const user = await User.findById(decoded.id);
 
       if (!user) {
-        console.log('🔐 AUTH DEBUG - User not found in database:', decoded.id);
         return next(new AppError("User not found", 404));
       }
 
       if (user.status !== "active") {
-        console.log('🔐 AUTH DEBUG - User account suspended:', user.email);
         return next(new AppError("Your account has been suspended", 403));
       }
 
-      console.log('🔐 AUTH DEBUG - User authenticated:', { email: user.email, id: user._id });
       req.user = user;
       next();
     } catch (err) {
-      console.log('🔐 AUTH DEBUG - Token verification failed:', err.message);
       return next(new AppError("Not authorized to access this route", 401));
     }
   } catch (error) {

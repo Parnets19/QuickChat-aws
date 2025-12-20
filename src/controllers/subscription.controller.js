@@ -70,13 +70,14 @@ const purchaseSubscription = async (req, res, next) => {
     // Create transaction
     await Transaction.create({
       user: user._id,
+      userType: 'User',
       type: 'debit',
       category: 'subscription',
       amount: subscription.price,
-      balanceBefore,
-      balanceAfter: user.wallet,
+      balance: user.wallet, // Balance after transaction
       status: 'completed',
       description: `Subscription: ${subscription.name}`,
+      transactionId: `SUB_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     });
 
     res.status(200).json({

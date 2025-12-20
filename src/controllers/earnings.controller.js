@@ -1,4 +1,4 @@
-const { User, EarningsTransaction, WithdrawalRequest, Consultation } = require('../models');
+const { User, EarningsTransaction, WithdrawalRequest, Consultation, Transaction } = require('../models');
 const { logger } = require('../utils/logger');
 
 // Get earnings overview
@@ -19,15 +19,14 @@ const getEarningsOverview = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Get current month earnings
+    // Get current month date range
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    console.log('📅 BACKEND: Checking monthly earnings from', startOfMonth, 'to', endOfMonth);
-    console.log('📅 BACKEND: Current date:', now);
+    console.log('📅 BACKEND: Checking monthly data from', startOfMonth, 'to', endOfMonth);
 
-    // Check earnings from both sources: transactions and completed consultations
+    // ===== EARNINGS DATA (as a provider) =====
     
     // 1. From earnings transactions
     const monthlyEarningsFromTransactions = await EarningsTransaction.aggregate([
@@ -47,7 +46,7 @@ const getEarningsOverview = async (req, res) => {
       }
     ]);
 
-    // 2. From completed consultations this month
+    // 2. From completed consultations this month (as provider)
     const monthlyEarningsFromConsultations = await Consultation.aggregate([
       {
         $match: {
@@ -104,12 +103,192 @@ const getEarningsOverview = async (req, res) => {
       }
     ]);
 
+    // ===== SPENDING DATA (as a client) =====
+    
+    // Get consultations where this user was the client (spending money)
+    const totalSpentOnConsultations = await Consultation.aggregate([
+      {
+        $match: {
+          user: user._id, // User was the client
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$totalAmount' }
+        }
+      }
+    ]);
+
+    // Get monthly spending (consultations as client this month)
+    const monthlySpentOnConsultations = await Consultation.aggregate([
+      {
+        $match: {
+          user: user._id, // User was the client
+          status: 'completed',
+          createdAt: { $gte: startOfMonth, $lte: endOfMonth }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$totalAmount' }
+        }
+      }
+    ]);
+
+    // Get spending from Transaction model (wallet debits for consultations)
+    const totalSpentFromTransactions = await Transaction.aggregate([
+      {
+        $match: {
+          user: user._id,
+          userType: 'User',
+          type: { $in: ['consultation_payment', 'wallet_debit'] },
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    // Get monthly spending from transactions
+    const monthlySpentFromTransactions = await Transaction.aggregate([
+      {
+        $match: {
+          user: user._id,
+          userType: 'User',
+          type: { $in: ['consultation_payment', 'wallet_debit'] },
+          status: 'completed',
+          createdAt: { $gte: startOfMonth, $lte: endOfMonth }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    const totalSpentConsultations = totalSpentOnConsultations[0]?.total || 0;
+    const totalSpentTransactions = totalSpentFromTransactions[0]?.total || 0;
+    const monthlySpentConsultations = monthlySpentOnConsultations[0]?.total || 0;
+    const monthlySpentTransactions = monthlySpentFromTransactions[0]?.total || 0;
+
+    // Check if user has totalSpent field (this might be where the spending is tracked)
+    const userTotalSpent = user.totalSpent || 0;
+    
+    // Use the highest value among all sources for accuracy
+    const totalSpent = Math.max(totalSpentConsultations, totalSpentTransactions, userTotalSpent);
+    const monthlySpent = Math.max(monthlySpentConsultations, monthlySpentTransactions);
+
+    console.log('💸 BACKEND: === SPENDING CALCULATION DEBUG ===');
+    console.log('💸 BACKEND: User.totalSpent field:', userTotalSpent);
+    console.log('💸 BACKEND: Total spent on consultations:', totalSpentConsultations);
+    console.log('💸 BACKEND: Total spent from transactions:', totalSpentTransactions);
+    console.log('💸 BACKEND: Final total spent (max):', totalSpent);
+
+    console.log('💸 BACKEND: Total spent on consultations:', totalSpentConsultations);
+    console.log('💸 BACKEND: Total spent from transactions:', totalSpentTransactions);
+    console.log('💸 BACKEND: Monthly spent:', monthlySpent);
+
+    // ===== SIMPLIFIED WALLET CALCULATION =====
+    
+    // Get manual deposits (money added to wallet)
+    const manualDeposits = await Transaction.aggregate([
+      {
+        $match: {
+          user: user._id,
+          userType: 'User',
+          type: { $in: ['deposit', 'wallet_credit', 'credit'] },
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    // SIMPLE CALCULATION:
+    // Current wallet balance (from database)
+    const currentWalletBalance = user.wallet || 0;
+    
+    // Total earnings (from user.earnings field)
+    const totalEarnings = user.earnings || 0;
+    
+    // Manual deposits (from transactions)
+    const totalDeposits = manualDeposits[0]?.total || 0;
+    
+    // Total income to wallet
+    const totalWalletIncome = totalEarnings + totalDeposits;
+    
+    // Total outflow (spending + withdrawals)
+    const totalWithdrawals = totalWithdrawn[0]?.total || 0;
+    const totalWalletOutflow = totalSpent + totalWithdrawals;
+    
+    // Calculate what the wallet balance SHOULD be
+    const calculatedBalance = totalWalletIncome - totalWalletOutflow;
+    
+    // Retention rate
+    const walletRetention = totalWalletIncome > 0 ? (currentWalletBalance / totalWalletIncome) * 100 : 0;
+
+    console.log('💰 BACKEND: === WALLET CALCULATION DEBUG ===');
+    console.log('💰 BACKEND: Total earnings (user.earnings):', totalEarnings);
+    console.log('💰 BACKEND: Manual deposits:', totalDeposits);
+    console.log('💰 BACKEND: Total wallet income:', totalWalletIncome);
+    console.log('💰 BACKEND: Total spent:', totalSpent);
+    console.log('💰 BACKEND: Total withdrawals:', totalWithdrawals);
+    console.log('💰 BACKEND: Total wallet outflow:', totalWalletOutflow);
+    console.log('💰 BACKEND: Current wallet balance (DB):', currentWalletBalance);
+    console.log('💰 BACKEND: Calculated balance (should be):', calculatedBalance);
+    console.log('💰 BACKEND: Difference:', currentWalletBalance - calculatedBalance);
+    console.log('💰 BACKEND: Wallet retention:', walletRetention.toFixed(2) + '%');
+
+    // ===== NET CALCULATIONS (SIMPLIFIED) =====
+    // Net earnings = Total earned - Total spent (business profit/loss)
+    const netEarnings = totalEarnings - totalSpent;
+    const netMonthly = totalMonthlyEarnings - monthlySpent;
+
+    console.log('🧮 BACKEND: Net earnings (business):', netEarnings);
+    console.log('🧮 BACKEND: Net monthly (business):', netMonthly);
+
     const stats = {
-      totalEarnings: user.earnings || 0,
-      walletBalance: user.wallet || 0,
+      // Earnings (as provider)
+      totalEarnings: totalEarnings,
       thisMonth: totalMonthlyEarnings,
       pending: pendingEarnings[0]?.total || 0,
-      withdrawn: totalWithdrawn[0]?.total || 0
+      
+      // Spending (as client)
+      totalSpent: totalSpent,
+      monthlySpent: monthlySpent,
+      
+      // Net calculations
+      netEarnings: netEarnings,
+      netMonthly: netMonthly,
+      
+      // Wallet & withdrawals
+      walletBalance: currentWalletBalance,
+      withdrawn: totalWithdrawals,
+      
+      // Wallet flow analysis (simplified and correct)
+      walletDeposits: totalDeposits,
+      walletWithdrawals: totalWithdrawals,
+      totalWalletIncome: totalWalletIncome,
+      totalWalletOutflow: totalWalletOutflow,
+      walletRetention: Math.round(walletRetention * 100) / 100,
+      earningsToWallet: totalEarnings,
+      
+      // Debug information
+      calculatedBalance: calculatedBalance,
+      balanceDifference: currentWalletBalance - calculatedBalance
     };
 
     // Check if user has any completed consultations
@@ -138,10 +317,14 @@ const getEarningsOverview = async (req, res) => {
           if (!existingTransaction) {
             // Create earnings transaction
             await EarningsTransaction.create({
-              userId: user._id,
+              user: user._id,
+              userType: 'User',
+              userId: user._id, // Keep for backward compatibility
               consultationId: consultation._id,
               type: 'earning',
+              category: 'consultation',
               amount: consultation.totalAmount,
+              balance: user.wallet + consultation.totalAmount, // Balance after earning
               description: `${consultation.type.charAt(0).toUpperCase() + consultation.type.slice(1)} Consultation`,
               status: 'completed',
               metadata: {
@@ -185,36 +368,110 @@ const getEarningsOverview = async (req, res) => {
 // Get transaction history
 const getTransactionHistory = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id;
     const { page = 1, limit = 20, type, status } = req.query;
 
-    const query = { userId };
-    if (type) query.type = type;
-    if (status) query.status = status;
+    console.log('📊 TRANSACTION HISTORY REQUEST:', {
+      userId,
+      page,
+      limit,
+      type,
+      status
+    });
 
-    const transactions = await EarningsTransaction.find(query)
+    // Get transactions from both models and combine them
+    
+    // 1. Get EarningsTransaction records (earnings, withdrawals)
+    const earningsQuery = { userId: userId };
+    if (type) earningsQuery.type = type;
+    if (status) earningsQuery.status = status;
+
+    const earningsTransactions = await EarningsTransaction.find(earningsQuery)
       .populate('consultationId', 'type duration')
       .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .lean();
 
-    const total = await EarningsTransaction.countDocuments(query);
+    console.log('💰 EARNINGS TRANSACTIONS:', earningsTransactions.length);
+
+    // 2. Get Transaction records (deposits, payments, etc.)
+    const transactionQuery = { 
+      user: userId,
+      userType: 'User'
+    };
+    if (type) transactionQuery.type = type;
+    if (status) transactionQuery.status = status;
+
+    const walletTransactions = await Transaction.find(transactionQuery)
+      .sort({ createdAt: -1 })
+      .lean();
+
+    console.log('💳 WALLET TRANSACTIONS:', walletTransactions.length);
+
+    // 3. Combine and normalize the transactions
+    const allTransactions = [
+      // EarningsTransaction records
+      ...earningsTransactions.map(tx => ({
+        _id: tx._id,
+        type: tx.type,
+        amount: tx.amount,
+        description: tx.description,
+        status: tx.status,
+        createdAt: tx.createdAt,
+        consultationId: tx.consultationId,
+        metadata: tx.metadata,
+        source: 'earnings' // To identify the source
+      })),
+      // Transaction records
+      ...walletTransactions.map(tx => ({
+        _id: tx._id,
+        type: tx.type,
+        amount: tx.amount,
+        description: tx.description,
+        status: tx.status,
+        createdAt: tx.createdAt,
+        balance: tx.balance,
+        paymentMethod: tx.paymentMethod,
+        paymentGateway: tx.paymentGateway,
+        metadata: tx.metadata,
+        source: 'wallet' // To identify the source
+      }))
+    ];
+
+    // 4. Sort by creation date (newest first)
+    allTransactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // 5. Apply pagination
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedTransactions = allTransactions.slice(startIndex, endIndex);
+
+    console.log('📋 COMBINED TRANSACTIONS:', {
+      total: allTransactions.length,
+      earnings: earningsTransactions.length,
+      wallet: walletTransactions.length,
+      paginated: paginatedTransactions.length
+    });
 
     res.json({
       success: true,
       data: {
-        transactions,
+        transactions: paginatedTransactions,
         pagination: {
-          current: page,
-          pages: Math.ceil(total / limit),
-          total
+          current: parseInt(page),
+          pages: Math.ceil(allTransactions.length / limit),
+          total: allTransactions.length
         }
       }
     });
 
   } catch (error) {
+    console.error('❌ ERROR getting transaction history:', error);
     logger.error('Error getting transaction history:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 };
 
@@ -269,7 +526,34 @@ const requestWithdrawal = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Check wallet balance
+    // NEW POLICY: Users can only withdraw 75% of their wallet balance
+    // 25% must remain as minimum balance
+    const maxWithdrawableAmount = Math.floor(user.wallet * 0.75);
+    const minimumBalance = user.wallet - maxWithdrawableAmount;
+
+    console.log('💰 WITHDRAWAL POLICY CHECK:', {
+      userId,
+      currentWallet: user.wallet,
+      requestedAmount: amount,
+      maxWithdrawable: maxWithdrawableAmount,
+      minimumBalance,
+      canWithdraw: amount <= maxWithdrawableAmount
+    });
+
+    // Check if requested amount exceeds 75% limit
+    if (amount > maxWithdrawableAmount) {
+      return res.status(400).json({ 
+        message: `You can only withdraw up to 75% of your wallet balance. Maximum withdrawable amount: ₹${maxWithdrawableAmount}`,
+        data: {
+          currentBalance: user.wallet,
+          maxWithdrawable: maxWithdrawableAmount,
+          minimumBalance,
+          requestedAmount: amount
+        }
+      });
+    }
+
+    // Check wallet balance (this should always pass now, but keeping for safety)
     if (user.wallet < amount) {
       return res.status(400).json({ message: 'Insufficient wallet balance' });
     }
@@ -283,7 +567,7 @@ const requestWithdrawal = async (req, res) => {
     const processingFee = Math.round(amount * 0.02);
     const netAmount = amount - processingFee;
 
-    // Create withdrawal request
+    // Create withdrawal request (DO NOT deduct from wallet yet - wait for admin approval)
     const withdrawal = new WithdrawalRequest({
       userId,
       amount,
@@ -295,30 +579,45 @@ const requestWithdrawal = async (req, res) => {
 
     await withdrawal.save();
 
-    // Deduct amount from wallet
-    user.wallet -= amount;
-    await user.save();
+    // NOTE: We DO NOT deduct from wallet here anymore
+    // The amount will be deducted only when admin approves the withdrawal
+    // This prevents double deduction and ensures proper approval workflow
 
-    // Create transaction record
+    // Create transaction record as pending
     const transaction = new EarningsTransaction({
-      userId,
+      user: userId,
+      userType: 'User',
+      userId, // Keep for backward compatibility
       type: 'withdrawal',
+      category: 'withdrawal',
       amount: -amount,
+      balance: user.wallet, // Balance remains same since withdrawal is pending
       description: `Withdrawal request - ${user.bankDetails.bankName} ****${user.bankDetails.accountNumber.slice(-4)}`,
       status: 'pending'
     });
 
     await transaction.save();
 
+    console.log('✅ WITHDRAWAL REQUEST CREATED:', {
+      withdrawalId: withdrawal._id,
+      amount,
+      netAmount,
+      status: 'pending',
+      walletNotDeducted: 'Amount will be deducted upon admin approval'
+    });
+
     res.json({
       success: true,
-      message: 'Withdrawal request submitted successfully',
+      message: 'Withdrawal request submitted successfully. It will be processed after admin approval.',
       data: {
         withdrawalId: withdrawal._id,
         amount,
         processingFee,
         netAmount,
-        status: 'pending'
+        status: 'pending',
+        maxWithdrawable: maxWithdrawableAmount,
+        minimumBalance,
+        note: 'Amount will be deducted from wallet upon admin approval'
       }
     });
 
@@ -343,10 +642,14 @@ const addEarnings = async (userId, consultationId, amount, description, metadata
 
     // Create transaction record
     const transaction = new EarningsTransaction({
-      userId,
+      user: userId,
+      userType: 'User',
+      userId, // Keep for backward compatibility
       consultationId,
       type: 'earning',
+      category: 'consultation',
       amount,
+      balance: user.wallet, // Balance after adding earnings
       description,
       status: 'completed',
       metadata
@@ -564,17 +867,17 @@ const fixUserWallet = async (req, res) => {
   }
 };
 
-// Add money to wallet (recharge)
-const addMoneyToWallet = async (req, res) => {
+// Update wallet balance (admin function)
+const updateWalletBalance = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const { amount, description = 'Wallet Recharge' } = req.body;
+    const { newBalance } = req.body;
     
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ message: 'Invalid amount' });
+    if (newBalance === undefined || newBalance < 0) {
+      return res.status(400).json({ message: 'Invalid balance amount' });
     }
     
-    console.log('💳 WALLET RECHARGE:', { userId, amount, description });
+    console.log('💰 UPDATING WALLET: User:', userId, 'New Balance:', newBalance);
     
     // Get user
     const user = await User.findById(userId);
@@ -582,44 +885,237 @@ const addMoneyToWallet = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     
-    // Add money to wallet
-    user.wallet = (user.wallet || 0) + amount;
+    const oldBalance = user.wallet || 0;
+    
+    // Update wallet balance
+    user.wallet = newBalance;
     await user.save();
     
-    // Create transaction record
-    const transaction = new EarningsTransaction({
-      userId,
-      type: 'recharge',
-      amount,
+    console.log('✅ WALLET UPDATED:', {
+      oldBalance,
+      newBalance,
+      difference: newBalance - oldBalance
+    });
+    
+    res.json({
+      success: true,
+      message: 'Wallet balance updated successfully',
+      data: {
+        oldBalance,
+        newBalance,
+        difference: newBalance - oldBalance
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Error updating wallet balance:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Add money to wallet (recharge)
+const addMoneyToWallet = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { amount, description = 'Wallet Recharge' } = req.body;
+    
+    console.log('💳 WALLET RECHARGE REQUEST:', { 
+      userId, 
+      amount, 
+      description,
+      userType: req.user.isGuest ? 'Guest' : 'User'
+    });
+    
+    // Validate amount
+    if (!amount || isNaN(amount) || amount <= 0) {
+      console.log('❌ Invalid amount:', amount);
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid amount. Amount must be a positive number.' 
+      });
+    }
+
+    // Convert amount to number to ensure it's numeric
+    const numericAmount = parseFloat(amount);
+    if (numericAmount <= 0 || numericAmount > 100000) {
+      console.log('❌ Amount out of range:', numericAmount);
+      return res.status(400).json({ 
+        success: false,
+        message: 'Amount must be between ₹1 and ₹100,000.' 
+      });
+    }
+    
+    // Get user
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log('❌ User not found:', userId);
+      return res.status(404).json({ 
+        success: false,
+        message: 'User not found' 
+      });
+    }
+    
+    console.log('👤 User found:', {
+      id: user._id,
+      name: user.fullName,
+      currentWallet: user.wallet
+    });
+    
+    // Store previous balance
+    const previousBalance = user.wallet || 0;
+    
+    // Add money to wallet
+    user.wallet = previousBalance + numericAmount;
+    await user.save();
+    
+    console.log('💰 Wallet updated:', {
+      previousBalance,
+      addedAmount: numericAmount,
+      newBalance: user.wallet
+    });
+    
+    // Create transaction record using the correct Transaction model
+    const transaction = new Transaction({
+      user: userId,
+      userType: 'User',
+      type: 'deposit',
+      category: 'deposit',
+      amount: numericAmount,
+      balance: user.wallet,
       description,
       status: 'completed',
+      paymentMethod: 'wallet', // Use 'wallet' instead of 'manual'
+      paymentGateway: 'manual', // Gateway can be 'manual'
+      transactionId: `WALLET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // Generate unique ID
       metadata: {
-        rechargeMethod: 'manual', // Later will be 'phonepe'
-        previousBalance: user.wallet - amount,
-        newBalance: user.wallet
+        rechargeMethod: 'manual',
+        previousBalance,
+        newBalance: user.wallet,
+        addedBy: 'user'
       }
     });
     
     await transaction.save();
     
-    console.log('✅ WALLET RECHARGED:', {
-      amount,
-      newBalance: user.wallet
+    console.log('✅ WALLET RECHARGED SUCCESSFULLY:', {
+      userId,
+      amount: numericAmount,
+      previousBalance,
+      newBalance: user.wallet,
+      transactionId: transaction._id
     });
     
     res.json({
       success: true,
       message: 'Money added to wallet successfully',
       data: {
-        amount,
+        amount: numericAmount,
+        previousBalance,
         newBalance: user.wallet,
-        transaction: transaction._id
+        transactionId: transaction._id,
+        description
       }
     });
     
   } catch (error) {
+    console.error('❌ ERROR adding money to wallet:', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.user?.id || req.user?._id,
+      requestBody: req.body
+    });
+    
     logger.error('Error adding money to wallet:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error while adding money to wallet',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+// Debug wallet calculations
+const debugWalletCalculations = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    
+    // Get user
+    const user = await User.findById(userId).select('wallet earnings fullName');
+    
+    // Get all transactions for this user
+    const allTransactions = await Transaction.find({
+      user: userId,
+      userType: 'User'
+    }).select('type amount status description createdAt').sort({ createdAt: -1 });
+    
+    // Get all consultations as provider
+    const providerConsultations = await Consultation.find({
+      provider: userId,
+      status: 'completed'
+    }).select('totalAmount type createdAt user');
+    
+    // Get all consultations as client
+    const clientConsultations = await Consultation.find({
+      user: userId,
+      status: 'completed'
+    }).select('totalAmount type createdAt provider');
+    
+    // Get withdrawals
+    const withdrawals = await WithdrawalRequest.find({
+      userId: userId
+    }).select('amount netAmount status createdAt');
+    
+    // Calculate totals step by step
+    const totalEarningsFromConsultations = providerConsultations.reduce((sum, c) => sum + (c.totalAmount || 0), 0);
+    const totalSpentOnConsultations = clientConsultations.reduce((sum, c) => sum + (c.totalAmount || 0), 0);
+    const totalWithdrawnProcessed = withdrawals.filter(w => ['processed', 'processing'].includes(w.status)).reduce((sum, w) => sum + (w.amount || 0), 0);
+    
+    // Get manual deposits
+    const deposits = allTransactions.filter(t => ['deposit', 'wallet_credit', 'credit'].includes(t.type) && t.status === 'completed');
+    const totalDeposits = deposits.reduce((sum, t) => sum + (t.amount || 0), 0);
+    
+    // Calculate expected wallet balance
+    const totalIncome = totalEarningsFromConsultations + totalDeposits;
+    const totalOutflow = totalSpentOnConsultations + totalWithdrawnProcessed;
+    const expectedWallet = totalIncome - totalOutflow;
+    
+    res.json({
+      success: true,
+      debug: {
+        user: {
+          name: user.fullName,
+          currentWallet: user.wallet,
+          storedEarnings: user.earnings
+        },
+        stepByStep: {
+          '1_earnings_from_consultations': totalEarningsFromConsultations,
+          '2_manual_deposits': totalDeposits,
+          '3_total_income': totalIncome,
+          '4_spent_on_consultations': totalSpentOnConsultations,
+          '5_withdrawn_processed': totalWithdrawnProcessed,
+          '6_total_outflow': totalOutflow,
+          '7_expected_wallet': expectedWallet,
+          '8_actual_wallet': user.wallet,
+          '9_difference': user.wallet - expectedWallet
+        },
+        counts: {
+          providerConsultations: providerConsultations.length,
+          clientConsultations: clientConsultations.length,
+          totalTransactions: allTransactions.length,
+          deposits: deposits.length,
+          withdrawals: withdrawals.length
+        },
+        recentTransactions: allTransactions.slice(0, 10),
+        providerConsultations: providerConsultations.slice(0, 5),
+        clientConsultations: clientConsultations.slice(0, 5),
+        withdrawals: withdrawals
+      }
+    });
+    
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
@@ -664,6 +1160,50 @@ const checkConsultationAffordability = async (req, res) => {
     
   } catch (error) {
     logger.error('Error checking consultation affordability:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get withdrawal limits (75% policy)
+const getWithdrawalLimits = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    
+    // Get user
+    const user = await User.findById(userId).select('wallet');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Calculate withdrawal limits based on 75% policy
+    const currentBalance = user.wallet || 0;
+    const maxWithdrawable = Math.floor(currentBalance * 0.75);
+    const minimumBalance = currentBalance - maxWithdrawable;
+    const withdrawalPercentage = 75;
+    const retentionPercentage = 25;
+
+    console.log('💰 WITHDRAWAL LIMITS:', {
+      userId,
+      currentBalance,
+      maxWithdrawable,
+      minimumBalance,
+      policy: '75% withdrawable, 25% retention'
+    });
+
+    res.json({
+      success: true,
+      data: {
+        currentBalance,
+        maxWithdrawable,
+        minimumBalance,
+        withdrawalPercentage,
+        retentionPercentage,
+        policy: 'You can withdraw up to 75% of your wallet balance. 25% must remain as minimum balance.'
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error getting withdrawal limits:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -715,5 +1255,8 @@ module.exports = {
   addTestEarnings,
   fixUserWallet,
   addMoneyToWallet,
-  checkConsultationAffordability
+  updateWalletBalance,
+  checkConsultationAffordability,
+  debugWalletCalculations,
+  getWithdrawalLimits
 };

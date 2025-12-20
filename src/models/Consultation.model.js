@@ -41,6 +41,34 @@ const ConsultationSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // Real-time billing fields
+    billingStarted: {
+      type: Boolean,
+      default: false,
+    },
+    lastBillingTime: Date,
+    // Call acceptance tracking
+    clientAccepted: {
+      type: Boolean,
+      default: false,
+    },
+    providerAccepted: {
+      type: Boolean,
+      default: false,
+    },
+    clientAcceptedAt: Date,
+    providerAcceptedAt: Date,
+    bothSidesAcceptedAt: Date, // When both sides have accepted - this is when billing starts
+    endReason: {
+      type: String,
+      enum: ['manual', 'insufficient_funds', 'provider_ended', 'system_error'],
+      default: 'manual',
+    },
+    userType: {
+      type: String,
+      enum: ['User', 'Guest'],
+      default: 'User',
+    },
     messages: [
       {
         sender: {

@@ -80,8 +80,18 @@ app.use(mongoSanitize()); // Prevent MongoDB injection
 // Initialize Socket.IO handlers
 initializeSocket(io);
 
+// Pass Socket.IO instance to billing controller for real-time updates
+const { setSocketIO } = require('./controllers/realTimeBilling.controller');
+setSocketIO(io);
+
 // Make io accessible in req
 app.set('io', io);
+
+// Middleware to attach io to request object
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
 
 // Health check
 app.get('/health', (req, res) => {
@@ -118,6 +128,18 @@ const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   await connectDB();
+
+  // Auto-process completed consultations every 30 seconds
+  const { autoProcessCompletedConsultations } = require('./auto_process_completed_consultations');
+  setInterval(async () => {
+    try {
+      await autoProcessCompletedConsultations();
+    } catch (error) {
+      console.error('❌ Auto-processing error:', error);
+    }
+  }, 30000); // 30 seconds
+
+  console.log('🔄 Auto-processing of completed consultations enabled (every 30 seconds)');
 
   httpServer.listen(PORT, () => {
     logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);

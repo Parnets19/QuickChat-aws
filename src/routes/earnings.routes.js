@@ -7,7 +7,10 @@ const {
   getEarningsChart,
   fixUserWallet,
   addMoneyToWallet,
-  checkConsultationAffordability
+  updateWalletBalance,
+  checkConsultationAffordability,
+  debugWalletCalculations,
+  getWithdrawalLimits
 } = require('../controllers/earnings.controller');
 const { protect, authorize } = require('../middlewares/auth');
 
@@ -89,6 +92,9 @@ router.get('/transactions', getTransactionHistory);
 // GET /api/earnings/withdrawals - Get withdrawal history
 router.get('/withdrawals', getWithdrawalHistory);
 
+// GET /api/earnings/withdrawal-limits - Get withdrawal limits (75% policy)
+router.get('/withdrawal-limits', getWithdrawalLimits);
+
 // POST /api/earnings/withdraw - Request withdrawal
 router.post('/withdraw', requestWithdrawal);
 
@@ -105,5 +111,11 @@ router.post('/add-money', addMoneyToWallet);
 
 // POST /api/earnings/check-affordability - Check if user can afford consultation
 router.post('/check-affordability', checkConsultationAffordability);
+
+// GET /api/earnings/debug - Debug wallet calculations
+router.get('/debug', debugWalletCalculations);
+
+// POST /api/earnings/update-balance - Update wallet balance (admin function)
+router.post('/update-balance', updateWalletBalance);
 
 module.exports = router;

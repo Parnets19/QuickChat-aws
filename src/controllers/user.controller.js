@@ -305,10 +305,14 @@ const updateProviderSettings = async (req, res, next) => {
 
     // Special handling for rates to ensure nested objects are properly updated
     if (updateData.rates) {
+      console.log('🔍 BACKEND DEBUG: Received rates data:', JSON.stringify(updateData.rates, null, 2));
+      
       // Ensure the current user has the proper nested structure
       const currentRates = currentUser.rates || {};
-      const currentPerMinute = currentRates.perMinute || { audio: 0, video: 0 };
-      const currentPerHour = currentRates.perHour || { audio: 0, video: 0 };
+      const currentPerMinute = currentRates.perMinute || { audioVideo: 0, audio: 0, video: 0 };
+      const currentPerHour = currentRates.perHour || { audioVideo: 0, audio: 0, video: 0 };
+
+      console.log('🔍 BACKEND DEBUG: Current rates in DB:', JSON.stringify(currentRates, null, 2));
 
       // Build the complete rates object with all nested structures
       const completeRates = {
@@ -317,28 +321,46 @@ const updateProviderSettings = async (req, res, next) => {
             ? updateData.rates.chat
             : currentRates.chat || 0,
 
-        // Ensure perMinute object always exists with both audio and video
+        // Ensure perMinute object always exists with audioVideo and legacy fields
         perMinute: {
+          audioVideo:
+            updateData.rates.perMinute?.audioVideo !== undefined
+              ? updateData.rates.perMinute.audioVideo
+              : currentPerMinute.audioVideo || 0,
+          // Legacy fields for backward compatibility
           audio:
             updateData.rates.perMinute?.audio !== undefined
               ? updateData.rates.perMinute.audio
-              : currentPerMinute.audio,
+              : (updateData.rates.perMinute?.audioVideo !== undefined
+                  ? updateData.rates.perMinute.audioVideo
+                  : currentPerMinute.audio || 0),
           video:
             updateData.rates.perMinute?.video !== undefined
               ? updateData.rates.perMinute.video
-              : currentPerMinute.video,
+              : (updateData.rates.perMinute?.audioVideo !== undefined
+                  ? updateData.rates.perMinute.audioVideo
+                  : currentPerMinute.video || 0),
         },
 
-        // Ensure perHour object always exists with both audio and video
+        // Ensure perHour object always exists with audioVideo and legacy fields
         perHour: {
+          audioVideo:
+            updateData.rates.perHour?.audioVideo !== undefined
+              ? updateData.rates.perHour.audioVideo
+              : currentPerHour.audioVideo || 0,
+          // Legacy fields for backward compatibility
           audio:
             updateData.rates.perHour?.audio !== undefined
               ? updateData.rates.perHour.audio
-              : currentPerHour.audio,
+              : (updateData.rates.perHour?.audioVideo !== undefined
+                  ? updateData.rates.perHour.audioVideo
+                  : currentPerHour.audio || 0),
           video:
             updateData.rates.perHour?.video !== undefined
               ? updateData.rates.perHour.video
-              : currentPerHour.video,
+              : (updateData.rates.perHour?.audioVideo !== undefined
+                  ? updateData.rates.perHour.audioVideo
+                  : currentPerHour.video || 0),
         },
 
         // Other rate fields
@@ -351,17 +373,27 @@ const updateProviderSettings = async (req, res, next) => {
         audio:
           updateData.rates.audio !== undefined
             ? updateData.rates.audio
-            : currentRates.audio || 0,
+            : (updateData.rates.perMinute?.audioVideo !== undefined || updateData.rates.perHour?.audioVideo !== undefined
+                ? (updateData.rates.defaultChargeType === 'per-minute' 
+                    ? (updateData.rates.perMinute?.audioVideo || 0)
+                    : (updateData.rates.perHour?.audioVideo || 0))
+                : currentRates.audio || 0),
         video:
           updateData.rates.video !== undefined
             ? updateData.rates.video
-            : currentRates.video || 0,
+            : (updateData.rates.perMinute?.audioVideo !== undefined || updateData.rates.perHour?.audioVideo !== undefined
+                ? (updateData.rates.defaultChargeType === 'per-minute' 
+                    ? (updateData.rates.perMinute?.audioVideo || 0)
+                    : (updateData.rates.perHour?.audioVideo || 0))
+                : currentRates.video || 0),
         chargeType:
           updateData.rates.chargeType ||
           updateData.rates.defaultChargeType ||
           currentRates.chargeType ||
           "per-minute",
       };
+
+      console.log('🔍 BACKEND DEBUG: Complete rates to save:', JSON.stringify(completeRates, null, 2));
 
       // Update the user with the complete rates structure
       await User.findByIdAndUpdate(

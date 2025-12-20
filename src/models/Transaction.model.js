@@ -26,10 +26,22 @@ const TransactionSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: [
-        'earning', 'withdrawal', 'refund', 'bonus', 'penalty',
-        'wallet_credit', 'consultation_payment', 'wallet_debit'
+        'credit', 'debit', 'earning', 'withdrawal', 'refund', 'bonus', 'penalty',
+        'wallet_credit', 'consultation_payment', 'wallet_debit', 'deposit', 'payout'
       ],
       required: true,
+    },
+    category: {
+      type: String,
+      enum: [
+        'consultation', 'deposit', 'withdrawal', 'refund', 'bonus', 'penalty',
+        'commission', 'fee', 'adjustment', 'transfer'
+      ],
+      required: true,
+    },
+    balance: {
+      type: Number,
+      required: true, // Balance after this transaction
     },
     amount: {
       type: Number,
@@ -47,8 +59,11 @@ const TransactionSchema = new mongoose.Schema(
     // Transaction ID for external payment gateways
     transactionId: {
       type: String,
-      unique: true,
-      sparse: true
+      sparse: true, // This allows multiple null values
+      default: function() {
+        // Generate unique transaction ID if not provided
+        return `TXN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      }
     },
     // Payment method used
     paymentMethod: {
@@ -56,6 +71,27 @@ const TransactionSchema = new mongoose.Schema(
       enum: ['wallet', 'upi', 'card', 'netbanking', 'bank_transfer', 'demo'],
       default: 'wallet'
     },
+    // Withdrawal reference
+    withdrawalId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Withdrawal',
+    },
+    
+    // Payment gateway details
+    paymentGateway: {
+      type: String,
+      enum: ['razorpay', 'stripe', 'paytm', 'phonepe', 'gpay', 'manual', 'demo'],
+    },
+    gatewayTransactionId: String,
+    gatewayResponse: mongoose.Schema.Types.Mixed,
+    
+    // Admin processing
+    processedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User', // Admin user
+    },
+    processedAt: Date,
+    
     metadata: {
       clientName: String,
       consultationType: String,
@@ -64,7 +100,11 @@ const TransactionSchema = new mongoose.Schema(
       providerId: mongoose.Schema.Types.ObjectId,
       previousBalance: Number,
       newBalance: Number,
-      bankDetails: mongoose.Schema.Types.Mixed
+      bankDetails: mongoose.Schema.Types.Mixed,
+      // Additional metadata for different transaction types
+      withdrawalDetails: mongoose.Schema.Types.Mixed,
+      depositDetails: mongoose.Schema.Types.Mixed,
+      consultationDetails: mongoose.Schema.Types.Mixed,
     },
   },
   {
@@ -73,8 +113,15 @@ const TransactionSchema = new mongoose.Schema(
 );
 
 // Index for better query performance
-TransactionSchema.index({ userId: 1, createdAt: -1 });
+TransactionSchema.index({ user: 1, createdAt: -1 });
+TransactionSchema.index({ userId: 1, createdAt: -1 }); // Legacy support
+TransactionSchema.index({ userType: 1 });
 TransactionSchema.index({ type: 1 });
+TransactionSchema.index({ category: 1 });
 TransactionSchema.index({ status: 1 });
+TransactionSchema.index({ consultationId: 1 });
+TransactionSchema.index({ withdrawalId: 1 });
+TransactionSchema.index({ transactionId: 1 });
+TransactionSchema.index({ processedBy: 1 });
 
 module.exports = mongoose.model('Transaction', TransactionSchema);
