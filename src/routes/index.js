@@ -16,6 +16,7 @@ const guestAuthRoutes = require('./guestAuth.routes');
 const guestWalletRoutes = require('./guestWallet.routes');
 const realTimeBillingRoutes = require('./realTimeBilling.routes');
 const walletRoutes = require('./wallet.routes');
+const chatRoutes = require('./chat.routes');
 
 const router = express.Router();
 
@@ -37,6 +38,7 @@ router.use('/guest-auth', guestAuthRoutes);
 router.use('/guest-wallet', guestWalletRoutes);
 router.use('/billing', realTimeBillingRoutes); // Real-time billing system
 router.use('/wallet', walletRoutes); // Wallet balance API
+router.use('/chat', chatRoutes); // Chat system
 
 module.exports = router;
 

@@ -18,7 +18,7 @@ router.get('/balance', protect, async (req, res) => {
 
     let user;
     if (isGuest) {
-      user = await Guest.findById(userId).select('wallet fullName');
+      user = await Guest.findById(userId).select('wallet name');
     } else {
       user = await User.findById(userId).select('wallet fullName totalSpent earnings');
     }
@@ -31,10 +31,11 @@ router.get('/balance', protect, async (req, res) => {
     }
 
     const walletBalance = user.wallet || 0;
+    const userName = isGuest ? user.name : user.fullName;
 
     console.log('💰 WALLET BALANCE RESPONSE:', {
       userId,
-      userName: user.fullName,
+      userName,
       walletBalance,
       totalSpent: user.totalSpent || 0,
       earnings: user.earnings || 0
@@ -46,7 +47,7 @@ router.get('/balance', protect, async (req, res) => {
         walletBalance,
         totalSpent: user.totalSpent || 0,
         earnings: user.earnings || 0,
-        userName: user.fullName
+        userName
       }
     });
 
