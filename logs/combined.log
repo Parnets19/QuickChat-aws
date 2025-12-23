@@ -5006,3 +5006,82 @@
 {"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:54:10"}
 {"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:54:14"}
 {"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:54:14"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:57:32"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:57:33"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:57:33"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:57:34"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:57:34"}
+{"level":"info","message":"User 6943f49e9dca7b2a6e56e1ae joined consultation 6949474493b729e30ad385af as client (1 total participants)","service":"skillhub-api","timestamp":"2025-12-22 18:57:34"}
+{"level":"info","message":"User 6943f49e9dca7b2a6e56e1ae joined consultation 6949474493b729e30ad385af as client (2 total participants)","service":"skillhub-api","timestamp":"2025-12-22 18:57:34"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 18:57:57"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 18:57:57"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 18:57:57"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 18:57:57"}
+{"level":"info","message":"User 693bb59f52886864ad343644 joined consultation 6949474493b729e30ad385af as provider (3 total participants)","service":"skillhub-api","timestamp":"2025-12-22 18:57:57"}
+{"level":"info","message":"User 693bb59f52886864ad343644 joined consultation 6949474493b729e30ad385af as provider (4 total participants)","service":"skillhub-api","timestamp":"2025-12-22 18:57:57"}
+{"level":"info","message":"Consultation ended by user 693bb59f52886864ad343644: 6949474493b729e30ad385af","service":"skillhub-api","timestamp":"2025-12-22 18:58:34"}
+{"level":"error","message":"Can only end ongoing consultations","service":"skillhub-api","stack":"Error: Can only end ongoing consultations\n    at endConsultation (D:\\quickchat\\Quick-chat-backend\\src\\controllers\\consultation.controller.js:576:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":400,"timestamp":"2025-12-22 18:58:35"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 18:58:39"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:58:41"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:59:23"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:59:23"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 18:59:32"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 18:59:32"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:59:47"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:59:48"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:59:48"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:59:49"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 18:59:49"}
+{"level":"info","message":"User 6943f49e9dca7b2a6e56e1ae joined consultation 694947cb93b729e30ad38c81 as client (1 total participants)","service":"skillhub-api","timestamp":"2025-12-22 18:59:49"}
+{"level":"info","message":"User 6943f49e9dca7b2a6e56e1ae joined consultation 694947cb93b729e30ad38c81 as client (2 total participants)","service":"skillhub-api","timestamp":"2025-12-22 18:59:49"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:00:00"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:00:00"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:00:00"}
+{"level":"info","message":"User 693bb59f52886864ad343644 joined consultation 694947cb93b729e30ad38c81 as provider (3 total participants)","service":"skillhub-api","timestamp":"2025-12-22 19:00:00"}
+{"level":"info","message":"User 693bb59f52886864ad343644 joined consultation 694947cb93b729e30ad38c81 as provider (4 total participants)","service":"skillhub-api","timestamp":"2025-12-22 19:00:00"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:00:48"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:00:48"}
+{"level":"info","message":"Consultation ended by user 6943f49e9dca7b2a6e56e1ae: 694947cb93b729e30ad38c81","service":"skillhub-api","timestamp":"2025-12-22 19:00:56"}
+{"level":"error","message":"Can only end ongoing consultations","service":"skillhub-api","stack":"Error: Can only end ongoing consultations\n    at endConsultation (D:\\quickchat\\Quick-chat-backend\\src\\controllers\\consultation.controller.js:576:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":400,"timestamp":"2025-12-22 19:00:56"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:04"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:01:08"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:33"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:33"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:33"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:33"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:33"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:33"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:33"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:33"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:01:38"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:01:38"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:01:38"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:01:38"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:01:38"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:01:38"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:40"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:01:41"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:01:49"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:01:50"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:02:02"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:02:02"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:08:55"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:08:55"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:09:03"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:09:04"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:09:04"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:09:05"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:09:05"}
+{"level":"info","message":"User 6943f49e9dca7b2a6e56e1ae joined consultation 694949f693b729e30ad39893 as client (1 total participants)","service":"skillhub-api","timestamp":"2025-12-22 19:09:05"}
+{"level":"info","message":"User 6943f49e9dca7b2a6e56e1ae joined consultation 694949f693b729e30ad39893 as client (2 total participants)","service":"skillhub-api","timestamp":"2025-12-22 19:09:05"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:09:14"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:09:14"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:09:14"}
+{"level":"info","message":"User 693bb59f52886864ad343644 joined consultation 694949f693b729e30ad39893 as provider (3 total participants)","service":"skillhub-api","timestamp":"2025-12-22 19:09:15"}
+{"level":"info","message":"User 693bb59f52886864ad343644 joined consultation 694949f693b729e30ad39893 as provider (4 total participants)","service":"skillhub-api","timestamp":"2025-12-22 19:09:15"}
+{"level":"info","message":"Consultation ended by user 693bb59f52886864ad343644: 694949f693b729e30ad39893","service":"skillhub-api","timestamp":"2025-12-22 19:09:35"}
+{"level":"error","message":"Can only end ongoing consultations","service":"skillhub-api","stack":"Error: Can only end ongoing consultations\n    at endConsultation (D:\\quickchat\\Quick-chat-backend\\src\\controllers\\consultation.controller.js:576:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":400,"timestamp":"2025-12-22 19:09:36"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:09:40"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:09:44"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:10:09"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:10:09"}

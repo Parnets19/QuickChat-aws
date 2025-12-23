@@ -19,6 +19,17 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
+// Ensure uploads directory exists
+const fs = require('fs');
+const path = require('path');
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  logger.info('✅ Created uploads directory at startup');
+} else {
+  logger.info('✅ Uploads directory exists');
+}
+
 // Initialize Socket.IO
 const io = new Server(httpServer, {
   cors: {
