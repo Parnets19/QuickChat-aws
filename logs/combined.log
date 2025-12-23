@@ -5085,3 +5085,32 @@
 {"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-22 19:09:44"}
 {"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:10:09"}
 {"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-22 19:10:09"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 10:44:21"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 10:44:22"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 10:44:22"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 10:44:22"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 10:44:22"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-23 10:44:35"}
+{"level":"info","message":"User connected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-23 10:44:35"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 10:44:48"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 10:44:48"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 10:44:59"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 10:44:59"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 10:45:00"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 10:45:03"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 10:45:04"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 10:45:20"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-23 10:46:47"}
+{"level":"info","message":"User disconnected: 6943f49e9dca7b2a6e56e1ae","service":"skillhub-api","timestamp":"2025-12-23 10:46:48"}
+{"level":"info","message":"Deleted existing user with mobile 9090909090 for re-registration in development mode","service":"skillhub-api","timestamp":"2025-12-23 10:48:35"}
+{"level":"warn","message":"Your OTP for Quick Chat is: 212931. Valid for 10 m...","mobile":"9090909090","service":"skillhub-api","timestamp":"2025-12-23 10:48:35"}
+{"level":"warn","message":"Cloudinary not configured, using local file path","service":"skillhub-api","timestamp":"2025-12-23 10:49:00"}
+{"level":"error","message":"Invalid file type. Only images and documents are allowed.","service":"skillhub-api","stack":"Error: Invalid file type. Only images and documents are allowed.\n    at fileFilter (D:\\quickchat\\Quick-chat-backend\\src\\middlewares\\upload.js:26:8)\n    at wrappedFileFilter (D:\\quickchat\\Quick-chat-backend\\node_modules\\multer\\index.js:44:7)\n    at Multipart.<anonymous> (D:\\quickchat\\Quick-chat-backend\\node_modules\\multer\\lib\\make-middleware.js:109:7)\n    at Multipart.emit (node:events:519:28)\n    at HeaderParser.cb (D:\\quickchat\\Quick-chat-backend\\node_modules\\busboy\\lib\\types\\multipart.js:358:14)\n    at HeaderParser.push (D:\\quickchat\\Quick-chat-backend\\node_modules\\busboy\\lib\\types\\multipart.js:162:20)\n    at SBMH.ssCb [as _cb] (D:\\quickchat\\Quick-chat-backend\\node_modules\\busboy\\lib\\types\\multipart.js:394:37)\n    at feed (D:\\quickchat\\Quick-chat-backend\\node_modules\\streamsearch\\lib\\sbmh.js:219:14)\n    at SBMH.push (D:\\quickchat\\Quick-chat-backend\\node_modules\\streamsearch\\lib\\sbmh.js:104:16)\n    at Multipart._write (D:\\quickchat\\Quick-chat-backend\\node_modules\\busboy\\lib\\types\\multipart.js:567:19)","statusCode":400,"storageErrors":[],"timestamp":"2025-12-23 10:49:00"}
+{"level":"warn","message":"Cloudinary not configured, using local file path","service":"skillhub-api","timestamp":"2025-12-23 10:49:01"}
+{"address":"::1","code":"ESOCKET","command":"CONN","errno":-4078,"level":"error","message":"Email send error: connect ECONNREFUSED ::1:587","port":587,"service":"skillhub-api","stack":"Error: connect ECONNREFUSED ::1:587\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)","syscall":"connect","timestamp":"2025-12-23 10:49:01"}
+{"level":"info","message":"User connected: 694a26453e8315ccdd2d7b3a","service":"skillhub-api","timestamp":"2025-12-23 10:49:01"}
+{"level":"info","message":"User connected: 694a26453e8315ccdd2d7b3a","service":"skillhub-api","timestamp":"2025-12-23 10:49:03"}
+{"level":"info","message":"User disconnected: 694a26453e8315ccdd2d7b3a","service":"skillhub-api","timestamp":"2025-12-23 10:49:13"}
+{"level":"info","message":"User connected: 694a26453e8315ccdd2d7b3a","service":"skillhub-api","timestamp":"2025-12-23 10:49:13"}
+{"level":"info","message":"User connected: 694a26453e8315ccdd2d7b3a","service":"skillhub-api","timestamp":"2025-12-23 10:49:13"}
+{"level":"warn","message":"Cloudinary not configured, using local file path","service":"skillhub-api","timestamp":"2025-12-23 10:50:37"}
