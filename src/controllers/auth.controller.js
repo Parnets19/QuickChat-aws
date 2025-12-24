@@ -136,7 +136,7 @@ const register = async (req, res, next) => {
     const {
       fullName, mobile, email, password,
       dateOfBirth, gender, place, address,
-      profession, education, hobbies, skills, languagesKnown, bio,
+      profession, education, hobbies, skills, hobbiesSkills, languagesKnown, bio,
       serviceCategories, consultationModes, rates, availability,
       aadharNumber, profilePhoto, aadharDocuments, portfolioMedia,
       bankDetails,
@@ -150,6 +150,7 @@ const register = async (req, res, next) => {
       profession, education,
       hobbiesCount: hobbies?.length,
       skillsCount: skills?.length,
+      hobbiesSkillsCount: hobbiesSkills?.length,
       languagesCount: languagesKnown?.length,
       categoriesCount: serviceCategories?.length,
       consultationModes,
@@ -215,8 +216,14 @@ const register = async (req, res, next) => {
     if (place) userData.place = place;
     if (profession) userData.profession = profession;
     if (education) userData.education = education;
-    if (hobbies && hobbies.length > 0) userData.hobbies = hobbies;
-    if (skills && skills.length > 0) userData.skills = skills;
+    // Handle both legacy separate fields and new combined field
+    if (hobbiesSkills && hobbiesSkills.length > 0) {
+      userData.hobbies = hobbiesSkills;
+      userData.skills = hobbiesSkills;
+    } else {
+      if (hobbies && hobbies.length > 0) userData.hobbies = hobbies;
+      if (skills && skills.length > 0) userData.skills = skills;
+    }
     if (languagesKnown && languagesKnown.length > 0) userData.languagesKnown = languagesKnown;
     if (bio) userData.bio = bio;
     if (aadharNumber) userData.aadharNumber = aadharNumber;
