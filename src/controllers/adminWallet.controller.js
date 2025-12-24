@@ -557,39 +557,16 @@ const approveWithdrawal = async (req, res) => {
       });
     }
 
-    // Check if user has sufficient balance
+    // Check if user has sufficient balance (this is now just a safety check)
     const user = withdrawal.user;
-    if (user.wallet < withdrawal.amount) {
-      return res.status(400).json({
-        success: false,
-        message: 'User has insufficient balance for this withdrawal'
-      });
-    }
-
-    // NEW POLICY: Check 75% withdrawal limit
-    const maxWithdrawableAmount = Math.floor(user.wallet * 0.75);
-    if (withdrawal.amount > maxWithdrawableAmount) {
-      return res.status(400).json({
-        success: false,
-        message: `Withdrawal amount exceeds 75% limit. Maximum withdrawable: ₹${maxWithdrawableAmount}`,
-        data: {
-          currentBalance: user.wallet,
-          maxWithdrawable: maxWithdrawableAmount,
-          requestedAmount: withdrawal.amount
-        }
-      });
-    }
-
-    console.log('💰 ADMIN APPROVAL: Deducting withdrawal amount from wallet', {
+    
+    // Since money is already deducted when withdrawal was requested, we just need to verify
+    console.log('✅ ADMIN APPROVAL: Money was already deducted when withdrawal was requested', {
       userId: user._id,
       currentWallet: user.wallet,
       withdrawalAmount: withdrawal.amount,
-      newWallet: user.wallet - withdrawal.amount
+      note: 'No additional deduction needed'
     });
-
-    // Deduct amount from user wallet (this is when the money is actually taken)
-    user.wallet -= withdrawal.amount;
-    await user.save();
 
     // Update withdrawal status
     withdrawal.status = 'approved';
@@ -598,9 +575,63 @@ const approveWithdrawal = async (req, res) => {
     withdrawal.adminNotes = adminNotes;
     await withdrawal.save();
 
-    console.log('✅ ADMIN APPROVAL: Withdrawal approved and wallet updated', {
+    // IMPORTANT: Update the corresponding Transaction record to approved status
+    // Use multiple methods to find the transaction for reliability
+    let transactionUpdateResult = null;
+    
+    // Method 1: Try with metadata.withdrawalId
+    transactionUpdateResult = await Transaction.updateOne(
+      { 
+        user: withdrawal.user._id,
+        userType: withdrawal.userType,
+        type: 'withdrawal',
+        status: 'pending',
+        'metadata.withdrawalId': withdrawal._id
+      },
+      { 
+        status: 'approved',
+        description: `Withdrawal approved - ${withdrawal.bankDetails.bankName || 'Bank'} ****${withdrawal.bankDetails.accountNumber.slice(-4)}`,
+        'metadata.adminNotes': adminNotes,
+        'metadata.approvedBy': req.user._id,
+        'metadata.approvedAt': new Date()
+      }
+    );
+    
+    // Method 2: If metadata method failed, try by amount and time
+    if (transactionUpdateResult.matchedCount === 0) {
+      console.log('⚠️ Metadata method failed, trying alternative method...');
+      const timeBuffer = 60000; // 1 minute
+      transactionUpdateResult = await Transaction.updateOne(
+        {
+          user: withdrawal.user._id,
+          userType: withdrawal.userType,
+          type: 'withdrawal',
+          amount: -withdrawal.amount,
+          status: 'pending',
+          createdAt: {
+            $gte: new Date(withdrawal.createdAt.getTime() - timeBuffer),
+            $lte: new Date(withdrawal.createdAt.getTime() + timeBuffer)
+          }
+        },
+        { 
+          status: 'approved',
+          description: `Withdrawal approved - ${withdrawal.bankDetails.bankName || 'Bank'} ****${withdrawal.bankDetails.accountNumber.slice(-4)}`,
+          'metadata.adminNotes': adminNotes,
+          'metadata.approvedBy': req.user._id,
+          'metadata.approvedAt': new Date(),
+          'metadata.withdrawalId': withdrawal._id // Add the missing withdrawalId
+        }
+      );
+    }
+    
+    console.log('📊 Transaction update result:', {
+      matchedCount: transactionUpdateResult.matchedCount,
+      modifiedCount: transactionUpdateResult.modifiedCount
+    });
+
+    console.log('✅ ADMIN APPROVAL: Withdrawal approved, money remains deducted', {
       withdrawalId: withdrawal._id,
-      newWalletBalance: user.wallet,
+      currentWalletBalance: user.wallet,
       status: 'approved'
     });
 
@@ -659,17 +690,109 @@ const rejectWithdrawal = async (req, res) => {
       });
     }
 
-    // Update withdrawal status (no wallet changes needed since money wasn't deducted yet)
+    // REFUND: Add money back to wallet since it was deducted when withdrawal was requested
+    const user = withdrawal.user;
+    
+    console.log('💰 ADMIN REJECTION: Refunding withdrawal amount back to wallet', {
+      userId: user._id,
+      currentWallet: user.wallet,
+      refundAmount: withdrawal.amount,
+      newWallet: user.wallet + withdrawal.amount
+    });
+
+    user.wallet += withdrawal.amount;
+    await user.save();
+
+    // Update withdrawal status (money has been refunded)
     withdrawal.status = 'rejected';
     withdrawal.reviewedBy = req.user._id;
     withdrawal.reviewedAt = new Date();
     withdrawal.rejectionReason = rejectionReason;
     await withdrawal.save();
 
-    console.log('❌ ADMIN REJECTION: Withdrawal rejected, no wallet changes', {
+    // IMPORTANT: Update the corresponding Transaction record to rejected status
+    // Use multiple methods to find the transaction for reliability
+    let transactionUpdateResult = null;
+    
+    // Method 1: Try with metadata.withdrawalId
+    transactionUpdateResult = await Transaction.updateOne(
+      { 
+        user: withdrawal.user._id,
+        userType: withdrawal.userType,
+        type: 'withdrawal',
+        status: 'pending',
+        'metadata.withdrawalId': withdrawal._id
+      },
+      { 
+        status: 'rejected',
+        description: `Withdrawal rejected - ${rejectionReason} (Amount refunded)`,
+        'metadata.rejectionReason': rejectionReason,
+        'metadata.rejectedBy': req.user._id,
+        'metadata.rejectedAt': new Date(),
+        'metadata.refunded': true,
+        'metadata.refundAmount': withdrawal.amount
+      }
+    );
+    
+    // Method 2: If metadata method failed, try by amount and time
+    if (transactionUpdateResult.matchedCount === 0) {
+      console.log('⚠️ Metadata method failed, trying alternative method...');
+      const timeBuffer = 60000; // 1 minute
+      transactionUpdateResult = await Transaction.updateOne(
+        {
+          user: withdrawal.user._id,
+          userType: withdrawal.userType,
+          type: 'withdrawal',
+          amount: -withdrawal.amount,
+          status: 'pending',
+          createdAt: {
+            $gte: new Date(withdrawal.createdAt.getTime() - timeBuffer),
+            $lte: new Date(withdrawal.createdAt.getTime() + timeBuffer)
+          }
+        },
+        { 
+          status: 'rejected',
+          description: `Withdrawal rejected - ${rejectionReason} (Amount refunded)`,
+          'metadata.rejectionReason': rejectionReason,
+          'metadata.rejectedBy': req.user._id,
+          'metadata.rejectedAt': new Date(),
+          'metadata.refunded': true,
+          'metadata.refundAmount': withdrawal.amount,
+          'metadata.withdrawalId': withdrawal._id // Add the missing withdrawalId
+        }
+      );
+    }
+    
+    console.log('📊 Transaction update result:', {
+      matchedCount: transactionUpdateResult.matchedCount,
+      modifiedCount: transactionUpdateResult.modifiedCount
+    });
+
+    // Create a refund transaction record for transparency
+    const refundTransaction = new Transaction({
+      user: withdrawal.user._id,
+      userType: withdrawal.userType,
+      type: 'refund',
+      category: 'refund',
+      amount: withdrawal.amount,
+      balance: user.wallet,
+      description: `Withdrawal refund - ${rejectionReason}`,
+      status: 'completed',
+      metadata: {
+        originalWithdrawalId: withdrawal._id,
+        refundReason: rejectionReason,
+        refundedBy: req.user._id,
+        refundedAt: new Date()
+      }
+    });
+
+    await refundTransaction.save();
+
+    console.log('✅ ADMIN REJECTION: Withdrawal rejected and amount refunded', {
       withdrawalId: withdrawal._id,
       userId: withdrawal.user._id,
-      amount: withdrawal.amount,
+      refundAmount: withdrawal.amount,
+      newWalletBalance: user.wallet,
       reason: rejectionReason
     });
 

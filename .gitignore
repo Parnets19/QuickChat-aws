@@ -123,10 +123,6 @@ Thumbs.db
 *.sqlite3
 *.db
 
-# Upload directories
-uploads/
-public/uploads/
-
 # SSL certificates
 *.pem
 *.key

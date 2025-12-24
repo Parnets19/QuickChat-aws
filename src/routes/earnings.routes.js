@@ -71,17 +71,40 @@ router.get('/test-monthly', async (req, res) => {
 
 
 
-// All routes require authentication and provider role
+// All routes require authentication
 router.use(protect);
 router.use((req, res, next) => {
   console.log('🔍 EARNINGS ROUTE: User authenticated:', {
     userId: req.user?.id || req.user?._id,
     isServiceProvider: req.user?.isServiceProvider,
+    isGuest: req.user?.isGuest,
     userExists: !!req.user
   });
   next();
 });
-router.use(authorize('provider'));
+
+// Middleware to check if user can access earnings (providers or guests with earnings)
+const canAccessEarnings = (req, res, next) => {
+  const user = req.user;
+  
+  // Allow service providers
+  if (user?.isServiceProvider) {
+    return next();
+  }
+  
+  // Allow guests (they can have earnings from referrals, etc.)
+  if (user?.isGuest) {
+    return next();
+  }
+  
+  // For regular users, they need to be service providers
+  return res.status(403).json({
+    success: false,
+    message: 'You must be a service provider or guest to access earnings features'
+  });
+};
+
+router.use(canAccessEarnings);
 
 // GET /api/earnings/overview - Get earnings overview
 router.get('/overview', getEarningsOverview);

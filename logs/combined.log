@@ -5114,3 +5114,434 @@
 {"level":"info","message":"User connected: 694a26453e8315ccdd2d7b3a","service":"skillhub-api","timestamp":"2025-12-23 10:49:13"}
 {"level":"info","message":"User connected: 694a26453e8315ccdd2d7b3a","service":"skillhub-api","timestamp":"2025-12-23 10:49:13"}
 {"level":"warn","message":"Cloudinary not configured, using local file path","service":"skillhub-api","timestamp":"2025-12-23 10:50:37"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 15:18:36"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 15:18:37"}
+{"level":"info","message":"✅ Created uploads directory at startup","service":"skillhub-api","timestamp":"2025-12-23 15:18:38"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 15:18:39"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 15:18:39"}
+{"level":"error","message":"Not authorized to access this route","service":"skillhub-api","stack":"Error: Not authorized to access this route\n    at protect (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\middlewares\\auth.js:78:19)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\route.js:149:13)\n    at Route.dispatch (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\route.js:119:3)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:284:15\n    at Function.process_params (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:175:3)\n    at router (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:47:12)","statusCode":401,"timestamp":"2025-12-23 15:19:30"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:312:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":401,"timestamp":"2025-12-23 15:19:38"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:323:19)","statusCode":401,"timestamp":"2025-12-23 15:37:57"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:38:08"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:38:08"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:49:44"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:49:44"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:49:44"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:49:50"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:49:52"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:52:46"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:52:46"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:52:51"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:52:51"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:52:56"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 15:57:55"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 15:57:59"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 15:57:59"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 15:58:00"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 15:58:00"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:58:02"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:58:04"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:58:22"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:58:22"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:58:29"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 15:58:29"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:00:58"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:00:58"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:01:19"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:01:20"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:01:58"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:01:58"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:02:23"}
+{"level":"info","message":"User connected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:02:24"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:04:16"}
+{"level":"info","message":"User disconnected: 693bb59f52886864ad343644","service":"skillhub-api","timestamp":"2025-12-23 16:04:16"}
+{"level":"info","message":"Deleted existing user with mobile 9876543211 for re-registration in development mode","service":"skillhub-api","timestamp":"2025-12-23 16:10:10"}
+{"level":"warn","message":"Your OTP for Quick Chat is: 934216. Valid for 10 m...","mobile":"9876543211","service":"skillhub-api","timestamp":"2025-12-23 16:10:10"}
+{"level":"warn","message":"Cloudinary not configured, using local file path","service":"skillhub-api","timestamp":"2025-12-23 16:10:31"}
+{"level":"warn","message":"Cloudinary not configured, using local file path","service":"skillhub-api","timestamp":"2025-12-23 16:10:31"}
+{"level":"warn","message":"Cloudinary not configured, using local file path","service":"skillhub-api","timestamp":"2025-12-23 16:10:31"}
+{"address":"::1","code":"ESOCKET","command":"CONN","errno":-4078,"level":"error","message":"Email send error: connect ECONNREFUSED ::1:587","port":587,"service":"skillhub-api","stack":"Error: connect ECONNREFUSED ::1:587\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)","syscall":"connect","timestamp":"2025-12-23 16:10:33"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:10:33"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:10:36"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:11:02"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:11:03"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:324:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":401,"timestamp":"2025-12-23 16:12:48"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:335:19)","statusCode":401,"timestamp":"2025-12-23 16:24:20"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:335:19)","statusCode":401,"timestamp":"2025-12-23 16:24:39"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:335:19)","statusCode":401,"timestamp":"2025-12-23 16:25:10"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 16:25:25"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 16:25:26"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 16:25:26"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 16:25:27"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 16:25:27"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:327:19)","statusCode":401,"timestamp":"2025-12-23 16:25:30"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:29:59"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:30:00"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:30:27"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:30:27"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:30:31"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:30:31"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:31:14"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:31:15"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:31:15"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:31:25"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:31:26"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:31:26"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:31:26"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:31:26"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:316:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":401,"timestamp":"2025-12-23 16:31:44"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:316:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":401,"timestamp":"2025-12-23 16:31:52"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:316:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":401,"timestamp":"2025-12-23 16:31:59"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:327:19)","statusCode":401,"timestamp":"2025-12-23 16:32:20"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:36"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:36"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:41"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:41"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:41"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:48"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:48"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:48"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:49"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:49"}
+{"level":"info","message":"User connected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:42:49"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:44:36"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:44:36"}
+{"level":"info","message":"User disconnected: 694a74cfca1aa10d60f7230d","service":"skillhub-api","timestamp":"2025-12-23 16:44:36"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:327:19)","statusCode":401,"timestamp":"2025-12-23 16:45:00"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:09"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:10"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:12"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:13"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:13"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:24"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:24"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:24"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:25"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:25"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 16:45:25"}
+{"_message":"Withdrawal validation failed","errors":{"user":{"kind":"required","message":"Path `user` is required.","name":"ValidatorError","path":"user","properties":{"message":"Path `user` is required.","path":"user","type":"required"}}},"level":"error","message":"Error requesting withdrawal: Withdrawal validation failed: user: Path `user` is required.","service":"skillhub-api","stack":"ValidationError: Withdrawal validation failed: user: Path `user` is required.\n    at Document.invalidate (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3362:32)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3123:17\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\schemaType.js:1446:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)","timestamp":"2025-12-23 16:45:33"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:316:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":401,"timestamp":"2025-12-23 16:50:08"}
+{"_message":"Withdrawal validation failed","errors":{"user":{"kind":"required","message":"Path `user` is required.","name":"ValidatorError","path":"user","properties":{"message":"Path `user` is required.","path":"user","type":"required"}}},"level":"error","message":"Error requesting withdrawal: Withdrawal validation failed: user: Path `user` is required.","service":"skillhub-api","stack":"ValidationError: Withdrawal validation failed: user: Path `user` is required.\n    at Document.invalidate (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3362:32)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3123:17\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\schemaType.js:1446:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)","timestamp":"2025-12-23 16:52:31"}
+{"_message":"Withdrawal validation failed","errors":{"user":{"kind":"required","message":"Path `user` is required.","name":"ValidatorError","path":"user","properties":{"message":"Path `user` is required.","path":"user","type":"required"}}},"level":"error","message":"Error requesting withdrawal: Withdrawal validation failed: user: Path `user` is required.","service":"skillhub-api","stack":"ValidationError: Withdrawal validation failed: user: Path `user` is required.\n    at Document.invalidate (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3362:32)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3123:17\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\schemaType.js:1446:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)","timestamp":"2025-12-23 16:53:10"}
+{"_message":"Withdrawal validation failed","errors":{"user":{"kind":"required","message":"Path `user` is required.","name":"ValidatorError","path":"user","properties":{"message":"Path `user` is required.","path":"user","type":"required"}}},"level":"error","message":"Error requesting withdrawal: Withdrawal validation failed: user: Path `user` is required.","service":"skillhub-api","stack":"ValidationError: Withdrawal validation failed: user: Path `user` is required.\n    at Document.invalidate (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3362:32)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3123:17\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\schemaType.js:1446:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)","timestamp":"2025-12-23 16:53:36"}
+{"_message":"Withdrawal validation failed","errors":{"user":{"kind":"required","message":"Path `user` is required.","name":"ValidatorError","path":"user","properties":{"message":"Path `user` is required.","path":"user","type":"required"}}},"level":"error","message":"Error requesting withdrawal: Withdrawal validation failed: user: Path `user` is required.","service":"skillhub-api","stack":"ValidationError: Withdrawal validation failed: user: Path `user` is required.\n    at Document.invalidate (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3362:32)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3123:17\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\schemaType.js:1446:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)","timestamp":"2025-12-23 16:54:23"}
+{"_message":"Withdrawal validation failed","errors":{"user":{"kind":"required","message":"Path `user` is required.","name":"ValidatorError","path":"user","properties":{"message":"Path `user` is required.","path":"user","type":"required"}}},"level":"error","message":"Error requesting withdrawal: Withdrawal validation failed: user: Path `user` is required.","service":"skillhub-api","stack":"ValidationError: Withdrawal validation failed: user: Path `user` is required.\n    at Document.invalidate (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3362:32)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3123:17\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\schemaType.js:1446:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)","timestamp":"2025-12-23 16:57:23"}
+{"_message":"Withdrawal validation failed","errors":{"user":{"kind":"required","message":"Path `user` is required.","name":"ValidatorError","path":"user","properties":{"message":"Path `user` is required.","path":"user","type":"required"}}},"level":"error","message":"Error requesting withdrawal: Withdrawal validation failed: user: Path `user` is required.","service":"skillhub-api","stack":"ValidationError: Withdrawal validation failed: user: Path `user` is required.\n    at Document.invalidate (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3362:32)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3123:17\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\schemaType.js:1446:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)","timestamp":"2025-12-23 16:58:47"}
+{"_message":"Withdrawal validation failed","errors":{"user":{"kind":"required","message":"Path `user` is required.","name":"ValidatorError","path":"user","properties":{"message":"Path `user` is required.","path":"user","type":"required"}}},"level":"error","message":"Error requesting withdrawal: Withdrawal validation failed: user: Path `user` is required.","service":"skillhub-api","stack":"ValidationError: Withdrawal validation failed: user: Path `user` is required.\n    at Document.invalidate (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3362:32)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3123:17\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\schemaType.js:1446:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)","timestamp":"2025-12-23 16:59:09"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 16:59:28"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 16:59:28"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 16:59:28"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 16:59:30"}
+{"_message":"Withdrawal validation failed","errors":{"user":{"kind":"required","message":"Path `user` is required.","name":"ValidatorError","path":"user","properties":{"message":"Path `user` is required.","path":"user","type":"required"}}},"level":"error","message":"Error requesting withdrawal: Withdrawal validation failed: user: Path `user` is required.","service":"skillhub-api","stack":"ValidationError: Withdrawal validation failed: user: Path `user` is required.\n    at Document.invalidate (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3362:32)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\document.js:3123:17\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\mongoose\\lib\\schemaType.js:1446:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)","timestamp":"2025-12-23 16:59:46"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:00:02"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:00:02"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 17:00:02"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 17:00:03"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:00:43"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:00:44"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 17:00:44"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 17:00:45"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 17:00:45"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:00:46"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:00:46"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:00:50"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:11:09"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:11:09"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:11:09"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:11:11"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:11:11"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:11:11"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:12:04"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:12:04"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:12:04"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:12:06"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:12:06"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:12:06"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:13:37"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:13:37"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:13:37"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:13:39"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:13:39"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:13:39"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:14:03"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:14:03"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:14:03"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:14:05"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:14:05"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:14:06"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:15:28"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:15:28"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:15:29"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:15:31"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:15:31"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:15:31"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:20:33"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:20:33"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 17:20:33"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-00.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 17:20:34"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 17:20:34"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:20:34"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:20:36"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:20:38"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:22:36"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:22:36"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:22:36"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:22:39"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:22:39"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:22:39"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:23:23"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:23:23"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 17:23:23"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 17:23:24"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 17:23:24"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:23:24"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:23:26"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:23:27"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:23:33"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:23:33"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:23:33"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:23:36"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:23:37"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:23:37"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:06"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:06"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:06"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:08"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:08"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:08"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:27"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:27"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:27"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:28"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:28"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:28"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:49"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:49"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:49"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:51"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:51"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:24:51"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:27:21"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:27:22"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 17:27:22"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 17:27:23"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 17:27:23"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:27:23"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:27:24"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:27:27"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:30:50"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:30:50"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:30:50"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:30:52"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:30:52"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:30:52"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:17"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:17"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:17"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:20"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:20"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:20"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:46"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:46"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:46"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:48"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:48"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:35:48"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:31"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:31"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:31"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:32"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:32"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:32"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:43"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:43"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:43"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:44"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:44"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:36:44"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:38:31"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:38:31"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:38:31"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:38:33"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:38:33"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:38:33"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:42:51"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:42:51"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:42:51"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:42:53"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:42:54"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:42:54"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:18"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:18"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:18"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:19"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:19"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:19"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:52"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:52"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:52"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:53"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:53"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:43:53"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:47:16"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:47:16"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:47:16"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:47:19"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:47:19"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:47:19"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:47:43"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 17:47:43"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 17:47:43"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 17:47:44"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 17:47:44"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:47:45"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:47:45"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 17:47:47"}
+{"level":"error","message":"Not authorized to access this route","service":"skillhub-api","stack":"Error: Not authorized to access this route\n    at protect (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\middlewares\\auth.js:20:19)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:286:9\n    at Function.process_params (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:175:3)\n    at router (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:47:12)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)","statusCode":401,"timestamp":"2025-12-23 17:59:04"}
+{"level":"error","message":"Invalid credentials","service":"skillhub-api","stack":"Error: Invalid credentials\n    at login (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\controllers\\auth.controller.js:316:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","statusCode":401,"timestamp":"2025-12-23 17:59:47"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 18:01:30"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 18:03:48"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-23 18:03:49"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-23 18:03:49"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-00.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-23 18:03:50"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-23 18:03:50"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 18:03:50"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 18:03:50"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-23 18:03:53"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 10:09:21"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 10:09:21"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 10:09:21"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-00.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 10:09:22"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 10:09:22"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-24 10:10:04"}
+{"level":"info","message":"User connected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-24 10:10:04"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-24 10:21:25"}
+{"level":"info","message":"User disconnected: 694a71a02b419e7b06d020b0","service":"skillhub-api","timestamp":"2025-12-24 10:21:25"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 10:21:41"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 10:21:41"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 10:21:59"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 10:22:12"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 10:22:15"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 10:45:13"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 10:45:14"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 10:45:14"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 10:45:14"}
+{"level":"error","message":"Not authorized to access this route","service":"skillhub-api","stack":"Error: Not authorized to access this route\n    at protect (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\middlewares\\auth.js:78:19)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:286:9\n    at Function.process_params (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:175:3)\n    at router (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:47:12)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)","statusCode":401,"timestamp":"2025-12-24 10:46:18"}
+{"level":"error","message":"Not authorized to access this route","service":"skillhub-api","stack":"Error: Not authorized to access this route\n    at protect (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\middlewares\\auth.js:78:19)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:286:9\n    at Function.process_params (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:175:3)\n    at router (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:47:12)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)","statusCode":401,"timestamp":"2025-12-24 10:47:36"}
+{"level":"error","message":"Not authorized to access this route","service":"skillhub-api","stack":"Error: Not authorized to access this route\n    at protect (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\middlewares\\auth.js:78:19)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\route.js:149:13)\n    at Route.dispatch (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\route.js:119:3)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:284:15\n    at Function.process_params (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:175:3)\n    at router (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:47:12)","statusCode":401,"timestamp":"2025-12-24 10:48:14"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 10:49:54"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 10:49:54"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 10:49:54"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 10:49:55"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 10:49:55"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 10:49:55"}
+{"level":"error","message":"Not authorized to access this route","service":"skillhub-api","stack":"Error: Not authorized to access this route\n    at protect (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\middlewares\\auth.js:78:19)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\route.js:149:13)\n    at Route.dispatch (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\route.js:119:3)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:284:15\n    at Function.process_params (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:175:3)\n    at router (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:47:12)","statusCode":401,"timestamp":"2025-12-24 10:50:17"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 10:55:08"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 10:55:08"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 10:55:08"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-00.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 10:55:09"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 10:55:09"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 10:55:10"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:04:15"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:04:15"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 11:04:15"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-00.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 11:04:16"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 11:04:16"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:04:17"}
+{"level":"error","message":"Not authorized to access this route","service":"skillhub-api","stack":"Error: Not authorized to access this route\n    at guestAuth (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\middlewares\\auth.js:155:19)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:286:9\n    at Function.process_params (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:175:3)\n    at router (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:47:12)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)","statusCode":401,"timestamp":"2025-12-24 11:04:27"}
+{"level":"error","message":"Not authorized to access this route","service":"skillhub-api","stack":"Error: Not authorized to access this route\n    at guestAuth (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\middlewares\\auth.js:155:19)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:286:9\n    at Function.process_params (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:175:3)\n    at router (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:47:12)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)","statusCode":401,"timestamp":"2025-12-24 11:04:27"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:05:38"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:08:18"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:08:19"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 11:08:19"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 11:08:20"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 11:08:20"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:10:50"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:10:50"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:11:03"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:11:15"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:11:16"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:11:25"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:11:26"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:12:41"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:12:44"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:12:45"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:12:48"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:12:48"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:12:51"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:18:07"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:18:09"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:18:34"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:18:35"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:18:38"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:18:39"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:18:39"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:18:55"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:22:12"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:22:16"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:23:32"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:23:35"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:24:19"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:25:27"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:25:46"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:25:47"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 11:25:47"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 11:25:48"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 11:25:48"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:25:48"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:26:07"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:26:09"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:27:42"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:27:43"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 11:27:43"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-00.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 11:27:44"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 11:27:44"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:27:49"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:29:37"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:29:41"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:49:34"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:49:36"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:50:03"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:50:05"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:50:35"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:50:38"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:51:01"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 11:51:02"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 11:51:02"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-00.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 11:51:03"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 11:51:03"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:51:05"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:51:09"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 11:51:10"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:00:23"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:00:24"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 12:00:24"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 12:00:25"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 12:00:25"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 12:00:30"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:09:08"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:09:08"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 12:09:08"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-01.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 12:09:09"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 12:09:09"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 12:09:10"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:14:11"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:14:12"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 12:14:12"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-00.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 12:14:12"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 12:14:12"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 12:14:16"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:25:42"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:25:42"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 12:25:42"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 12:25:43"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 12:25:43"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 12:25:47"}
+{"level":"error","message":"Not authorized to access this route","service":"skillhub-api","stack":"Error: Not authorized to access this route\n    at protect (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\src\\middlewares\\auth.js:20:19)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)\n    at C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:286:9\n    at Function.process_params (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:175:3)\n    at router (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:47:12)\n    at Layer.handle [as handle_request] (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at trim_prefix (C:\\Users\\ParNets\\Desktop\\quickchat\\Quick-chat-backend\\node_modules\\express\\lib\\router\\index.js:328:13)","statusCode":401,"timestamp":"2025-12-24 12:27:11"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:34:40"}
+{"level":"warn","message":"Firebase credentials not found. Push notification functionality will be disabled.","service":"skillhub-api","timestamp":"2025-12-24 12:34:40"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2025-12-24 12:34:40"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2025-12-24 12:34:41"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2025-12-24 12:34:41"}
+{"level":"info","message":"User connected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 12:34:42"}
+{"level":"info","message":"User disconnected: 6943ddfa5de09f825de88888","service":"skillhub-api","timestamp":"2025-12-24 12:41:57"}

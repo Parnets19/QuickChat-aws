@@ -22,7 +22,7 @@ const WithdrawalSchema = new mongoose.Schema(
     amount: {
       type: Number,
       required: true,
-      min: 500, // Minimum withdrawal amount
+      min: 100, // Minimum withdrawal amount
     },
     processingFee: {
       type: Number,
@@ -35,11 +35,15 @@ const WithdrawalSchema = new mongoose.Schema(
     bankDetails: {
       accountNumber: {
         type: String,
-        required: true,
+        required: function() {
+          return this.paymentMethod !== 'upi';
+        },
       },
       ifscCode: {
         type: String,
-        required: true,
+        required: function() {
+          return this.paymentMethod !== 'upi';
+        },
       },
       accountHolderName: {
         type: String,
@@ -47,10 +51,15 @@ const WithdrawalSchema = new mongoose.Schema(
       },
       bankName: {
         type: String,
-        required: true,
+        required: function() {
+          return this.paymentMethod !== 'upi';
+        },
       },
       upiId: {
         type: String,
+        required: function() {
+          return this.paymentMethod === 'upi';
+        },
       },
     },
     status: {
