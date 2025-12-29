@@ -191,6 +191,14 @@ const UserSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // User role field for analytics and filtering
+    role: {
+      type: String,
+      enum: ['user', 'provider'],
+      default: function() {
+        return this.isServiceProvider ? 'provider' : 'user';
+      }
+    },
     // Provider verification status
     providerVerificationStatus: {
       type: String,
@@ -361,7 +369,11 @@ UserSchema.methods.comparePassword = async function (candidatePassword) {
 // Generate auth token
 UserSchema.methods.generateAuthToken = function () {
   return jwt.sign(
-    { id: this._id, mobile: this.mobile },
+    { 
+      id: this._id, 
+      mobile: this.mobile,
+      isAdmin: this.isAdmin || false // Include isAdmin in JWT payload
+    },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRE || '30d' }
   );

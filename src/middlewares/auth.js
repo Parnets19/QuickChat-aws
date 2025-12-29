@@ -24,8 +24,8 @@ const protect = async (req, res, next) => {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      // Handle admin users
-      if (decoded.isAdmin) {
+      // Handle admin users from Admin model
+      if (decoded.isAdmin && !decoded.mobile) {
         const admin = await Admin.findById(decoded.id);
         
         if (!admin) {

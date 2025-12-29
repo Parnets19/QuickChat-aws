@@ -19,6 +19,10 @@ const sendGuestOTP = async (req, res, next) => {
     if (purpose === 'registration' && guest) {
       return next(new AppError('This mobile number is already registered. Please use the "Guest Login" option to access your account.', 400));
     }
+    
+    if (purpose === 'login' && !guest) {
+      return next(new AppError('No guest account found with this mobile number. Please register first.', 404));
+    }
 
     // Rate limiting: Check if OTP was sent recently
     if (guest && guest.lastOtpSent) {

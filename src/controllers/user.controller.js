@@ -84,12 +84,21 @@ const uploadProfilePhoto = async (req, res, next) => {
     console.log('🔍 Upload Debug - File name:', req.file.filename);
     console.log('🔍 Upload Debug - Original name:', req.file.originalname);
 
+    // Ensure uploads directory exists
+    const fs = require('fs');
+    const path = require('path');
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      console.log('✅ Created uploads directory');
+    }
+
     const result = await uploadToCloudinary(req.file.path, "skillhub/profiles");
 
     console.log('🔍 Upload Debug - Result URL:', result.url);
 
-    if (!result) {
-      return next(new AppError("File upload failed", 500));
+    if (!result || !result.url) {
+      return next(new AppError("File upload failed - no URL returned", 500));
     }
 
     // If user is authenticated, update their profile
@@ -107,9 +116,11 @@ const uploadProfilePhoto = async (req, res, next) => {
       message: "Profile photo uploaded successfully",
       data: {
         profilePhoto: result.url,
+        url: result.url, // Ensure both formats are available
       },
     });
   } catch (error) {
+    console.error('❌ Profile photo upload error:', error);
     next(error);
   }
 };
@@ -132,6 +143,15 @@ const uploadAadhar = async (req, res, next) => {
       );
     }
 
+    // Ensure uploads directory exists
+    const fs = require('fs');
+    const path = require('path');
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      console.log('✅ Created uploads directory');
+    }
+
     const frontResult = await uploadToCloudinary(
       files.front[0].path,
       "skillhub/aadhar"
@@ -145,8 +165,8 @@ const uploadAadhar = async (req, res, next) => {
       );
     }
 
-    if (!frontResult) {
-      return next(new AppError("File upload failed", 500));
+    if (!frontResult || !frontResult.url) {
+      return next(new AppError("Aadhar document upload failed - no URL returned", 500));
     }
 
     // If user is authenticated, update their profile
@@ -165,18 +185,23 @@ const uploadAadhar = async (req, res, next) => {
       );
     }
 
+    const aadharDocuments = {
+      front: frontResult.url,
+      back: backResult ? backResult.url : '',
+    };
+
     res.status(200).json({
       success: true,
       message: "Aadhar documents uploaded successfully. Verification pending.",
       data: {
         aadharNumber,
-        aadharDocuments: user?.aadharDocuments || {
-          front: frontResult.url,
-          back: backResult ? backResult.url : '',
-        },
+        aadharDocuments: user?.aadharDocuments || aadharDocuments,
+        front: frontResult.url, // Ensure both formats are available
+        back: backResult ? backResult.url : '',
       },
     });
   } catch (error) {
+    console.error('❌ Aadhar upload error:', error);
     next(error);
   }
 };
@@ -190,10 +215,19 @@ const uploadPortfolio = async (req, res, next) => {
       return next(new AppError("Please upload a file", 400));
     }
 
+    // Ensure uploads directory exists
+    const fs = require('fs');
+    const path = require('path');
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      console.log('✅ Created uploads directory');
+    }
+
     const result = await uploadToCloudinary(req.file.path, "skillhub/portfolio");
 
-    if (!result) {
-      return next(new AppError("File upload failed", 500));
+    if (!result || !result.url) {
+      return next(new AppError("Portfolio upload failed - no URL returned", 500));
     }
 
     // If user is authenticated, add to their portfolio
@@ -221,9 +255,11 @@ const uploadPortfolio = async (req, res, next) => {
       message: "Portfolio media uploaded successfully",
       data: {
         url: result.url,
+        type: req.file.mimetype.startsWith('image/') ? 'image' : 'video'
       },
     });
   } catch (error) {
+    console.error('❌ Portfolio upload error:', error);
     next(error);
   }
 };

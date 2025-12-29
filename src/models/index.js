@@ -14,6 +14,8 @@ const Settings = require('./Settings.model');
 const Banner = require('./Banner.model');
 const EarningsTransaction = require('./Transaction.model');
 const WithdrawalRequest = require('./Withdrawal.model');
+const Chat = require('./Chat');
+const ChatMessage = require('./ChatMessage');
 
 module.exports = {
   User,
@@ -32,5 +34,7 @@ module.exports = {
   Banner,
   EarningsTransaction,
   WithdrawalRequest,
+  Chat,
+  ChatMessage,
 };
 

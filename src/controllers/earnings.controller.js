@@ -1,4 +1,4 @@
-const { User, EarningsTransaction, WithdrawalRequest, Consultation, Transaction } = require('../models');
+const { User, Guest, EarningsTransaction, WithdrawalRequest, Consultation, Transaction, Withdrawal } = require('../models');
 const { logger } = require('../utils/logger');
 
 // Get earnings overview
@@ -478,25 +478,50 @@ const getTransactionHistory = async (req, res) => {
 // Get withdrawal history
 const getWithdrawalHistory = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id;
+    const isGuest = req.user.isGuest;
     const { page = 1, limit = 20, status } = req.query;
 
-    const query = { userId };
+    const userType = isGuest ? 'Guest' : 'User';
+    
+    console.log('📊 WITHDRAWAL HISTORY REQUEST:', {
+      userId,
+      userType,
+      page,
+      limit,
+      status
+    });
+
+    // Query both old WithdrawalRequest and new Withdrawal models for backward compatibility
+    const query = { 
+      $or: [
+        { user: userId, userType: userType },
+        { userId: userId } // Legacy field
+      ]
+    };
+    
     if (status) query.status = status;
 
-    const withdrawals = await WithdrawalRequest.find(query)
+    // Get withdrawals from the Withdrawal model
+    const withdrawals = await Withdrawal.find(query)
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
-    const total = await WithdrawalRequest.countDocuments(query);
+    const total = await Withdrawal.countDocuments(query);
+
+    console.log('💰 WITHDRAWAL HISTORY RESULT:', {
+      withdrawalsFound: withdrawals.length,
+      totalCount: total,
+      userType
+    });
 
     res.json({
       success: true,
       data: {
         withdrawals,
         pagination: {
-          current: page,
+          current: parseInt(page),
           pages: Math.ceil(total / limit),
           total
         }
@@ -504,126 +529,223 @@ const getWithdrawalHistory = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('❌ ERROR getting withdrawal history:', error);
     logger.error('Error getting withdrawal history:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 };
 
 // Request withdrawal
 const requestWithdrawal = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { amount, bankAccountId } = req.body;
+    const userId = req.user.id || req.user._id;
+    const isGuest = req.user.isGuest;
+    const { amount, bankDetails } = req.body;
 
-    // Validate amount
-    if (!amount || amount < 500) {
-      return res.status(400).json({ message: 'Minimum withdrawal amount is ₹500' });
-    }
-
-    // Get user
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // NEW POLICY: Users can only withdraw 75% of their wallet balance
-    // 25% must remain as minimum balance
-    const maxWithdrawableAmount = Math.floor(user.wallet * 0.75);
-    const minimumBalance = user.wallet - maxWithdrawableAmount;
-
-    console.log('💰 WITHDRAWAL POLICY CHECK:', {
+    console.log('💰 WITHDRAWAL REQUEST:', {
       userId,
-      currentWallet: user.wallet,
-      requestedAmount: amount,
-      maxWithdrawable: maxWithdrawableAmount,
-      minimumBalance,
-      canWithdraw: amount <= maxWithdrawableAmount
+      isGuest,
+      amount,
+      hasBankDetails: !!bankDetails
     });
 
-    // Check if requested amount exceeds 75% limit
-    if (amount > maxWithdrawableAmount) {
+    // Validate amount
+    if (!amount || amount < 100) {
       return res.status(400).json({ 
-        message: `You can only withdraw up to 75% of your wallet balance. Maximum withdrawable amount: ₹${maxWithdrawableAmount}`,
+        success: false,
+        message: 'Minimum withdrawal amount is ₹100' 
+      });
+    }
+
+    let user, userModel;
+    
+    if (isGuest) {
+      // Handle guest withdrawal
+      user = await Guest.findById(userId);
+      userModel = 'Guest';
+      
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Guest not found' 
+        });
+      }
+    } else {
+      // Handle regular user withdrawal
+      user = await User.findById(userId);
+      userModel = 'User';
+      
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
+      }
+    }
+
+    console.log('👤 User found:', {
+      id: user._id,
+      name: user.fullName,
+      wallet: user.wallet,
+      userType: userModel
+    });
+
+    // Check wallet balance
+    if (!user.wallet || user.wallet < amount) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Insufficient wallet balance',
         data: {
-          currentBalance: user.wallet,
-          maxWithdrawable: maxWithdrawableAmount,
-          minimumBalance,
+          currentBalance: user.wallet || 0,
           requestedAmount: amount
         }
       });
     }
 
-    // Check wallet balance (this should always pass now, but keeping for safety)
-    if (user.wallet < amount) {
-      return res.status(400).json({ message: 'Insufficient wallet balance' });
+    // For regular users (providers), apply 75% withdrawal policy
+    let maxWithdrawableAmount = user.wallet;
+    let minimumBalance = 0;
+    
+    if (!isGuest) {
+      // Providers can only withdraw 75% of their wallet balance
+      maxWithdrawableAmount = Math.floor(user.wallet * 0.75);
+      minimumBalance = user.wallet - maxWithdrawableAmount;
+
+      if (amount > maxWithdrawableAmount) {
+        return res.status(400).json({ 
+          success: false,
+          message: `You can only withdraw up to 75% of your wallet balance. Maximum withdrawable amount: ₹${maxWithdrawableAmount}`,
+          data: {
+            currentBalance: user.wallet,
+            maxWithdrawable: maxWithdrawableAmount,
+            minimumBalance,
+            requestedAmount: amount
+          }
+        });
+      }
     }
 
-    // Check if user has bank details
-    if (!user.bankDetails || !user.bankDetails.accountNumber) {
-      return res.status(400).json({ message: 'Please add bank details first' });
+    // Validate bank details
+    let finalBankDetails;
+    if (bankDetails) {
+      // Use provided bank details
+      if (!bankDetails.accountNumber || !bankDetails.ifscCode || !bankDetails.accountHolderName) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Complete bank details are required (account number, IFSC code, account holder name)' 
+        });
+      }
+      finalBankDetails = bankDetails;
+    } else if (user.bankDetails && user.bankDetails.accountNumber) {
+      // Use saved bank details
+      finalBankDetails = user.bankDetails;
+    } else {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Please provide bank details for withdrawal' 
+      });
     }
 
-    // Calculate processing fee (2%)
-    const processingFee = Math.round(amount * 0.02);
+    // Calculate processing fee (2% for providers, 1% for guests)
+    const feePercentage = isGuest ? 0.01 : 0.02;
+    const processingFee = Math.round(amount * feePercentage);
     const netAmount = amount - processingFee;
 
-    // Create withdrawal request (DO NOT deduct from wallet yet - wait for admin approval)
-    const withdrawal = new WithdrawalRequest({
-      userId,
+    // IMMEDIATE DEDUCTION: Deduct money from wallet when withdrawal is requested
+    console.log('💰 IMMEDIATE DEDUCTION: Deducting withdrawal amount from wallet', {
+      userId: user._id,
+      currentWallet: user.wallet,
+      withdrawalAmount: amount,
+      newWallet: user.wallet - amount
+    });
+
+    user.wallet -= amount;
+    await user.save();
+
+    // Create withdrawal request using the Withdrawal model
+    const withdrawal = new Withdrawal({
+      user: userId,
+      userType: userModel,
+      userId: userId, // Legacy field
       amount,
       processingFee,
       netAmount,
-      bankDetails: user.bankDetails,
+      bankDetails: finalBankDetails,
       status: 'pending'
     });
 
     await withdrawal.save();
 
-    // NOTE: We DO NOT deduct from wallet here anymore
-    // The amount will be deducted only when admin approves the withdrawal
-    // This prevents double deduction and ensures proper approval workflow
-
-    // Create transaction record as pending
-    const transaction = new EarningsTransaction({
+    // Create transaction record as completed (money already deducted)
+    const transaction = new Transaction({
       user: userId,
-      userType: 'User',
-      userId, // Keep for backward compatibility
+      userType: userModel,
       type: 'withdrawal',
       category: 'withdrawal',
       amount: -amount,
-      balance: user.wallet, // Balance remains same since withdrawal is pending
-      description: `Withdrawal request - ${user.bankDetails.bankName} ****${user.bankDetails.accountNumber.slice(-4)}`,
-      status: 'pending'
+      balance: user.wallet, // New balance after deduction
+      description: `Withdrawal request - ${finalBankDetails.bankName || 'Bank'} ****${finalBankDetails.accountNumber.slice(-4)}`,
+      status: 'pending', // Still pending admin approval, but money is deducted
+      metadata: {
+        withdrawalId: withdrawal._id,
+        bankDetails: {
+          accountNumber: finalBankDetails.accountNumber.slice(-4),
+          ifscCode: finalBankDetails.ifscCode,
+          accountHolderName: finalBankDetails.accountHolderName
+        },
+        immediateDeduction: true, // Flag to indicate money was deducted immediately
+        originalBalance: user.wallet + amount // Store original balance for potential refund
+      }
     });
 
     await transaction.save();
 
-    console.log('✅ WITHDRAWAL REQUEST CREATED:', {
+    console.log('✅ WITHDRAWAL REQUEST CREATED WITH IMMEDIATE DEDUCTION:', {
       withdrawalId: withdrawal._id,
       amount,
       netAmount,
       status: 'pending',
-      walletNotDeducted: 'Amount will be deducted upon admin approval'
+      userType: userModel,
+      walletDeducted: 'Amount deducted immediately',
+      newWalletBalance: user.wallet
     });
 
     res.json({
       success: true,
-      message: 'Withdrawal request submitted successfully. It will be processed after admin approval.',
+      message: 'Withdrawal request submitted successfully. Amount has been deducted from your wallet and will be processed after admin approval.',
       data: {
         withdrawalId: withdrawal._id,
         amount,
         processingFee,
         netAmount,
         status: 'pending',
+        userType: userModel,
         maxWithdrawable: maxWithdrawableAmount,
         minimumBalance,
-        note: 'Amount will be deducted from wallet upon admin approval'
+        newWalletBalance: user.wallet,
+        note: 'Amount has been deducted from wallet. If rejected by admin, amount will be refunded.'
       }
     });
 
   } catch (error) {
+    console.error('❌ WITHDRAWAL ERROR:', {
+      message: error.message,
+      stack: error.stack,
+      userId,
+      isGuest,
+      amount: req.body.amount
+    });
     logger.error('Error requesting withdrawal:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error while processing withdrawal request',
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 
@@ -1164,30 +1286,53 @@ const checkConsultationAffordability = async (req, res) => {
   }
 };
 
-// Get withdrawal limits (75% policy)
+// Get withdrawal limits (75% policy for providers, 100% for guests)
 const getWithdrawalLimits = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
+    const isGuest = req.user.isGuest;
     
-    // Get user
-    const user = await User.findById(userId).select('wallet');
+    let user;
+    if (isGuest) {
+      user = await Guest.findById(userId).select('wallet');
+    } else {
+      user = await User.findById(userId).select('wallet');
+    }
+    
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'User not found' 
+      });
     }
 
-    // Calculate withdrawal limits based on 75% policy
+    // Calculate withdrawal limits
     const currentBalance = user.wallet || 0;
-    const maxWithdrawable = Math.floor(currentBalance * 0.75);
-    const minimumBalance = currentBalance - maxWithdrawable;
-    const withdrawalPercentage = 75;
-    const retentionPercentage = 25;
+    let maxWithdrawable, minimumBalance, withdrawalPercentage, retentionPercentage, policy;
+
+    if (isGuest) {
+      // Guests can withdraw 100% of their balance
+      maxWithdrawable = currentBalance;
+      minimumBalance = 0;
+      withdrawalPercentage = 100;
+      retentionPercentage = 0;
+      policy = 'Guests can withdraw their full wallet balance.';
+    } else {
+      // Providers can only withdraw 75% (25% retention policy)
+      maxWithdrawable = Math.floor(currentBalance * 0.75);
+      minimumBalance = currentBalance - maxWithdrawable;
+      withdrawalPercentage = 75;
+      retentionPercentage = 25;
+      policy = 'Service providers can withdraw up to 75% of wallet balance. 25% must remain as minimum balance.';
+    }
 
     console.log('💰 WITHDRAWAL LIMITS:', {
       userId,
+      userType: isGuest ? 'Guest' : 'Provider',
       currentBalance,
       maxWithdrawable,
       minimumBalance,
-      policy: '75% withdrawable, 25% retention'
+      policy
     });
 
     res.json({
@@ -1198,13 +1343,19 @@ const getWithdrawalLimits = async (req, res) => {
         minimumBalance,
         withdrawalPercentage,
         retentionPercentage,
-        policy: 'You can withdraw up to 75% of your wallet balance. 25% must remain as minimum balance.'
+        policy,
+        userType: isGuest ? 'Guest' : 'Provider'
       }
     });
 
   } catch (error) {
+    console.error('❌ ERROR getting withdrawal limits:', error);
     logger.error('Error getting withdrawal limits:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 };
 

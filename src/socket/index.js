@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { User, Consultation } = require('../models');
+const { User, Guest, Consultation } = require('../models');
 const { logger } = require('../utils/logger');
 
 const onlineUsers = new Map(); // userId -> socketIds[]
@@ -22,12 +22,19 @@ const initializeSocket = (io) => {
       
       // Handle guest users
       if (decoded.isGuest) {
-        console.log('Socket authentication successful for guest user:', decoded.name);
+        // Fetch guest details from database
+        const guest = await Guest.findById(decoded.id);
+        if (!guest) {
+          console.log('Socket authentication failed: Guest not found for ID:', decoded.id);
+          return next(new Error('Guest not found'));
+        }
+        
+        console.log('Socket authentication successful for guest user:', guest.name);
         socket.data.userId = decoded.id;
         socket.data.user = {
           _id: decoded.id,
-          fullName: decoded.name,
-          mobile: decoded.mobile,
+          fullName: guest.name,
+          mobile: guest.mobile,
           isGuest: true,
           isServiceProvider: false
         };
@@ -71,7 +78,7 @@ const initializeSocket = (io) => {
     }
 
     // Send online status to all connections
-    socket.broadcast.emit('user:online', { userId });
+    socket.broadcast.emit('user:online', { userId, consultationStatus: socket.data.user?.consultationStatus || 'available' });
 
     // Join user's personal room for global notifications
     socket.join(`user:${userId}`);
@@ -513,6 +520,155 @@ const initializeSocket = (io) => {
     socket.on('typing:stop', (data) => {
       socket.to(`consultation:${data.consultationId}`).emit('typing:stop', { userId });
     });
+
+    // Handle provider status change
+    socket.on('provider:statusChange', (data) => {
+      const { consultationStatus } = data;
+      
+      // Broadcast status change to all connected clients
+      socket.broadcast.emit('provider:statusChanged', {
+        providerId: userId,
+        consultationStatus,
+        isOnline: consultationStatus !== 'offline'
+      });
+    });
+
+    // ===== CHAT SYSTEM EVENTS =====
+    
+    // Join chat room
+    socket.on('chat:join', (data) => {
+      const { chatId, providerId, userId: targetUserId } = data;
+      const roomName = `chat:${chatId}`;
+      
+      socket.join(roomName);
+      console.log(`👥 User ${userId} joined chat room: ${roomName}`);
+      
+      // Notify other users in the room
+      socket.to(roomName).emit('user:joinedChat', {
+        userId,
+        userName: socket.data.user?.fullName || socket.data.user?.name || 'User'
+      });
+    });
+
+    // Handle chat message sending
+    socket.on('chat:sendMessage', async (data) => {
+      try {
+        const { chatId, providerId, message } = data;
+        const roomName = `chat:${chatId}`;
+        
+        // Create message object with proper sender info
+        const messageData = {
+          _id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          chatId,
+          sender: userId,
+          senderName: socket.data.user?.fullName || socket.data.user?.name || 'User',
+          senderAvatar: socket.data.user?.profilePhoto || null,
+          message,
+          timestamp: new Date().toISOString(),
+          status: 'sent'
+        };
+
+        console.log(`📨 Broadcasting message in room ${roomName}:`, messageData);
+
+        // Broadcast to all users in the chat room (including sender for confirmation)
+        io.to(roomName).emit('chat:message', messageData);
+        
+        // Also send to specific users if they're not in the room
+        const providerSockets = onlineUsers.get(providerId);
+        const userSockets = onlineUsers.get(userId);
+        
+        // Notify provider if they're online but not in chat room
+        if (providerSockets && userId !== providerId) {
+          providerSockets.forEach(socketId => {
+            const providerSocket = io.sockets.sockets.get(socketId);
+            if (providerSocket && !providerSocket.rooms.has(roomName)) {
+              providerSocket.emit('chat:newMessage', messageData);
+            }
+          });
+        }
+        
+        // Notify user if they have multiple sessions
+        if (userSockets) {
+          userSockets.forEach(socketId => {
+            const userSocket = io.sockets.sockets.get(socketId);
+            if (userSocket && userSocket.id !== socket.id && !userSocket.rooms.has(roomName)) {
+              userSocket.emit('chat:newMessage', messageData);
+            }
+          });
+        }
+
+        console.log(`✅ Chat message sent in room ${roomName} by user ${userId}`);
+        
+      } catch (error) {
+        console.error('Error handling chat message:', error);
+        socket.emit('chat:error', { message: 'Failed to send message' });
+      }
+    });
+
+    // Handle typing indicators for chat
+    socket.on('chat:typing', (data) => {
+      const { chatId, isTyping } = data;
+      const roomName = `chat:${chatId}`;
+      
+      socket.to(roomName).emit('chat:typing', {
+        userId,
+        isTyping,
+        userName: socket.data.user?.fullName || socket.data.user?.name || 'User'
+      });
+    });
+
+    // Handle marking messages as read
+    socket.on('chat:markAsRead', (data) => {
+      const { messageId, chatId } = data;
+      const roomName = `chat:${chatId}`;
+      
+      // Broadcast read status to other users in the chat
+      socket.to(roomName).emit('chat:messageStatus', {
+        messageId,
+        status: 'read'
+      });
+      
+      console.log(`Message ${messageId} marked as read by user ${userId}`);
+    });
+
+    // Join provider room for notifications
+    socket.on('provider:join', (data) => {
+      if (socket.data.user?.isServiceProvider) {
+        const providerRoom = `provider:${userId}`;
+        socket.join(providerRoom);
+        console.log(`Provider ${userId} joined provider room: ${providerRoom}`);
+      }
+    });
+
+    // Leave chat room
+    socket.on('chat:leave', (data) => {
+      const { chatId } = data;
+      const roomName = `chat:${chatId}`;
+      
+      socket.leave(roomName);
+      console.log(`User ${userId} left chat room: ${roomName}`);
+      
+      // Notify other participants that user left
+      socket.to(roomName).emit('chat:userLeft', {
+        userId,
+        userName: socket.data.user?.fullName || socket.data.user?.name || 'User'
+      });
+    });
+
+    // Mark messages as read
+    socket.on('chat:markAsRead', (data) => {
+      const { chatId, messageIds } = data;
+      const roomName = `chat:${chatId}`;
+      
+      // Notify sender that messages were read
+      socket.to(roomName).emit('chat:messagesRead', {
+        messageIds,
+        readBy: userId,
+        readByName: socket.data.user?.fullName || socket.data.user?.name || 'User'
+      });
+    });
+
+    // ===== END CHAT SYSTEM EVENTS =====
 
     // Handle disconnect
     socket.on('disconnect', () => {

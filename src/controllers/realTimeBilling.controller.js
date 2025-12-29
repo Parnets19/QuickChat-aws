@@ -600,16 +600,31 @@ const endConsultation = async (req, res) => {
     let finalAmount = 0;
     
     if (consultation.bothSidesAcceptedAt && consultation.billingStarted) {
-      // Calculate duration from when billing actually started (both sides accepted)
-      finalDuration = Math.ceil((consultation.endTime - consultation.bothSidesAcceptedAt) / (1000 * 60));
-      finalAmount = finalDuration * consultation.rate;
+      // Calculate EXACT duration in seconds first
+      const durationInSeconds = Math.floor((consultation.endTime - consultation.bothSidesAcceptedAt) / 1000);
       
-      console.log('💰 BILLING DURATION CALCULATION:', {
+      // For billing, we can either:
+      // Option 1: Charge per second (most accurate)
+      const ratePerSecond = consultation.rate / 60;
+      finalAmount = Math.round((durationInSeconds * ratePerSecond) * 100) / 100; // Round to 2 decimal places
+      finalDuration = Math.round(durationInSeconds / 60 * 100) / 100; // Duration in minutes with decimals
+      
+      // Option 2: Charge per minute but only for completed minutes + proportional for partial minute
+      // const completedMinutes = Math.floor(durationInSeconds / 60);
+      // const remainingSeconds = durationInSeconds % 60;
+      // const partialMinuteCharge = (remainingSeconds / 60) * consultation.rate;
+      // finalAmount = (completedMinutes * consultation.rate) + partialMinuteCharge;
+      // finalDuration = durationInSeconds / 60;
+      
+      console.log('💰 PRECISE BILLING CALCULATION:', {
         bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
         endTime: consultation.endTime,
-        actualTalkTime: finalDuration,
+        durationInSeconds: durationInSeconds,
+        durationInMinutes: finalDuration,
         rate: consultation.rate,
-        calculatedAmount: finalAmount
+        ratePerSecond: ratePerSecond,
+        calculatedAmount: finalAmount,
+        oldCeilMethod: Math.ceil(durationInSeconds / 60) * consultation.rate
       });
     } else {
       console.log('⚠️ No billing occurred - consultation ended before both sides accepted');
@@ -726,12 +741,28 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
     consultation.endTime = new Date();
     consultation.endReason = 'insufficient_funds';
     
-    // Calculate final duration based on billing time, not consultation creation time
+    // Calculate final duration based on billing time with precise calculation
     let finalDuration = 0;
+    let finalAmount = 0;
+    
     if (consultation.bothSidesAcceptedAt && consultation.billingStarted) {
-      finalDuration = Math.ceil((consultation.endTime - consultation.bothSidesAcceptedAt) / (1000 * 60));
+      // Calculate EXACT duration in seconds
+      const durationInSeconds = Math.floor((consultation.endTime - consultation.bothSidesAcceptedAt) / 1000);
+      
+      // Charge per second for precise billing
+      const ratePerSecond = consultation.rate / 60;
+      finalAmount = Math.round((durationInSeconds * ratePerSecond) * 100) / 100;
+      finalDuration = Math.round(durationInSeconds / 60 * 100) / 100;
+      
+      console.log('💸 PRECISE BILLING - INSUFFICIENT FUNDS:', {
+        durationInSeconds,
+        durationInMinutes: finalDuration,
+        calculatedAmount: finalAmount
+      });
     }
+    
     consultation.duration = finalDuration;
+    consultation.totalAmount = finalAmount;
     
     await consultation.save();
 

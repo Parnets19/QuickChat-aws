@@ -296,13 +296,25 @@ const getAdminStats = async (req, res) => {
     const [
       totalUsers,
       totalProviders,
+      totalGuests,
       activeProviders,
       suspendedProviders,
       totalConsultations,
-      todayConsultations
+      todayConsultations,
+      completedConsultations,
+      pendingConsultations,
+      totalTransactions,
+      totalRevenue,
+      todayRevenue,
+      pendingWithdrawals,
+      totalWithdrawals,
+      onlineUsers,
+      verifiedProviders,
+      pendingKyc
     ] = await Promise.all([
       User.countDocuments({ isServiceProvider: false }),
       User.countDocuments({ isServiceProvider: true }),
+      require('../models/Guest.model').countDocuments(),
       User.countDocuments({ isServiceProvider: true, status: 'active' }),
       User.countDocuments({ isServiceProvider: true, status: 'suspended' }),
       Consultation.countDocuments(),
@@ -310,22 +322,222 @@ const getAdminStats = async (req, res) => {
         createdAt: {
           $gte: new Date(new Date().setHours(0, 0, 0, 0))
         }
-      })
+      }),
+      Consultation.countDocuments({ status: 'completed' }),
+      Consultation.countDocuments({ status: 'pending' }),
+      require('../models/Transaction.model').countDocuments(),
+      // Fix: Use Consultation model for revenue calculation instead of Transaction
+      Consultation.aggregate([
+        { $match: { status: 'completed', totalAmount: { $gt: 0 } } },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+      ]),
+      Consultation.aggregate([
+        { 
+          $match: { 
+            status: 'completed',
+            totalAmount: { $gt: 0 },
+            createdAt: {
+              $gte: new Date(new Date().setHours(0, 0, 0, 0))
+            }
+          } 
+        },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+      ]),
+      require('../models/Withdrawal.model').countDocuments({ status: 'pending' }),
+      require('../models/Withdrawal.model').countDocuments(),
+      User.countDocuments({ isOnline: true }),
+      User.countDocuments({ isServiceProvider: true, providerVerificationStatus: 'verified' }),
+      User.countDocuments({ isServiceProvider: true, providerVerificationStatus: 'pending' })
+    ]);
+
+    // Get recent activity (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const recentUsers = await User.find({
+      createdAt: { $gte: sevenDaysAgo }
+    }).sort({ createdAt: -1 }).limit(10).select('fullName email createdAt isServiceProvider');
+
+    const recentConsultations = await Consultation.find({
+      createdAt: { $gte: sevenDaysAgo }
+    }).sort({ createdAt: -1 }).limit(10)
+      .populate('user', 'fullName')
+      .populate('provider', 'fullName')
+      .select('status totalAmount createdAt');
+
+    // Get daily stats for the last 7 days
+    const dailyStats = await Promise.all([
+      // Daily user registrations
+      User.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: sevenDaysAgo }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
+            },
+            users: { $sum: 1 },
+            providers: {
+              $sum: { $cond: [{ $eq: ['$isServiceProvider', true] }, 1, 0] }
+            }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
+      // Daily consultations
+      Consultation.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: sevenDaysAgo }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
+            },
+            consultations: { $sum: 1 },
+            revenue: { $sum: '$totalAmount' }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ])
+    ]);
+
+    // Combine daily stats
+    const chartData = [];
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      last7Days.push(dateStr);
+    }
+
+    last7Days.forEach(date => {
+      const userStat = dailyStats[0].find(stat => stat._id === date) || { users: 0, providers: 0 };
+      const consultationStat = dailyStats[1].find(stat => stat._id === date) || { consultations: 0, revenue: 0 };
+      
+      chartData.push({
+        date,
+        name: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
+        users: userStat.users,
+        providers: userStat.providers,
+        consultations: consultationStat.consultations,
+        revenue: consultationStat.revenue || 0
+      });
+    });
+
+    // Get monthly revenue for the last 6 months
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+    const monthlyRevenue = await Consultation.aggregate([
+      {
+        $match: {
+          status: 'completed',
+          totalAmount: { $gt: 0 },
+          createdAt: { $gte: sixMonthsAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          revenue: { $sum: '$totalAmount' }
+        }
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } }
+    ]);
+
+    // Format monthly revenue data
+    const revenueData = [];
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      
+      const monthData = monthlyRevenue.find(item => 
+        item._id.year === year && item._id.month === month
+      );
+      
+      revenueData.push({
+        month: date.toLocaleDateString('en-US', { month: 'short' }),
+        revenue: monthData ? monthData.revenue : 0
+      });
+    }
+
+    // Get top performing providers
+    const topProviders = await Consultation.aggregate([
+      { $match: { status: 'completed', totalAmount: { $gt: 0 } } },
+      {
+        $group: {
+          _id: '$provider',
+          totalEarnings: { $sum: '$totalAmount' },
+          consultationCount: { $sum: 1 }
+        }
+      },
+      { $sort: { totalEarnings: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'provider'
+        }
+      },
+      { $unwind: '$provider' },
+      {
+        $project: {
+          name: '$provider.fullName',
+          earnings: '$totalEarnings',
+          consultations: '$consultationCount'
+        }
+      }
     ]);
 
     res.status(200).json({
       success: true,
       data: {
-        users: {
-          total: totalUsers,
-          providers: totalProviders,
+        overview: {
+          totalUsers: totalUsers + totalProviders + totalGuests, // All users: regular + providers + guests
+          totalProviders,
+          totalGuests,
           activeProviders,
-          suspendedProviders
+          suspendedProviders,
+          verifiedProviders,
+          pendingKyc,
+          onlineUsers
         },
         consultations: {
           total: totalConsultations,
-          today: todayConsultations
-        }
+          today: todayConsultations,
+          completed: completedConsultations,
+          pending: pendingConsultations
+        },
+        financial: {
+          totalRevenue: totalRevenue[0]?.total || 0,
+          todayRevenue: todayRevenue[0]?.total || 0,
+          totalTransactions,
+          pendingWithdrawals,
+          totalWithdrawals
+        },
+        charts: {
+          dailyActivity: chartData,
+          monthlyRevenue: revenueData
+        },
+        recentActivity: {
+          users: recentUsers,
+          consultations: recentConsultations
+        },
+        topProviders
       }
     });
   } catch (error) {
@@ -640,6 +852,71 @@ const bulkVerifyExistingProviders = async (req, res) => {
   }
 };
 
+// Fix user roles - assign proper roles based on user data
+const fixUserRoles = async (req, res) => {
+  try {
+    console.log('🔧 Starting user role fix...');
+
+    // Get all users with null roles
+    const usersWithNullRoles = await User.find({ 
+      $or: [
+        { role: null },
+        { role: { $exists: false } },
+        { role: '' }
+      ]
+    });
+
+    console.log(`Found ${usersWithNullRoles.length} users with null/missing roles`);
+    
+    let providersFixed = 0;
+    let usersFixed = 0;
+
+    for (const user of usersWithNullRoles) {
+      let newRole = 'user'; // default role
+      
+      // Check if user has provider-like fields
+      if (user.profession || user.experience || user.callRate || user.isServiceProvider) {
+        newRole = 'provider';
+        providersFixed++;
+      } else {
+        usersFixed++;
+      }
+      
+      // Update the user's role
+      await User.findByIdAndUpdate(user._id, { role: newRole });
+      console.log(`Updated ${user.fullName || user.email} to role: ${newRole}`);
+    }
+
+    // Get updated counts
+    const totalProviders = await User.countDocuments({ role: 'provider' });
+    const totalUsers = await User.countDocuments({ role: 'user' });
+
+    console.log('✅ User roles fixed successfully');
+
+    res.status(200).json({
+      success: true,
+      message: 'User roles have been fixed successfully',
+      data: {
+        usersProcessed: usersWithNullRoles.length,
+        providersFixed,
+        usersFixed,
+        finalCounts: {
+          totalProviders,
+          totalUsers
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fixing user roles:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fix user roles',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllProviders,
   getProviderById,
@@ -652,5 +929,6 @@ module.exports = {
   getKycRequests,
   getKycRequestById,
   verifyKycRequest,
-  bulkVerifyExistingProviders
+  bulkVerifyExistingProviders,
+  fixUserRoles
 };

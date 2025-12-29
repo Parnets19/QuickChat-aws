@@ -1,4 +1,4 @@
-const { Consultation, User, Transaction, Notification, Rating } = require("../models");
+const { Consultation, User, Guest, Transaction, Notification, Rating } = require("../models");
 const { addEarnings } = require('./earnings.controller');
 const { AppError } = require("../middlewares/errorHandler");
 
@@ -47,25 +47,44 @@ const populateConsultationUser = async (consultation) => {
   
   // Handle user field
   if (consultationObj.user) {
-    if (typeof consultationObj.user === 'string' && consultationObj.user.startsWith('guest_')) {
-      // Guest user - create a mock user object
-      consultationObj.user = {
-        _id: consultationObj.user,
-        fullName: 'Guest User',
-        profilePhoto: null,
-        isGuest: true
-      };
-    } else if (typeof consultationObj.user === 'string' || consultationObj.user._id) {
-      // Regular user - populate from database
-      try {
-        const userId = typeof consultationObj.user === 'string' ? consultationObj.user : consultationObj.user._id;
-        const user = await User.findById(userId).select('fullName profilePhoto');
-        if (user) {
-          consultationObj.user = user;
+    const userId = typeof consultationObj.user === 'string' ? consultationObj.user : consultationObj.user._id;
+    
+    try {
+      // First try to find as regular user
+      let user = await User.findById(userId).select('fullName profilePhoto');
+      
+      if (!user) {
+        // If not found as regular user, try as guest user
+        const guest = await Guest.findById(userId).select('name');
+        if (guest) {
+          user = {
+            _id: guest._id,
+            fullName: guest.name,
+            profilePhoto: null,
+            isGuest: true
+          };
         }
-      } catch (error) {
-        console.error('Error populating user:', error);
       }
+      
+      if (user) {
+        consultationObj.user = user;
+      } else {
+        // Fallback if user not found in either collection
+        consultationObj.user = {
+          _id: userId,
+          fullName: 'Unknown User',
+          profilePhoto: null,
+          isGuest: false
+        };
+      }
+    } catch (error) {
+      console.error('Error populating user:', error);
+      consultationObj.user = {
+        _id: userId,
+        fullName: 'Unknown User',
+        profilePhoto: null,
+        isGuest: false
+      };
     }
   }
   
@@ -440,18 +459,6 @@ const getMyConsultations = async (req, res, next) => {
     const populatedConsultations = await populateConsultationUser(consultations);
 
     const total = await Consultation.countDocuments(query);
-
-    // Debug logging
-    console.log(
-      `Consultation query for user ${req.user?._id} with role ${role}:`,
-      query
-    );
-    console.log(`Found ${consultations.length} consultations`);
-    consultations.forEach((consultation) => {
-      console.log(
-        `Consultation ${consultation._id}: user=${consultation.user?._id}, provider=${consultation.provider?._id}`
-      );
-    });
 
     res.status(200).json({
       success: true,

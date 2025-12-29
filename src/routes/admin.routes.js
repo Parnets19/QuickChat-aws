@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
+const adminGuestController = require('../controllers/adminGuest.controller');
 const { protect, adminOnly } = require('../middlewares/auth');
 
 // Public route to create admin user (no authentication required)
@@ -45,6 +46,14 @@ router.put('/providers/:id', adminController.updateProvider);
 router.put('/providers/:id/status', adminController.updateProviderStatus);
 router.put('/providers/:id/visibility', adminController.toggleProviderVisibility);
 
+// Guest management routes
+router.get('/guests', adminGuestController.getAllGuests);
+router.get('/guests/statistics', adminGuestController.getGuestStatistics);
+router.get('/guests/:id', adminGuestController.getGuestById);
+router.put('/guests/:id', adminGuestController.updateGuest);
+router.put('/guests/:id/status', adminGuestController.updateGuestStatus);
+router.post('/guests/:id/add-money', adminGuestController.addMoneyToGuestWallet);
+
 // Analytics routes
 router.get('/stats', adminController.getAdminStats);
 
@@ -55,5 +64,8 @@ router.put('/kyc/:id/verify', adminController.verifyKycRequest);
 
 // Bulk operations
 router.post('/bulk-verify-providers', adminController.bulkVerifyExistingProviders);
+
+// Utility routes
+router.post('/fix-user-roles', adminController.fixUserRoles);
 
 module.exports = router;

@@ -23,31 +23,18 @@ const sendOTP = async (req, res, next) => {
     }
 
     // Check if user already exists (only for registration purpose)
-    // In development mode, allow re-registration by deleting existing user
     if (purpose === 'registration') {
       if (mobile) {
         const existingUserByMobile = await User.findOne({ mobile });
         if (existingUserByMobile) {
-          if (process.env.NODE_ENV === 'development') {
-            // In development, delete the existing user to allow re-registration
-            await User.findByIdAndDelete(existingUserByMobile._id);
-            logger.info(`Deleted existing user with mobile ${mobile} for re-registration in development mode`);
-          } else {
-            return next(new AppError('This mobile number is already registered. Please login instead.', 400));
-          }
+          return next(new AppError(`This mobile number (${mobile}) is already registered. Please login instead or use a different mobile number.`, 400));
         }
       }
       
       if (email) {
         const existingUserByEmail = await User.findOne({ email });
         if (existingUserByEmail) {
-          if (process.env.NODE_ENV === 'development') {
-            // In development, delete the existing user to allow re-registration
-            await User.findByIdAndDelete(existingUserByEmail._id);
-            logger.info(`Deleted existing user with email ${email} for re-registration in development mode`);
-          } else {
-            return next(new AppError('This email is already registered. Please login instead.', 400));
-          }
+          return next(new AppError(`This email (${email}) is already registered. Please login instead or use a different email.`, 400));
         }
       }
     }
@@ -149,7 +136,7 @@ const register = async (req, res, next) => {
     const {
       fullName, mobile, email, password,
       dateOfBirth, gender, place, address,
-      profession, education, hobbies, skills, languagesKnown, bio,
+      profession, education, hobbies, skills, hobbiesSkills, languagesKnown, bio,
       serviceCategories, consultationModes, rates, availability,
       aadharNumber, profilePhoto, aadharDocuments, portfolioMedia,
       bankDetails,
@@ -163,6 +150,7 @@ const register = async (req, res, next) => {
       profession, education,
       hobbiesCount: hobbies?.length,
       skillsCount: skills?.length,
+      hobbiesSkillsCount: hobbiesSkills?.length,
       languagesCount: languagesKnown?.length,
       categoriesCount: serviceCategories?.length,
       consultationModes,
@@ -195,10 +183,15 @@ const register = async (req, res, next) => {
       return next(new AppError('Please verify your mobile number or email first', 400));
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ mobile });
-    if (existingUser) {
-      return next(new AppError('User already exists with this mobile number', 400));
+    // Double-check if user already exists (comprehensive check)
+    const existingUserByMobile = await User.findOne({ mobile });
+    if (existingUserByMobile) {
+      return next(new AppError(`Registration failed: This mobile number (${mobile}) is already registered. Please login instead or use a different mobile number.`, 400));
+    }
+
+    const existingUserByEmail = await User.findOne({ email });
+    if (existingUserByEmail) {
+      return next(new AppError(`Registration failed: This email (${email}) is already registered. Please login instead or use a different email.`, 400));
     }
 
     // Validate required fields
@@ -223,8 +216,14 @@ const register = async (req, res, next) => {
     if (place) userData.place = place;
     if (profession) userData.profession = profession;
     if (education) userData.education = education;
-    if (hobbies && hobbies.length > 0) userData.hobbies = hobbies;
-    if (skills && skills.length > 0) userData.skills = skills;
+    // Handle both legacy separate fields and new combined field
+    if (hobbiesSkills && hobbiesSkills.length > 0) {
+      userData.hobbies = hobbiesSkills;
+      userData.skills = hobbiesSkills;
+    } else {
+      if (hobbies && hobbies.length > 0) userData.hobbies = hobbies;
+      if (skills && skills.length > 0) userData.skills = skills;
+    }
     if (languagesKnown && languagesKnown.length > 0) userData.languagesKnown = languagesKnown;
     if (bio) userData.bio = bio;
     if (aadharNumber) userData.aadharNumber = aadharNumber;
@@ -252,8 +251,20 @@ const register = async (req, res, next) => {
     userData.rates = rates || {
       chargeType: 'per-minute',
       chat: 0,
-      audio: 100,
-      video: 150
+      perMinute: {
+        audioVideo: rates?.callRate || rates?.audio || rates?.video || 0,
+        audio: rates?.callRate || rates?.audio || 0,
+        video: rates?.callRate || rates?.video || 0
+      },
+      perHour: {
+        audioVideo: 0,
+        audio: 0,
+        video: 0
+      },
+      defaultChargeType: 'per-minute',
+      // Legacy fields for backward compatibility
+      audio: rates?.callRate || rates?.audio || 0,
+      video: rates?.callRate || rates?.video || 0
     };
     if (availability && availability.length > 0) userData.availability = availability;
     if (bankDetails) userData.bankDetails = bankDetails;

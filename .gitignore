@@ -123,8 +123,6 @@ Thumbs.db
 *.sqlite3
 *.db
 
-
-
 # SSL certificates
 *.pem
 *.key
