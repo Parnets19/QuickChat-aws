@@ -1,18 +1,18 @@
-const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
+const mongoose = require("mongoose");
+const jwt = require("jsonwebtoken");
 
 const GuestSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, 'Name is required'],
+      required: [true, "Name is required"],
       trim: true,
     },
     mobile: {
       type: String,
-      required: [true, 'Mobile number is required'],
+      required: [true, "Mobile number is required"],
       unique: true,
-      match: [/^[0-9]{10}$/, 'Please enter a valid 10-digit mobile number'],
+      match: [/^[0-9]{10}$/, "Please enter a valid 10-digit mobile number"],
     },
     description: {
       type: String,
@@ -46,8 +46,8 @@ const GuestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'inactive', 'suspended'],
-      default: 'active',
+      enum: ["active", "inactive", "suspended"],
+      default: "active",
     },
     // Last activity tracking
     lastActive: {
@@ -65,15 +65,38 @@ const GuestSchema = new mongoose.Schema(
     // FCM tokens for notifications
     fcmTokens: [String],
     // Consultation history (references)
-    consultations: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Consultation'
-    }],
+    consultations: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Consultation",
+      },
+    ],
     // Transaction history (references)
-    transactions: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Transaction'
-    }],
+    transactions: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Transaction",
+      },
+    ],
+
+    // Track free minutes used with each provider (First Minute Free Trial system)
+    freeMinutesUsed: [
+      {
+        providerId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        usedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        consultationId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Consultation",
+        },
+      },
+    ],
   },
   {
     timestamps: true,
@@ -88,13 +111,13 @@ GuestSchema.index({ createdAt: -1 });
 // Generate auth token for guest
 GuestSchema.methods.generateAuthToken = function () {
   return jwt.sign(
-    { 
-      id: this._id, 
-      mobile: this.mobile, 
-      isGuest: true 
+    {
+      id: this._id,
+      mobile: this.mobile,
+      isGuest: true,
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRE || '30d' }
+    { expiresIn: process.env.JWT_EXPIRE || "30d" }
   );
 };
 
@@ -113,7 +136,7 @@ GuestSchema.methods.addToWallet = function (amount) {
 // Deduct money from wallet
 GuestSchema.methods.deductFromWallet = function (amount) {
   if (this.wallet < amount) {
-    throw new Error('Insufficient wallet balance');
+    throw new Error("Insufficient wallet balance");
   }
   this.wallet -= amount;
   this.totalSpent += amount;
@@ -122,7 +145,7 @@ GuestSchema.methods.deductFromWallet = function (amount) {
 
 // Check if guest can make a payment
 GuestSchema.methods.canMakePayment = function (amount) {
-  return this.wallet >= amount && this.status === 'active';
+  return this.wallet >= amount && this.status === "active";
 };
 
-module.exports = mongoose.model('Guest', GuestSchema);
+module.exports = mongoose.model("Guest", GuestSchema);

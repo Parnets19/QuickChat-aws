@@ -1,5 +1,5 @@
-const { Guest, Transaction } = require('../models');
-const { AppError } = require('../middlewares/errorHandler');
+const { Guest, Transaction } = require("../models");
+const { AppError } = require("../middlewares/errorHandler");
 
 // @desc    Get guest wallet details
 // @route   GET /api/guest-wallet/balance
@@ -8,16 +8,16 @@ const getWalletBalance = async (req, res, next) => {
   try {
     const guest = await Guest.findById(req.user.id);
     if (!guest) {
-      return next(new AppError('Guest not found', 404));
+      return next(new AppError("Guest not found", 404));
     }
 
     // Get recent transactions
-    const recentTransactions = await Transaction.find({ 
+    const recentTransactions = await Transaction.find({
       user: req.user.id,
-      userType: 'Guest'
+      userType: "Guest",
     })
-    .sort({ createdAt: -1 })
-    .limit(10);
+      .sort({ createdAt: -1 })
+      .limit(10);
 
     res.status(200).json({
       success: true,
@@ -26,10 +26,10 @@ const getWalletBalance = async (req, res, next) => {
         wallet: {
           balance: guest.wallet,
           totalSpent: guest.totalSpent,
-          currency: 'INR'
+          currency: "INR",
         },
-        recentTransactions
-      }
+        recentTransactions,
+      },
     });
   } catch (error) {
     next(error);
@@ -41,45 +41,47 @@ const getWalletBalance = async (req, res, next) => {
 // @access  Private (Guest)
 const addMoneyToWallet = async (req, res, next) => {
   try {
-    const { amount, paymentMethod = 'demo' } = req.body;
+    const { amount, paymentMethod = "demo" } = req.body;
 
     if (!amount || amount <= 0) {
-      return next(new AppError('Please provide a valid amount', 400));
+      return next(new AppError("Please provide a valid amount", 400));
     }
 
     if (amount < 10) {
-      return next(new AppError('Minimum amount to add is ₹10', 400));
+      return next(new AppError("Minimum amount to add is ₹10", 400));
     }
 
     if (amount > 50000) {
-      return next(new AppError('Maximum amount to add is ₹50,000', 400));
+      return next(new AppError("Maximum amount to add is ₹50,000", 400));
     }
 
     const guest = await Guest.findById(req.user.id);
     if (!guest) {
-      return next(new AppError('Guest not found', 404));
+      return next(new AppError("Guest not found", 404));
     }
 
     // For demo purposes, we'll simulate successful payment
     // In production, integrate with actual payment gateway
-    const transactionId = `TXN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const transactionId = `TXN_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
 
     // Create transaction record
     const transaction = new Transaction({
       user: guest._id,
-      userType: 'Guest',
-      type: 'wallet_credit',
-      category: 'deposit', // Required field
+      userType: "Guest",
+      type: "wallet_credit",
+      category: "deposit", // Required field
       amount: amount,
       balance: guest.wallet + amount, // Required field - balance after transaction
-      status: 'completed',
+      status: "completed",
       description: `Wallet top-up via ${paymentMethod}`,
       transactionId,
       paymentMethod,
       metadata: {
         previousBalance: guest.wallet,
-        newBalance: guest.wallet + amount
-      }
+        newBalance: guest.wallet + amount,
+      },
     });
 
     await transaction.save();
@@ -101,13 +103,13 @@ const addMoneyToWallet = async (req, res, next) => {
           type: transaction.type,
           status: transaction.status,
           transactionId: transaction.transactionId,
-          createdAt: transaction.createdAt
+          createdAt: transaction.createdAt,
         },
         wallet: {
           balance: guest.wallet,
-          totalSpent: guest.totalSpent
-        }
-      }
+          totalSpent: guest.totalSpent,
+        },
+      },
     });
   } catch (error) {
     next(error);
@@ -122,51 +124,55 @@ const withdrawFromWallet = async (req, res, next) => {
     const { amount, bankDetails } = req.body;
 
     if (!amount || amount <= 0) {
-      return next(new AppError('Please provide a valid amount', 400));
+      return next(new AppError("Please provide a valid amount", 400));
     }
 
     if (amount < 100) {
-      return next(new AppError('Minimum withdrawal amount is ₹100', 400));
+      return next(new AppError("Minimum withdrawal amount is ₹100", 400));
     }
 
     if (!bankDetails || !bankDetails.accountNumber || !bankDetails.ifscCode) {
-      return next(new AppError('Bank details are required for withdrawal', 400));
+      return next(
+        new AppError("Bank details are required for withdrawal", 400)
+      );
     }
 
     const guest = await Guest.findById(req.user.id);
     if (!guest) {
-      return next(new AppError('Guest not found', 404));
+      return next(new AppError("Guest not found", 404));
     }
 
     if (guest.wallet < amount) {
-      return next(new AppError('Insufficient wallet balance', 400));
+      return next(new AppError("Insufficient wallet balance", 400));
     }
 
     // For demo purposes, we'll create a pending withdrawal
     // In production, integrate with actual payment gateway
-    const transactionId = `WTH_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const transactionId = `WTH_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
 
     // Create withdrawal transaction record
     const transaction = new Transaction({
       user: guest._id,
-      userType: 'Guest',
-      type: 'withdrawal',
-      category: 'withdrawal', // Required field
+      userType: "Guest",
+      type: "withdrawal",
+      category: "withdrawal", // Required field
       amount: amount,
       balance: guest.wallet - amount, // Required field - balance after transaction
-      status: 'pending', // Withdrawals typically need approval
+      status: "pending", // Withdrawals typically need approval
       description: `Wallet withdrawal to ${bankDetails.accountNumber}`,
       transactionId,
-      paymentMethod: 'bank_transfer',
+      paymentMethod: "bank_transfer",
       metadata: {
         bankDetails: {
           accountNumber: bankDetails.accountNumber.slice(-4), // Store only last 4 digits
           ifscCode: bankDetails.ifscCode,
-          accountHolderName: bankDetails.accountHolderName
+          accountHolderName: bankDetails.accountHolderName,
         },
         previousBalance: guest.wallet,
-        newBalance: guest.wallet - amount
-      }
+        newBalance: guest.wallet - amount,
+      },
     });
 
     await transaction.save();
@@ -188,13 +194,13 @@ const withdrawFromWallet = async (req, res, next) => {
           type: transaction.type,
           status: transaction.status,
           transactionId: transaction.transactionId,
-          createdAt: transaction.createdAt
+          createdAt: transaction.createdAt,
         },
         wallet: {
           balance: guest.wallet,
-          totalSpent: guest.totalSpent
-        }
-      }
+          totalSpent: guest.totalSpent,
+        },
+      },
     });
   } catch (error) {
     next(error);
@@ -208,9 +214,9 @@ const getTransactionHistory = async (req, res, next) => {
   try {
     const { page = 1, limit = 20, type } = req.query;
 
-    const query = { 
+    const query = {
       user: req.user.id,
-      userType: 'Guest'
+      userType: "Guest",
     };
 
     if (type) {
@@ -232,9 +238,9 @@ const getTransactionHistory = async (req, res, next) => {
           page: parseInt(page),
           limit: parseInt(limit),
           total,
-          pages: Math.ceil(total / parseInt(limit))
-        }
-      }
+          pages: Math.ceil(total / parseInt(limit)),
+        },
+      },
     });
   } catch (error) {
     next(error);
@@ -249,37 +255,46 @@ const payForConsultation = async (req, res, next) => {
     const { consultationId, amount, providerId } = req.body;
 
     if (!consultationId || !amount || !providerId) {
-      return next(new AppError('Consultation ID, amount, and provider ID are required', 400));
+      return next(
+        new AppError(
+          "Consultation ID, amount, and provider ID are required",
+          400
+        )
+      );
     }
 
     const guest = await Guest.findById(req.user.id);
     if (!guest) {
-      return next(new AppError('Guest not found', 404));
+      return next(new AppError("Guest not found", 404));
     }
 
     if (!guest.canMakePayment(amount)) {
-      return next(new AppError('Insufficient wallet balance or account suspended', 400));
+      return next(
+        new AppError("Insufficient wallet balance or account suspended", 400)
+      );
     }
 
     // Create payment transaction
-    const transactionId = `PAY_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const transactionId = `PAY_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
 
     const transaction = new Transaction({
       user: guest._id,
-      userType: 'Guest',
-      type: 'consultation_payment',
-      category: 'consultation', // Required field
+      userType: "Guest",
+      type: "consultation",
+      category: "consultation", // Required field
       amount: amount,
       balance: guest.wallet - amount, // Required field - balance after transaction
-      status: 'completed',
+      status: "completed",
       description: `Payment for consultation ${consultationId}`,
       transactionId,
       metadata: {
         consultationId,
         providerId,
         previousBalance: guest.wallet,
-        newBalance: guest.wallet - amount
-      }
+        newBalance: guest.wallet - amount,
+      },
     });
 
     await transaction.save();
@@ -293,7 +308,7 @@ const payForConsultation = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Payment successful',
+      message: "Payment successful",
       data: {
         transaction: {
           id: transaction._id,
@@ -301,13 +316,13 @@ const payForConsultation = async (req, res, next) => {
           type: transaction.type,
           status: transaction.status,
           transactionId: transaction.transactionId,
-          createdAt: transaction.createdAt
+          createdAt: transaction.createdAt,
         },
         wallet: {
           balance: guest.wallet,
-          totalSpent: guest.totalSpent
-        }
-      }
+          totalSpent: guest.totalSpent,
+        },
+      },
     });
   } catch (error) {
     next(error);
@@ -319,5 +334,5 @@ module.exports = {
   addMoneyToWallet,
   withdrawFromWallet,
   getTransactionHistory,
-  payForConsultation
+  payForConsultation,
 };

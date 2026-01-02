@@ -27,21 +27,28 @@ const protect = async (req, res, next) => {
       // Handle admin users from Admin model
       if (decoded.isAdmin && !decoded.mobile) {
         const admin = await Admin.findById(decoded.id);
-        
+
         if (!admin) {
           return next(new AppError("Admin not found", 404));
         }
 
         if (!admin.isActive) {
-          console.log('🔐 AUTH DEBUG - Admin account deactivated:', admin.email);
+          console.log(
+            "🔐 AUTH DEBUG - Admin account deactivated:",
+            admin.email
+          );
           return next(new AppError("Admin account is deactivated", 403));
         }
 
-        console.log('🔐 AUTH DEBUG - Admin authenticated:', { email: admin.email, id: admin._id, role: admin.role });
+        console.log("🔐 AUTH DEBUG - Admin authenticated:", {
+          email: admin.email,
+          id: admin._id,
+          role: admin.role,
+        });
         req.user = {
           ...admin.toObject(),
           isAdmin: true,
-          id: admin._id
+          id: admin._id,
         };
         return next();
       }
@@ -62,19 +69,30 @@ const protect = async (req, res, next) => {
       }
 
       // Get regular user from token
+      console.log("🔐 AUTH DEBUG - Looking up user:", decoded.id);
       const user = await User.findById(decoded.id);
 
       if (!user) {
+        console.log("🔐 AUTH DEBUG - User not found:", decoded.id);
         return next(new AppError("User not found", 404));
       }
 
+      console.log("🔐 AUTH DEBUG - User found:", {
+        id: user._id,
+        name: user.fullName,
+        status: user.status,
+      });
+
       if (user.status !== "active") {
+        console.log("🔐 AUTH DEBUG - User account suspended:", user.status);
         return next(new AppError("Your account has been suspended", 403));
       }
 
+      console.log("🔐 AUTH DEBUG - User authenticated successfully");
       req.user = user;
       next();
     } catch (err) {
+      console.log("🔐 AUTH DEBUG - Token verification failed:", err.message);
       return next(new AppError("Not authorized to access this route", 401));
     }
   } catch (error) {
@@ -121,20 +139,20 @@ const isAadharVerified = async (req, res, next) => {
 
 // Check if user is admin
 const adminOnly = async (req, res, next) => {
-  console.log('🔧 ADMIN CHECK - User:', {
+  console.log("🔧 ADMIN CHECK - User:", {
     email: req.user?.email,
     id: req.user?._id?.toString() || req.user?.id,
     isAdmin: req.user?.isAdmin,
-    role: req.user?.role
+    role: req.user?.role,
   });
 
   // Check if user is authenticated admin
   if (!req.user?.isAdmin) {
-    console.log('🔧 ADMIN CHECK - Access denied: Not an admin');
+    console.log("🔧 ADMIN CHECK - Access denied: Not an admin");
     return next(new AppError("Admin access required", 403));
   }
 
-  console.log('🔧 ADMIN CHECK - Access granted');
+  console.log("🔧 ADMIN CHECK - Access granted");
   next();
 };
 
@@ -183,9 +201,9 @@ const guestAuth = async (req, res, next) => {
       req.user = {
         ...guest.toObject(),
         id: guest._id,
-        isGuest: true
+        isGuest: true,
       };
-      
+
       next();
     } catch (err) {
       return next(new AppError("Not authorized to access this route", 401));

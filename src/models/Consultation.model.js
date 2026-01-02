@@ -1,5 +1,5 @@
-const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid');
+const mongoose = require("mongoose");
+const { v4: uuidv4 } = require("uuid");
 
 const ConsultationSchema = new mongoose.Schema(
   {
@@ -14,18 +14,25 @@ const ConsultationSchema = new mongoose.Schema(
     },
     provider: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
       required: true,
     },
     type: {
       type: String,
-      enum: ['chat', 'audio', 'video'],
+      enum: ["chat", "audio", "video"],
       required: true,
     },
     status: {
       type: String,
-      enum: ['pending', 'ongoing', 'completed', 'cancelled', 'missed', 'no_answer'],
-      default: 'pending',
+      enum: [
+        "pending",
+        "ongoing",
+        "completed",
+        "cancelled",
+        "missed",
+        "no_answer",
+      ],
+      default: "pending",
     },
     startTime: Date,
     endTime: Date,
@@ -61,13 +68,19 @@ const ConsultationSchema = new mongoose.Schema(
     bothSidesAcceptedAt: Date, // When both sides have accepted - this is when billing starts
     endReason: {
       type: String,
-      enum: ['manual', 'insufficient_funds', 'provider_ended', 'system_error'],
-      default: 'manual',
+      enum: [
+        "manual",
+        "insufficient_funds",
+        "provider_ended",
+        "system_error",
+        "no_answer",
+      ],
+      default: "manual",
     },
     userType: {
       type: String,
-      enum: ['User', 'Guest'],
-      default: 'User',
+      enum: ["User", "Guest"],
+      default: "User",
     },
     messages: [
       {
@@ -81,8 +94,8 @@ const ConsultationSchema = new mongoose.Schema(
         },
         type: {
           type: String,
-          enum: ['text', 'image', 'file'],
-          default: 'text',
+          enum: ["text", "image", "file"],
+          default: "text",
         },
         file: {
           name: String,
@@ -103,7 +116,7 @@ const ConsultationSchema = new mongoose.Schema(
       tags: [String],
     },
     invoice: String,
-    
+
     // Provider-to-Provider consultation fields
     isProviderToProvider: {
       type: Boolean,
@@ -114,17 +127,28 @@ const ConsultationSchema = new mongoose.Schema(
       default: false,
     },
     participantRoles: {
-      bookingProvider: { 
-        type: String, 
-        enum: ['client', 'provider'],
-        default: 'client'
+      bookingProvider: {
+        type: String,
+        enum: ["client", "provider"],
+        default: "client",
       },
-      bookedProvider: { 
-        type: String, 
-        enum: ['client', 'provider'],
-        default: 'provider'
-      }
+      bookedProvider: {
+        type: String,
+        enum: ["client", "provider"],
+        default: "provider",
+      },
     },
+
+    // First Minute Free Trial fields
+    isFirstMinuteFree: {
+      type: Boolean,
+      default: false,
+    },
+    freeMinuteUsed: {
+      type: Boolean,
+      default: false,
+    },
+    billingStartsAt: Date, // When billing actually starts (startTime + 1 minute if first minute free)
   },
   {
     timestamps: true,
@@ -138,12 +162,11 @@ ConsultationSchema.index({ provider: 1, status: 1 });
 ConsultationSchema.index({ createdAt: -1 });
 
 // Calculate total amount based on duration and rate
-ConsultationSchema.pre('save', function (next) {
+ConsultationSchema.pre("save", function (next) {
   if (this.duration && this.rate) {
     this.totalAmount = this.duration * this.rate;
   }
   next();
 });
 
-module.exports = mongoose.model('Consultation', ConsultationSchema);
-
+module.exports = mongoose.model("Consultation", ConsultationSchema);

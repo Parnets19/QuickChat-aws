@@ -1,16 +1,23 @@
-const { Consultation, User, Guest, Transaction, Notification, Rating } = require("../models");
-const { addEarnings } = require('./earnings.controller');
+const {
+  Consultation,
+  User,
+  Guest,
+  Transaction,
+  Notification,
+  Rating,
+} = require("../models");
+const { addEarnings } = require("./earnings.controller");
 const { AppError } = require("../middlewares/errorHandler");
 
 // Helper function to update provider consultation status
 const updateProviderStatus = async (providerId, status) => {
   try {
-    await User.findByIdAndUpdate(providerId, { 
-      consultationStatus: status 
+    await User.findByIdAndUpdate(providerId, {
+      consultationStatus: status,
     });
     console.log(`📱 Provider ${providerId} status updated to: ${status}`);
   } catch (error) {
-    console.error('Error updating provider status:', error);
+    console.error("Error updating provider status:", error);
   }
 };
 
@@ -19,88 +26,104 @@ const checkProviderBusyStatus = async (providerId) => {
   try {
     const ongoingConsultations = await Consultation.countDocuments({
       provider: providerId,
-      status: 'ongoing'
+      status: "ongoing",
     });
-    
-    const newStatus = ongoingConsultations > 0 ? 'busy' : 'available';
+
+    const newStatus = ongoingConsultations > 0 ? "busy" : "available";
     await updateProviderStatus(providerId, newStatus);
-    
-    console.log(`📱 Provider ${providerId} has ${ongoingConsultations} ongoing consultations, status: ${newStatus}`);
+
+    console.log(
+      `📱 Provider ${providerId} has ${ongoingConsultations} ongoing consultations, status: ${newStatus}`
+    );
     return newStatus;
   } catch (error) {
-    console.error('Error checking provider busy status:', error);
-    return 'available';
+    console.error("Error checking provider busy status:", error);
+    return "available";
   }
 };
 
 // Helper function to populate consultation with user data (handles guest users)
 const populateConsultationUser = async (consultation) => {
   if (!consultation) return consultation;
-  
+
   // Handle array of consultations
   if (Array.isArray(consultation)) {
     return Promise.all(consultation.map(populateConsultationUser));
   }
-  
+
   // Convert to plain object if it's a mongoose document
-  const consultationObj = consultation.toObject ? consultation.toObject() : consultation;
-  
+  const consultationObj = consultation.toObject
+    ? consultation.toObject()
+    : consultation;
+
   // Handle user field
   if (consultationObj.user) {
-    const userId = typeof consultationObj.user === 'string' ? consultationObj.user : consultationObj.user._id;
-    
+    const userId =
+      typeof consultationObj.user === "string"
+        ? consultationObj.user
+        : consultationObj.user._id;
+
     try {
       // First try to find as regular user
-      let user = await User.findById(userId).select('fullName profilePhoto');
-      
+      let user = await User.findById(userId).select("fullName profilePhoto");
+
       if (!user) {
         // If not found as regular user, try as guest user
-        const guest = await Guest.findById(userId).select('name');
+        const guest = await Guest.findById(userId).select("name");
         if (guest) {
           user = {
             _id: guest._id,
             fullName: guest.name,
             profilePhoto: null,
-            isGuest: true
+            isGuest: true,
           };
         }
       }
-      
+
       if (user) {
         consultationObj.user = user;
       } else {
         // Fallback if user not found in either collection
         consultationObj.user = {
           _id: userId,
-          fullName: 'Unknown User',
+          fullName: "Unknown User",
           profilePhoto: null,
-          isGuest: false
+          isGuest: false,
         };
       }
     } catch (error) {
-      console.error('Error populating user:', error);
+      console.error("Error populating user:", error);
       consultationObj.user = {
         _id: userId,
-        fullName: 'Unknown User',
+        fullName: "Unknown User",
         profilePhoto: null,
-        isGuest: false
+        isGuest: false,
       };
     }
   }
-  
+
   // Handle provider field (always ObjectId)
-  if (consultationObj.provider && (typeof consultationObj.provider === 'string' || consultationObj.provider._id)) {
+  if (
+    consultationObj.provider &&
+    (typeof consultationObj.provider === "string" ||
+      consultationObj.provider._id)
+  ) {
     try {
-      const providerId = typeof consultationObj.provider === 'string' ? consultationObj.provider : consultationObj.provider._id;
-      const provider = await User.findById(providerId).select('fullName profilePhoto rates');
+      const providerId =
+        typeof consultationObj.provider === "string"
+          ? consultationObj.provider
+          : consultationObj.provider._id;
+      const provider = await User.findById(providerId).select(
+        "fullName profilePhoto rates"
+      );
       if (provider) {
         consultationObj.provider = provider;
       }
     } catch (error) {
-      console.error('Error populating provider:', error);
+      console.error("Error populating provider:", error);
     }
   }
-  
+
   return consultationObj;
 };
 
@@ -154,16 +177,17 @@ const createConsultation = async (req, res, next) => {
         rate = provider.rates.chat || 0;
       } else if (type === "audio" || type === "video") {
         // Use unified audioVideo rate for both audio and video
-        if (
-          defaultChargeType === "per-minute" &&
-          provider.rates.perMinute
-        ) {
-          rate = provider.rates.perMinute.audioVideo || 
-                 provider.rates.perMinute[type] || 
-                 provider.rates[type] || 0;
+        if (defaultChargeType === "per-minute" && provider.rates.perMinute) {
+          rate =
+            provider.rates.perMinute.audioVideo ||
+            provider.rates.perMinute[type] ||
+            provider.rates[type] ||
+            0;
         } else if (defaultChargeType === "per-hour" && provider.rates.perHour) {
-          rate = provider.rates.perHour.audioVideo || 
-                 provider.rates.perHour[type] || 0;
+          rate =
+            provider.rates.perHour.audioVideo ||
+            provider.rates.perHour[type] ||
+            0;
         } else {
           // Fallback to legacy rate structure
           rate = provider.rates[type] || 0;
@@ -202,15 +226,16 @@ const createConsultation = async (req, res, next) => {
     }
 
     // Detect provider-to-provider consultation
-    const isProviderToProvider = !req.user?.isGuest && 
-                                 req.user?.isServiceProvider && 
-                                 provider.isServiceProvider;
-    
+    const isProviderToProvider =
+      !req.user?.isGuest &&
+      req.user?.isServiceProvider &&
+      provider.isServiceProvider;
+
     console.log("🔍 CONSULTATION DEBUG - Provider-to-provider detection:", {
       isGuest: req.user?.isGuest,
       userIsProvider: req.user?.isServiceProvider,
       targetIsProvider: provider.isServiceProvider,
-      isProviderToProvider
+      isProviderToProvider,
     });
 
     // Create consultation (handle guest users and provider-to-provider)
@@ -228,14 +253,95 @@ const createConsultation = async (req, res, next) => {
       consultationData.isProviderToProvider = true;
       consultationData.bookingProviderIsClient = true;
       consultationData.participantRoles = {
-        bookingProvider: 'client',
-        bookedProvider: 'provider'
+        bookingProvider: "client",
+        bookedProvider: "provider",
       };
-      
-      console.log("✅ CONSULTATION DEBUG - Provider-to-provider consultation detected");
+
+      console.log(
+        "✅ CONSULTATION DEBUG - Provider-to-provider consultation detected"
+      );
     }
 
     const consultation = await Consultation.create(consultationData);
+
+    // Add auto-timeout for free calls (rate = 0) and audio/video calls
+    if (rate === 0 && (type === "audio" || type === "video")) {
+      console.log(
+        `⏰ Setting up auto-timeout for free ${type} call:`,
+        consultation._id
+      );
+
+      // Set timeout for 60 seconds (1 minute)
+      setTimeout(async () => {
+        try {
+          // Check if consultation is still pending (not accepted)
+          const currentConsultation = await Consultation.findById(
+            consultation._id
+          );
+
+          if (currentConsultation && currentConsultation.status === "pending") {
+            console.log(
+              `⏰ Auto-cancelling free call ${consultation._id} - provider didn't answer`
+            );
+
+            // Update consultation status to no_answer
+            currentConsultation.status = "no_answer";
+            currentConsultation.endTime = new Date();
+            currentConsultation.endReason = "timeout";
+            currentConsultation.duration = 0;
+            currentConsultation.totalAmount = 0;
+            await currentConsultation.save();
+
+            // Send timeout notification via socket
+            const io = req.app.get("io"); // Get socket.io instance
+            if (io) {
+              // Send timeout to both caller and provider
+              io.to(`user:${currentConsultation.user}`).emit(
+                "consultation:call-timeout",
+                {
+                  consultationId: consultation._id,
+                  message: "Provider did not answer the call",
+                  timestamp: new Date().toISOString(),
+                }
+              );
+
+              io.to(`user:${providerId}`).emit("consultation:call-timeout", {
+                consultationId: consultation._id,
+                message: "Call timed out",
+                timestamp: new Date().toISOString(),
+              });
+
+              // Also broadcast to consultation rooms
+              io.to(`consultation:${consultation._id}`).emit(
+                "consultation:call-timeout",
+                {
+                  consultationId: consultation._id,
+                  message: "Call timed out - no answer",
+                  timestamp: new Date().toISOString(),
+                }
+              );
+
+              console.log(
+                `📡 Timeout notifications sent for consultation ${consultation._id}`
+              );
+            }
+
+            console.log(
+              `✅ Free call ${consultation._id} auto-cancelled due to timeout`
+            );
+          } else {
+            console.log(
+              `⏰ Free call ${consultation._id} was already answered or ended`
+            );
+          }
+        } catch (timeoutError) {
+          console.error(
+            `❌ Error in auto-timeout for consultation ${consultation._id}:`,
+            timeoutError
+          );
+        }
+      }, 60000); // 60 seconds = 1 minute
+    }
 
     // Store consultation-specific roles for provider-to-provider consultations
     if (isProviderToProvider) {
@@ -244,10 +350,10 @@ const createConsultation = async (req, res, next) => {
         $push: {
           consultationRoles: {
             consultationId: consultation._id,
-            role: 'client'
+            role: "client",
           },
-          providerToProviderConsultations: consultation._id
-        }
+          providerToProviderConsultations: consultation._id,
+        },
       });
 
       // Update booked provider - they are the provider in this consultation
@@ -255,13 +361,15 @@ const createConsultation = async (req, res, next) => {
         $push: {
           consultationRoles: {
             consultationId: consultation._id,
-            role: 'provider'
+            role: "provider",
           },
-          providerToProviderConsultations: consultation._id
-        }
+          providerToProviderConsultations: consultation._id,
+        },
       });
 
-      console.log("✅ CONSULTATION DEBUG - Consultation roles stored for both providers");
+      console.log(
+        "✅ CONSULTATION DEBUG - Consultation roles stored for both providers"
+      );
     }
 
     // Create notification for provider
@@ -311,7 +419,7 @@ const getConsultation = async (req, res, next) => {
 
     // Debug: Find all consultations for this user (handle guest users)
     const userId = req.user?.isGuest ? req.user.id : req.user._id;
-    
+
     // Build query that handles both ObjectId and string user IDs
     let userQuery;
     if (req.user?.isGuest) {
@@ -323,9 +431,10 @@ const getConsultation = async (req, res, next) => {
         $or: [{ user: userId }, { provider: req.user._id }],
       };
     }
-    
-    const userConsultations = await Consultation.find(userQuery)
-      .select("_id user provider status type");
+
+    const userConsultations = await Consultation.find(userQuery).select(
+      "_id user provider status type"
+    );
 
     console.log(
       "🔍 DEBUG - User's consultations:",
@@ -354,11 +463,17 @@ const getConsultation = async (req, res, next) => {
     });
 
     // Check if user is part of consultation (handle guest users)
-    const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user?._id?.toString();
-    const requestingUserId = req.user?.isGuest ? req.user.id : req.user?._id?.toString();
-    
+    const consultationUserId =
+      typeof consultation.user === "string"
+        ? consultation.user
+        : consultation.user?._id?.toString();
+    const requestingUserId = req.user?.isGuest
+      ? req.user.id
+      : req.user?._id?.toString();
+
     const isUser = consultationUserId === requestingUserId;
-    const isProvider = consultation.provider?._id?.toString() === req.user?._id?.toString();
+    const isProvider =
+      consultation.provider?._id?.toString() === req.user?._id?.toString();
 
     console.log("🔍 DEBUG - Authorization check:", {
       isUser,
@@ -405,7 +520,9 @@ const getMyConsultations = async (req, res, next) => {
 
     let query;
     const userId = req.user?.isGuest ? req.user.id : req.user?._id;
-    const userIdString = req.user?.isGuest ? req.user.id : req.user?._id?.toString();
+    const userIdString = req.user?.isGuest
+      ? req.user.id
+      : req.user?._id?.toString();
 
     // Filter by role if specified
     if (role === "provider") {
@@ -418,29 +535,23 @@ const getMyConsultations = async (req, res, next) => {
     } else if (role === "client") {
       // Handle both string and ObjectId formats for user field
       query = {
-        $or: [
-          { user: userId },
-          { user: userIdString }
-        ]
+        $or: [{ user: userId }, { user: userIdString }],
       };
     } else {
       // Default: return all consultations where user is either client or provider
       if (req.user?.isGuest) {
         // Guest users can only be clients, never providers
         query = {
-          $or: [
-            { user: userId },
-            { user: userIdString }
-          ]
+          $or: [{ user: userId }, { user: userIdString }],
         };
       } else {
         // Regular users can be both clients and providers
         // Handle both string and ObjectId formats for user field
         query = {
           $or: [
-            { user: userId }, 
+            { user: userId },
             { user: userIdString },
-            { provider: req.user?._id }
+            { provider: req.user?._id },
           ],
         };
       }
@@ -454,9 +565,11 @@ const getMyConsultations = async (req, res, next) => {
       .sort({ createdAt: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
-    
+
     // Populate consultations with user data (handles guest users)
-    const populatedConsultations = await populateConsultationUser(consultations);
+    const populatedConsultations = await populateConsultationUser(
+      consultations
+    );
 
     const total = await Consultation.countDocuments(query);
 
@@ -519,7 +632,7 @@ const startConsultation = async (req, res, next) => {
     await consultation.save();
 
     // Update provider status to busy
-    await updateProviderStatus(consultation.provider, 'busy');
+    await updateProviderStatus(consultation.provider, "busy");
 
     res.status(200).json({
       success: true,
@@ -536,37 +649,42 @@ const startConsultation = async (req, res, next) => {
 // @access  Private
 const endConsultation = async (req, res, next) => {
   try {
-    console.log('🛑 END CONSULTATION CALLED:', {
+    console.log("🛑 END CONSULTATION CALLED:", {
       consultationId: req.params.id,
       userId: req.user?.id || req.user?._id,
-      userRole: req.user?.isServiceProvider ? 'provider' : 'client',
-      timestamp: new Date().toISOString()
+      userRole: req.user?.isServiceProvider ? "provider" : "client",
+      timestamp: new Date().toISOString(),
     });
 
     const consultation = await Consultation.findById(req.params.id);
 
     if (!consultation) {
-      console.log('❌ CONSULTATION NOT FOUND:', req.params.id);
+      console.log("❌ CONSULTATION NOT FOUND:", req.params.id);
       return next(new AppError("Consultation not found", 404));
     }
 
-    console.log('📋 CONSULTATION FOUND:', {
+    console.log("📋 CONSULTATION FOUND:", {
       id: consultation._id,
       status: consultation.status,
       user: consultation.user,
       provider: consultation.provider,
       totalAmount: consultation.totalAmount,
-      duration: consultation.duration
+      duration: consultation.duration,
     });
 
     // Either party can end consultation (handle guest users)
-    const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
-    const requestingUserId = req.user?.isGuest ? req.user.id : req.user?._id.toString();
+    const consultationUserId =
+      typeof consultation.user === "string"
+        ? consultation.user
+        : consultation.user.toString();
+    const requestingUserId = req.user?.isGuest
+      ? req.user.id
+      : req.user?._id.toString();
     const consultationProviderId = consultation.provider.toString();
-    
+
     const isUser = consultationUserId === requestingUserId;
     const isProvider = consultationProviderId === req.user?._id?.toString();
-    
+
     if (!isUser && !isProvider) {
       return next(new AppError("Not authorized", 403));
     }
@@ -590,11 +708,11 @@ const endConsultation = async (req, res, next) => {
 
       // Add earnings to provider
       const provider = await User.findById(consultation.provider);
-      
+
       if (provider && consultation.totalAmount > 0) {
         // Determine client name for transaction description
-        let clientName = 'Guest User';
-        if (typeof consultation.user !== 'string') {
+        let clientName = "Guest User";
+        if (typeof consultation.user !== "string") {
           const user = await User.findById(consultation.user);
           if (user) {
             clientName = user.fullName;
@@ -603,14 +721,19 @@ const endConsultation = async (req, res, next) => {
 
         // Calculate platform commission and provider earnings
         const PLATFORM_COMMISSION_RATE = 0.05;
-        const platformCommission = Math.round(consultation.totalAmount * PLATFORM_COMMISSION_RATE * 100) / 100;
-        const providerEarnings = Math.round((consultation.totalAmount - platformCommission) * 100) / 100;
-        
-        console.log('💰 COMMISSION CALCULATION:', {
+        const platformCommission =
+          Math.round(
+            consultation.totalAmount * PLATFORM_COMMISSION_RATE * 100
+          ) / 100;
+        const providerEarnings =
+          Math.round((consultation.totalAmount - platformCommission) * 100) /
+          100;
+
+        console.log("💰 COMMISSION CALCULATION:", {
           totalAmount: consultation.totalAmount,
           platformCommission,
           providerEarnings,
-          commissionRate: PLATFORM_COMMISSION_RATE
+          commissionRate: PLATFORM_COMMISSION_RATE,
         });
 
         // Add earnings to provider (only the provider's share, not full amount)
@@ -618,7 +741,10 @@ const endConsultation = async (req, res, next) => {
           consultation.provider,
           consultation._id,
           providerEarnings, // Use provider earnings, not full amount
-          `${consultation.type.charAt(0).toUpperCase() + consultation.type.slice(1)} Consultation - ${clientName}`,
+          `${
+            consultation.type.charAt(0).toUpperCase() +
+            consultation.type.slice(1)
+          } Consultation - ${clientName}`,
           {
             clientName,
             consultationType: consultation.type,
@@ -626,7 +752,7 @@ const endConsultation = async (req, res, next) => {
             rate: consultation.rate,
             platformCommission,
             grossAmount: consultation.totalAmount,
-            netAmount: providerEarnings
+            netAmount: providerEarnings,
           }
         );
 
@@ -634,53 +760,55 @@ const endConsultation = async (req, res, next) => {
         // Note: consultation.user can be either ObjectId or string, so we need to handle both
         const consultationUserId = consultation.user.toString();
         const user = await User.findById(consultationUserId);
-        
-        console.log('💸 CHECKING CLIENT DEDUCTION:', {
+
+        console.log("💸 CHECKING CLIENT DEDUCTION:", {
           consultationUserId,
           userFound: !!user,
           userWallet: user?.wallet,
           consultationAmount: consultation.totalAmount,
-          canAfford: user ? user.wallet >= consultation.totalAmount : false
+          canAfford: user ? user.wallet >= consultation.totalAmount : false,
         });
-        
+
         if (user && user.wallet >= consultation.totalAmount) {
-          console.log('💰 DEDUCTING FROM CLIENT WALLET:', {
+          console.log("💰 DEDUCTING FROM CLIENT WALLET:", {
             userId: user._id,
             previousBalance: user.wallet,
-            deductionAmount: consultation.totalAmount
+            deductionAmount: consultation.totalAmount,
           });
-          
+
           user.wallet -= consultation.totalAmount;
           user.totalSpent = (user.totalSpent || 0) + consultation.totalAmount;
           await user.save();
 
-          console.log('✅ CLIENT WALLET UPDATED:', {
+          console.log("✅ CLIENT WALLET UPDATED:", {
             userId: user._id,
             newBalance: user.wallet,
-            totalSpent: user.totalSpent
+            totalSpent: user.totalSpent,
           });
 
           // Create debit transaction for user
           await Transaction.create({
             user: consultationUserId,
-            userType: 'User', // Assume User for now, can be enhanced later
-            type: "consultation_payment",
+            userType: "User", // Assume User for now, can be enhanced later
+            type: "consultation",
             category: "consultation",
             amount: consultation.totalAmount,
             balance: user.wallet, // Current balance after transaction
             status: "completed",
             description: `${consultation.type} consultation with ${provider.fullName}`,
             consultationId: consultation._id,
-            transactionId: `CONSULT_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            transactionId: `CONSULT_${Date.now()}_${Math.random()
+              .toString(36)
+              .substr(2, 9)}`,
           });
-          
-          console.log('✅ CLIENT DEBIT TRANSACTION CREATED');
+
+          console.log("✅ CLIENT DEBIT TRANSACTION CREATED");
         } else {
-          console.log('❌ CANNOT DEDUCT FROM CLIENT:', {
+          console.log("❌ CANNOT DEDUCT FROM CLIENT:", {
             userFound: !!user,
             userWallet: user?.wallet || 0,
             consultationAmount: consultation.totalAmount,
-            reason: !user ? 'User not found' : 'Insufficient wallet balance'
+            reason: !user ? "User not found" : "Insufficient wallet balance",
           });
         }
       }
@@ -691,11 +819,11 @@ const endConsultation = async (req, res, next) => {
     // Check if provider has any other ongoing consultations and update status accordingly
     await checkProviderBusyStatus(consultation.provider);
 
-    console.log('✅ END CONSULTATION COMPLETED SUCCESSFULLY:', {
+    console.log("✅ END CONSULTATION COMPLETED SUCCESSFULLY:", {
       consultationId: consultation._id,
       finalStatus: consultation.status,
       totalAmount: consultation.totalAmount,
-      duration: consultation.duration
+      duration: consultation.duration,
     });
 
     res.status(200).json({
@@ -704,10 +832,10 @@ const endConsultation = async (req, res, next) => {
       data: consultation,
     });
   } catch (error) {
-    console.error('❌ END CONSULTATION ERROR:', {
+    console.error("❌ END CONSULTATION ERROR:", {
       consultationId: req.params?.id,
       error: error.message,
-      stack: error.stack
+      stack: error.stack,
     });
     next(error);
   }
@@ -725,10 +853,15 @@ const cancelConsultation = async (req, res, next) => {
     }
 
     // Both user and provider can cancel pending consultations (handle guest users)
-    const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
-    const requestingUserId = req.user?.isGuest ? req.user.id : req.user?._id.toString();
+    const consultationUserId =
+      typeof consultation.user === "string"
+        ? consultation.user
+        : consultation.user.toString();
+    const requestingUserId = req.user?.isGuest
+      ? req.user.id
+      : req.user?._id.toString();
     const consultationProviderId = consultation.provider.toString();
-    
+
     const isUser = consultationUserId === requestingUserId;
     const isProvider = consultationProviderId === req.user?._id?.toString();
 
@@ -779,15 +912,22 @@ const submitRating = async (req, res, next) => {
     }
 
     // Check if user is part of consultation (handle guest users and providers)
-    const consultationUserId = typeof consultation.user === 'string' ? consultation.user : consultation.user.toString();
-    const requestingUserId = req.user?.isGuest ? req.user.id : req.user?._id.toString();
+    const consultationUserId =
+      typeof consultation.user === "string"
+        ? consultation.user
+        : consultation.user.toString();
+    const requestingUserId = req.user?.isGuest
+      ? req.user.id
+      : req.user?._id.toString();
     const consultationProviderId = consultation.provider.toString();
-    
+
     const isClient = consultationUserId === requestingUserId;
     const isProvider = consultationProviderId === req.user?._id?.toString();
-    
+
     if (!isClient && !isProvider) {
-      return next(new AppError("Only participants can rate the consultation", 403));
+      return next(
+        new AppError("Only participants can rate the consultation", 403)
+      );
     }
 
     // Check if consultation is completed
@@ -796,17 +936,19 @@ const submitRating = async (req, res, next) => {
     }
 
     // Check if already rated by this user
-    const existingRating = await Rating.findOne({ 
+    const existingRating = await Rating.findOne({
       consultation: consultationId,
-      user: req.user?.isGuest ? req.user.id : req.user?._id
+      user: req.user?.isGuest ? req.user.id : req.user?._id,
     });
     if (existingRating) {
-      return next(new AppError("You have already rated this consultation", 400));
+      return next(
+        new AppError("You have already rated this consultation", 400)
+      );
     }
 
     // Determine who is being rated
     const ratedUserId = isProvider ? consultation.user : consultation.provider;
-    const ratedUserType = isProvider ? 'client' : 'provider';
+    const ratedUserType = isProvider ? "client" : "provider";
 
     // Create rating
     const rating = await Rating.create({
@@ -823,13 +965,14 @@ const submitRating = async (req, res, next) => {
     });
 
     // Update the rated user's rating (only for providers for now)
-    if (ratedUserType === 'provider') {
+    if (ratedUserType === "provider") {
       const provider = await User.findById(consultation.provider);
       if (provider) {
         provider.rating.totalStars += stars;
         provider.rating.count += 1;
-        provider.rating.average = provider.rating.totalStars / provider.rating.count;
-        
+        provider.rating.average =
+          provider.rating.totalStars / provider.rating.count;
+
         // Add to reviews array (keep last 50 reviews)
         provider.rating.reviews.unshift({
           consultationId,
@@ -839,12 +982,12 @@ const submitRating = async (req, res, next) => {
           review,
           tags: tags || [],
         });
-        
+
         // Keep only last 50 reviews
         if (provider.rating.reviews.length > 50) {
           provider.rating.reviews = provider.rating.reviews.slice(0, 50);
         }
-        
+
         await provider.save();
       }
     }
@@ -877,15 +1020,15 @@ const getProviderRatings = async (req, res, next) => {
     const providerId = req.params.providerId;
 
     const ratings = await Rating.find({ provider: providerId })
-      .populate('consultation', 'type createdAt')
+      .populate("consultation", "type createdAt")
       .sort({ createdAt: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
 
     const total = await Rating.countDocuments({ provider: providerId });
-    
+
     // Get provider rating summary
-    const provider = await User.findById(providerId).select('rating');
+    const provider = await User.findById(providerId).select("rating");
 
     res.status(200).json({
       success: true,
@@ -913,27 +1056,27 @@ const getGuestConsultationHistory = async (req, res, next) => {
     const userId = req.user.id || req.user._id;
     const { page = 1, limit = 20, status } = req.query;
 
-    console.log('📋 Fetching guest consultation history:', {
+    console.log("📋 Fetching guest consultation history:", {
       userId,
       page,
       limit,
-      status
+      status,
     });
 
     // Build query for guest consultations
     const query = {
       user: userId,
-      userType: 'Guest'
+      userType: "Guest",
     };
 
     // Add status filter if provided
-    if (status && status !== 'all') {
+    if (status && status !== "all") {
       query.status = status;
     }
 
     // Get consultations with pagination
     const consultations = await Consultation.find(query)
-      .populate('provider', 'fullName profilePhoto rates')
+      .populate("provider", "fullName profilePhoto rates")
       .sort({ createdAt: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
@@ -942,15 +1085,15 @@ const getGuestConsultationHistory = async (req, res, next) => {
     const total = await Consultation.countDocuments(query);
 
     // Format consultations with additional details
-    const formattedConsultations = consultations.map(consultation => {
+    const formattedConsultations = consultations.map((consultation) => {
       const consultationObj = consultation.toObject();
-      
+
       // Calculate duration in a readable format
-      let durationText = 'N/A';
+      let durationText = "N/A";
       if (consultationObj.duration && consultationObj.duration > 0) {
         const minutes = consultationObj.duration;
         if (minutes < 60) {
-          durationText = `${minutes} min${minutes !== 1 ? 's' : ''}`;
+          durationText = `${minutes} min${minutes !== 1 ? "s" : ""}`;
         } else {
           const hours = Math.floor(minutes / 60);
           const remainingMinutes = minutes % 60;
@@ -959,7 +1102,7 @@ const getGuestConsultationHistory = async (req, res, next) => {
       }
 
       // Format time range
-      let timeRange = 'N/A';
+      let timeRange = "N/A";
       if (consultationObj.startTime && consultationObj.endTime) {
         const startTime = new Date(consultationObj.startTime);
         const endTime = new Date(consultationObj.endTime);
@@ -969,10 +1112,14 @@ const getGuestConsultationHistory = async (req, res, next) => {
       // Get consultation type icon
       const getTypeIcon = (type) => {
         switch (type) {
-          case 'video': return 'video';
-          case 'audio': return 'phone';
-          case 'chat': return 'message-circle';
-          default: return 'help-circle';
+          case "video":
+            return "video";
+          case "audio":
+            return "phone";
+          case "chat":
+            return "message-circle";
+          default:
+            return "help-circle";
         }
       };
 
@@ -981,22 +1128,30 @@ const getGuestConsultationHistory = async (req, res, next) => {
         durationText,
         timeRange,
         typeIcon: getTypeIcon(consultationObj.type),
-        providerName: consultationObj.provider?.fullName || 'Unknown Provider',
+        providerName: consultationObj.provider?.fullName || "Unknown Provider",
         providerPhoto: consultationObj.provider?.profilePhoto,
         rate: consultationObj.rate || 0,
-        formattedDate: new Date(consultationObj.createdAt).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric'
-        }),
-        formattedTime: new Date(consultationObj.createdAt).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit'
-        })
+        formattedDate: new Date(consultationObj.createdAt).toLocaleDateString(
+          "en-US",
+          {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          }
+        ),
+        formattedTime: new Date(consultationObj.createdAt).toLocaleTimeString(
+          "en-US",
+          {
+            hour: "2-digit",
+            minute: "2-digit",
+          }
+        ),
       };
     });
 
-    console.log(`✅ Found ${formattedConsultations.length} guest consultations`);
+    console.log(
+      `✅ Found ${formattedConsultations.length} guest consultations`
+    );
 
     res.status(200).json({
       success: true,
@@ -1008,13 +1163,12 @@ const getGuestConsultationHistory = async (req, res, next) => {
           total,
           pages: Math.ceil(total / parseInt(limit)),
           hasNext: parseInt(page) < Math.ceil(total / parseInt(limit)),
-          hasPrev: parseInt(page) > 1
-        }
-      }
+          hasPrev: parseInt(page) > 1,
+        },
+      },
     });
-
   } catch (error) {
-    console.error('❌ Error fetching guest consultation history:', error);
+    console.error("❌ Error fetching guest consultation history:", error);
     next(error);
   }
 };

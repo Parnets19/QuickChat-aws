@@ -1,24 +1,24 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
 const UserSchema = new mongoose.Schema(
   {
     fullName: {
       type: String,
-      required: [true, 'Full name is required'],
+      required: [true, "Full name is required"],
       trim: true,
     },
     email: {
       type: String,
-      required: [true, 'Email is required'],
+      required: [true, "Email is required"],
       trim: true,
       lowercase: true,
       unique: true,
     },
     mobile: {
       type: String,
-      required: [true, 'Mobile number is required'],
+      required: [true, "Mobile number is required"],
       unique: true,
     },
     password: {
@@ -29,7 +29,7 @@ const UserSchema = new mongoose.Schema(
     dateOfBirth: Date,
     gender: {
       type: String,
-      enum: ['male', 'female', 'other'],
+      enum: ["male", "female", "other"],
     },
     place: {
       village: String,
@@ -60,7 +60,7 @@ const UserSchema = new mongoose.Schema(
       {
         type: {
           type: String,
-          enum: ['image', 'video'],
+          enum: ["image", "video"],
         },
         url: String,
       },
@@ -89,7 +89,15 @@ const UserSchema = new mongoose.Schema(
       {
         day: {
           type: String,
-          enum: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
+          enum: [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+          ],
         },
         slots: [
           {
@@ -138,8 +146,8 @@ const UserSchema = new mongoose.Schema(
       // Default charge type for display
       defaultChargeType: {
         type: String,
-        enum: ['per-minute', 'per-hour'],
-        default: 'per-minute',
+        enum: ["per-minute", "per-hour"],
+        default: "per-minute",
       },
       // Legacy fields for backward compatibility
       audio: {
@@ -152,8 +160,8 @@ const UserSchema = new mongoose.Schema(
       },
       chargeType: {
         type: String,
-        enum: ['per-minute', 'per-hour'],
-        default: 'per-minute',
+        enum: ["per-minute", "per-hour"],
+        default: "per-minute",
       },
     },
     bankDetails: {
@@ -194,27 +202,27 @@ const UserSchema = new mongoose.Schema(
     // User role field for analytics and filtering
     role: {
       type: String,
-      enum: ['user', 'provider'],
-      default: function() {
-        return this.isServiceProvider ? 'provider' : 'user';
-      }
+      enum: ["user", "provider"],
+      default: function () {
+        return this.isServiceProvider ? "provider" : "user";
+      },
     },
     // Provider verification status
     providerVerificationStatus: {
       type: String,
-      enum: ['pending', 'verified', 'rejected'],
-      default: 'pending',
+      enum: ["pending", "verified", "rejected"],
+      default: "pending",
     },
     verificationNotes: {
       type: String,
-      default: '',
+      default: "",
     },
     verifiedAt: {
       type: Date,
     },
     verifiedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Admin',
+      ref: "Admin",
     },
     isAdmin: {
       type: Boolean,
@@ -230,18 +238,18 @@ const UserSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'inactive', 'suspended'],
-      default: 'active',
+      enum: ["active", "inactive", "suspended"],
+      default: "active",
     },
     consultationStatus: {
       type: String,
-      enum: ['available', 'busy', 'offline'],
-      default: 'available',
+      enum: ["available", "busy", "offline"],
+      default: "available",
     },
     subscription: {
       plan: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Subscription',
+        ref: "Subscription",
       },
       startDate: Date,
       endDate: Date,
@@ -263,30 +271,32 @@ const UserSchema = new mongoose.Schema(
         type: Number,
         default: 0,
       },
-      reviews: [{
-        consultationId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Consultation'
+      reviews: [
+        {
+          consultationId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Consultation",
+          },
+          userId: {
+            type: mongoose.Schema.Types.Mixed, // Support both ObjectId and string for guest users
+          },
+          userName: String,
+          stars: {
+            type: Number,
+            min: 1,
+            max: 5,
+            required: true,
+          },
+          review: String,
+          tags: [String],
+          createdAt: {
+            type: Date,
+            default: Date.now,
+          },
         },
-        userId: {
-          type: mongoose.Schema.Types.Mixed, // Support both ObjectId and string for guest users
-        },
-        userName: String,
-        stars: {
-          type: Number,
-          min: 1,
-          max: 5,
-          required: true
-        },
-        review: String,
-        tags: [String],
-        createdAt: {
-          type: Date,
-          default: Date.now
-        }
-      }]
+      ],
     },
-    
+
     // Provider status tracking
     isInCall: {
       type: Boolean,
@@ -294,7 +304,7 @@ const UserSchema = new mongoose.Schema(
     },
     currentConsultationId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Consultation',
+      ref: "Consultation",
       default: null,
     },
     socialLogins: {
@@ -307,29 +317,52 @@ const UserSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
-    
+
     // Consultation role tracking for provider-to-provider consultations
-    consultationRoles: [{
-      consultationId: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: 'Consultation' 
+    consultationRoles: [
+      {
+        consultationId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Consultation",
+        },
+        role: {
+          type: String,
+          enum: ["client", "provider"],
+          required: true,
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
       },
-      role: { 
-        type: String, 
-        enum: ['client', 'provider'], 
-        required: true 
-      },
-      createdAt: { 
-        type: Date, 
-        default: Date.now 
-      }
-    }],
-    
+    ],
+
     // Track provider-to-provider consultations
-    providerToProviderConsultations: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Consultation'
-    }],
+    providerToProviderConsultations: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Consultation",
+      },
+    ],
+
+    // Track free minutes used with each provider (First Minute Free Trial system)
+    freeMinutesUsed: [
+      {
+        providerId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        usedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        consultationId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Consultation",
+        },
+      },
+    ],
   },
   {
     timestamps: true,
@@ -339,14 +372,14 @@ const UserSchema = new mongoose.Schema(
 // Index for better query performance
 UserSchema.index({ mobile: 1 });
 UserSchema.index({ email: 1 });
-UserSchema.index({ 'place.city': 1 });
+UserSchema.index({ "place.city": 1 });
 UserSchema.index({ skills: 1 });
 UserSchema.index({ isServiceProvider: 1 });
-UserSchema.index({ 'rating.average': -1 });
+UserSchema.index({ "rating.average": -1 });
 
 // Hash password before saving
-UserSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
+UserSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) {
     next();
   }
 
@@ -358,8 +391,6 @@ UserSchema.pre('save', async function (next) {
   next();
 });
 
-
-
 // Compare password method
 UserSchema.methods.comparePassword = async function (candidatePassword) {
   if (!this.password) return false;
@@ -369,24 +400,21 @@ UserSchema.methods.comparePassword = async function (candidatePassword) {
 // Generate auth token
 UserSchema.methods.generateAuthToken = function () {
   return jwt.sign(
-    { 
-      id: this._id, 
+    {
+      id: this._id,
       mobile: this.mobile,
-      isAdmin: this.isAdmin || false // Include isAdmin in JWT payload
+      isAdmin: this.isAdmin || false, // Include isAdmin in JWT payload
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRE || '30d' }
+    { expiresIn: process.env.JWT_EXPIRE || "30d" }
   );
 };
 
 // Generate refresh token
 UserSchema.methods.generateRefreshToken = function () {
-  return jwt.sign(
-    { id: this._id },
-    process.env.JWT_REFRESH_SECRET,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRE || '90d' }
-  );
+  return jwt.sign({ id: this._id }, process.env.JWT_REFRESH_SECRET, {
+    expiresIn: process.env.JWT_REFRESH_EXPIRE || "90d",
+  });
 };
 
-module.exports = mongoose.model('User', UserSchema);
-
+module.exports = mongoose.model("User", UserSchema);
