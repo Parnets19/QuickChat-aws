@@ -9,6 +9,43 @@ const {
 const { addEarnings } = require("./earnings.controller");
 const { AppError } = require("../middlewares/errorHandler");
 
+/**
+ * Precise money calculation helper to avoid floating point issues
+ * @param {number} amount1 - First amount
+ * @param {number} amount2 - Second amount
+ * @param {string} operation - 'add', 'subtract', 'multiply', 'divide'
+ * @returns {number} - Precise result rounded to 2 decimal places
+ */
+const preciseMoneyCalculation = (amount1, amount2, operation) => {
+  // Convert to cents to avoid floating point issues
+  const cents1 = Math.round(amount1 * 100);
+  const cents2 = Math.round(amount2 * 100);
+
+  let resultCents;
+  switch (operation) {
+    case "add":
+      resultCents = cents1 + cents2;
+      break;
+    case "subtract":
+      resultCents = cents1 - cents2;
+      break;
+    case "multiply":
+      resultCents = Math.round((cents1 * cents2) / 100);
+      break;
+    case "divide":
+      resultCents = Math.round((cents1 / cents2) * 100);
+      break;
+    default:
+      throw new Error("Invalid operation");
+  }
+
+  // Convert back to rupees with exactly 2 decimal places
+  return Math.round(resultCents) / 100;
+};
+
+// Platform commission rate (5%)
+const PLATFORM_COMMISSION_RATE = 0.05;
+
 // Helper function to update provider consultation status
 const updateProviderStatus = async (providerId, status) => {
   try {
@@ -238,6 +275,80 @@ const createConsultation = async (req, res, next) => {
       isProviderToProvider,
     });
 
+    // Check if this is user's first-time free trial (one-time across all providers)
+    let isFirstTimeFreeTrial = false;
+    if (rate > 0 && (type === "audio" || type === "video")) {
+      try {
+        // Check if user has used their one-time free trial
+        let hasUsedFreeTrial = false;
+
+        if (req.user?.isGuest) {
+          const guest = await Guest.findById(req.user.id);
+          hasUsedFreeTrial = guest?.hasUsedFreeTrialCall || false;
+        } else {
+          const userForFreeCheck = await User.findById(req.user._id);
+          hasUsedFreeTrial = userForFreeCheck?.hasUsedFreeTrialCall || false;
+        }
+
+        isFirstTimeFreeTrial = !hasUsedFreeTrial;
+        console.log(
+          `🎯 Free trial check: isFirstTime=${isFirstTimeFreeTrial}, hasUsed=${hasUsedFreeTrial}`
+        );
+      } catch (error) {
+        console.error("Error checking free trial status:", error);
+        isFirstTimeFreeTrial = false;
+      }
+    }
+
+    // 🛡️ WALLET BALANCE VALIDATION - Updated for free trial system
+    // For free trial calls, no wallet balance required!
+    // For non-free-trial calls, normal wallet validation applies
+    if (rate > 0 && !isFirstTimeFreeTrial) {
+      let currentUser;
+      if (req.user?.isGuest) {
+        currentUser = await Guest.findById(req.user.id);
+      } else {
+        currentUser = await User.findById(req.user._id);
+      }
+
+      if (currentUser) {
+        const currentBalance = currentUser.wallet || 0;
+        const minimumRequired = rate; // At least one minute worth
+
+        console.log("🛡️ WALLET BALANCE CHECK (NON-FREE-TRIAL):", {
+          userId: currentUser._id,
+          currentBalance,
+          ratePerMinute: rate,
+          minimumRequired,
+          canAfford: currentBalance >= minimumRequired,
+          isFirstTimeFreeTrial,
+        });
+
+        if (currentBalance < minimumRequired) {
+          console.log(
+            "🚨 INSUFFICIENT WALLET BALANCE - CONSULTATION REJECTED:",
+            {
+              userId: currentUser._id,
+              currentBalance,
+              requiredAmount: minimumRequired,
+              shortfall: minimumRequired - currentBalance,
+            }
+          );
+
+          return next(
+            new AppError(
+              `Insufficient wallet balance. You need at least ₹${minimumRequired} to start this consultation. Current balance: ₹${currentBalance}`,
+              400
+            )
+          );
+        }
+      } else {
+        return next(new AppError("User not found", 404));
+      }
+    } else if (isFirstTimeFreeTrial) {
+      console.log("🎉 FREE TRIAL CALL - No wallet balance required!");
+    }
+
     // Create consultation (handle guest users and provider-to-provider)
     const consultationData = {
       user: req.user?.isGuest ? req.user.id : req.user?._id,
@@ -246,6 +357,13 @@ const createConsultation = async (req, res, next) => {
       rate,
       status: initialStatus,
       startTime: null, // Start time will be set when provider accepts/starts the consultation
+      // NEW: Free trial system fields
+      isFirstTimeFreeTrial, // Is this the user's one-time free trial?
+      freeTrialUsed: false, // Has the free trial been consumed?
+      entireCallFree: isFirstTimeFreeTrial, // Is entire call free?
+      // OLD: Keep for backward compatibility
+      isFirstMinuteFree: false, // Deprecated: always false now
+      freeMinuteUsed: false, // Deprecated: always false now
     };
 
     // Add provider-to-provider specific fields
@@ -263,6 +381,43 @@ const createConsultation = async (req, res, next) => {
     }
 
     const consultation = await Consultation.create(consultationData);
+
+    // 🎯 MARK FREE TRIAL AS USED IMMEDIATELY - New free trial system
+    // Mark free trial as used when consultation is created (not when completed)
+    // This prevents users from getting multiple free trials
+    if (isFirstTimeFreeTrial && rate > 0) {
+      try {
+        console.log("🎯 MARKING FREE TRIAL AS USED ON CREATION:", {
+          consultationId: consultation._id,
+          userId: req.user?.isGuest ? req.user.id : req.user?._id,
+          providerId: providerId,
+          isFirstTimeFreeTrial: isFirstTimeFreeTrial,
+        });
+
+        // Determine if user is guest or regular user
+        const isGuestUser = req.user?.isGuest;
+        const userId = isGuestUser ? req.user.id : req.user?._id;
+
+        if (isGuestUser) {
+          await Guest.findByIdAndUpdate(userId, {
+            hasUsedFreeTrialCall: true,
+            freeTrialUsedAt: new Date(),
+            freeTrialConsultationId: consultation._id,
+          });
+        } else {
+          await User.findByIdAndUpdate(userId, {
+            hasUsedFreeTrialCall: true,
+            freeTrialUsedAt: new Date(),
+            freeTrialConsultationId: consultation._id,
+          });
+        }
+
+        console.log("✅ FREE TRIAL MARKED AS USED FOR USER:", userId);
+      } catch (error) {
+        console.error("❌ Error marking free trial as used:", error);
+        // Don't fail the consultation creation if this fails
+      }
+    }
 
     // Add auto-timeout for free calls (rate = 0) and audio/video calls
     if (rate === 0 && (type === "audio" || type === "video")) {
@@ -284,10 +439,10 @@ const createConsultation = async (req, res, next) => {
               `⏰ Auto-cancelling free call ${consultation._id} - provider didn't answer`
             );
 
-            // Update consultation status to no_answer
-            currentConsultation.status = "no_answer";
+            // Update consultation status to rejected
+            currentConsultation.status = "rejected";
             currentConsultation.endTime = new Date();
-            currentConsultation.endReason = "timeout";
+            currentConsultation.endReason = "timeout_no_answer";
             currentConsultation.duration = 0;
             currentConsultation.totalAmount = 0;
             await currentConsultation.save();
@@ -301,6 +456,8 @@ const createConsultation = async (req, res, next) => {
                 {
                   consultationId: consultation._id,
                   message: "Provider did not answer the call",
+                  status: "rejected",
+                  reason: "timeout_no_answer",
                   timestamp: new Date().toISOString(),
                 }
               );
@@ -308,6 +465,8 @@ const createConsultation = async (req, res, next) => {
               io.to(`user:${providerId}`).emit("consultation:call-timeout", {
                 consultationId: consultation._id,
                 message: "Call timed out",
+                status: "rejected",
+                reason: "timeout_no_answer",
                 timestamp: new Date().toISOString(),
               });
 
@@ -317,6 +476,8 @@ const createConsultation = async (req, res, next) => {
                 {
                   consultationId: consultation._id,
                   message: "Call timed out - no answer",
+                  status: "rejected",
+                  reason: "timeout_no_answer",
                   timestamp: new Date().toISOString(),
                 }
               );
@@ -649,7 +810,7 @@ const startConsultation = async (req, res, next) => {
 // @access  Private
 const endConsultation = async (req, res, next) => {
   try {
-    console.log("🛑 END CONSULTATION CALLED:", {
+    console.log("🛑 END CONSULTATION API CALLED:", {
       consultationId: req.params.id,
       userId: req.user?.id || req.user?._id,
       userRole: req.user?.isServiceProvider ? "provider" : "client",
@@ -689,10 +850,23 @@ const endConsultation = async (req, res, next) => {
       return next(new AppError("Not authorized", 403));
     }
 
-    // Only allow ending consultations that are ongoing
-    if (consultation.status !== "ongoing") {
-      return next(new AppError("Can only end ongoing consultations", 400));
+    // FIX FOR API 400 ERROR: Allow ending consultations in multiple states
+    // Only prevent ending if consultation is already completed or cancelled
+    if (["completed", "cancelled"].includes(consultation.status)) {
+      console.log(
+        `⚠️ Consultation already ${consultation.status}, not updating status`
+      );
+
+      // Still return success to prevent client-side errors
+      return res.status(200).json({
+        success: true,
+        message: `Consultation already ${consultation.status}`,
+        data: consultation,
+      });
     }
+
+    // Allow ending consultations in pending, ongoing, or other states
+    console.log(`✅ Ending consultation with status: ${consultation.status}`);
 
     consultation.status = "completed";
     consultation.endTime = new Date();
@@ -704,7 +878,12 @@ const endConsultation = async (req, res, next) => {
           (1000 * 60)
       );
       consultation.duration = duration;
-      consultation.totalAmount = duration * consultation.rate;
+      // Use precise calculation for totalAmount
+      consultation.totalAmount = preciseMoneyCalculation(
+        duration,
+        consultation.rate,
+        "multiply"
+      );
 
       // Add earnings to provider
       const provider = await User.findById(consultation.provider);
@@ -719,15 +898,17 @@ const endConsultation = async (req, res, next) => {
           }
         }
 
-        // Calculate platform commission and provider earnings
-        const PLATFORM_COMMISSION_RATE = 0.05;
-        const platformCommission =
-          Math.round(
-            consultation.totalAmount * PLATFORM_COMMISSION_RATE * 100
-          ) / 100;
-        const providerEarnings =
-          Math.round((consultation.totalAmount - platformCommission) * 100) /
-          100;
+        // Calculate platform commission and provider earnings with PRECISE calculations
+        const platformCommission = preciseMoneyCalculation(
+          consultation.totalAmount,
+          PLATFORM_COMMISSION_RATE,
+          "multiply"
+        );
+        const providerEarnings = preciseMoneyCalculation(
+          consultation.totalAmount,
+          platformCommission,
+          "subtract"
+        );
 
         console.log("💰 COMMISSION CALCULATION:", {
           totalAmount: consultation.totalAmount,
@@ -757,43 +938,31 @@ const endConsultation = async (req, res, next) => {
         );
 
         // For regular users (not guests), deduct from user wallet
-        // Note: consultation.user can be either ObjectId or string, so we need to handle both
+        // NOTE: WALLET DEDUCTION IS HANDLED BY REAL-TIME BILLING SYSTEM
+        // Do NOT deduct here to avoid double charging
         const consultationUserId = consultation.user.toString();
         const user = await User.findById(consultationUserId);
 
-        console.log("💸 CHECKING CLIENT DEDUCTION:", {
-          consultationUserId,
-          userFound: !!user,
-          userWallet: user?.wallet,
-          consultationAmount: consultation.totalAmount,
-          canAfford: user ? user.wallet >= consultation.totalAmount : false,
-        });
+        console.log(
+          "💸 WALLET DEDUCTION SKIPPED (HANDLED BY REAL-TIME BILLING):",
+          {
+            consultationUserId,
+            userFound: !!user,
+            userWallet: user?.wallet,
+            consultationAmount: consultation.totalAmount,
+            note: "Real-time billing already handled wallet deduction during call",
+          }
+        );
 
-        if (user && user.wallet >= consultation.totalAmount) {
-          console.log("💰 DEDUCTING FROM CLIENT WALLET:", {
-            userId: user._id,
-            previousBalance: user.wallet,
-            deductionAmount: consultation.totalAmount,
-          });
-
-          user.wallet -= consultation.totalAmount;
-          user.totalSpent = (user.totalSpent || 0) + consultation.totalAmount;
-          await user.save();
-
-          console.log("✅ CLIENT WALLET UPDATED:", {
-            userId: user._id,
-            newBalance: user.wallet,
-            totalSpent: user.totalSpent,
-          });
-
-          // Create debit transaction for user
+        // Only create transaction record for tracking (no wallet deduction)
+        if (user && consultation.totalAmount > 0) {
           await Transaction.create({
             user: consultationUserId,
-            userType: "User", // Assume User for now, can be enhanced later
-            type: "consultation",
+            userType: "User",
+            type: "consultation_payment",
             category: "consultation",
             amount: consultation.totalAmount,
-            balance: user.wallet, // Current balance after transaction
+            balance: user.wallet, // Current balance (already deducted by real-time billing)
             status: "completed",
             description: `${consultation.type} consultation with ${provider.fullName}`,
             consultationId: consultation._id,
@@ -802,24 +971,88 @@ const endConsultation = async (req, res, next) => {
               .substr(2, 9)}`,
           });
 
-          console.log("✅ CLIENT DEBIT TRANSACTION CREATED");
-        } else {
-          console.log("❌ CANNOT DEDUCT FROM CLIENT:", {
-            userFound: !!user,
-            userWallet: user?.wallet || 0,
-            consultationAmount: consultation.totalAmount,
-            reason: !user ? "User not found" : "Insufficient wallet balance",
-          });
+          console.log("✅ TRANSACTION RECORD CREATED (NO WALLET DEDUCTION)");
         }
       }
+    } else {
+      // If no start time, set minimal duration for completed consultation
+      consultation.duration = 0;
+      consultation.totalAmount = 0;
     }
 
     await consultation.save();
 
+    // 🆓 MARK FREE MINUTE AS USED - Fix for free minute system
+    // If this was a first-time consultation with this provider, mark free minute as used
+    if (consultation.isFirstMinuteFree && consultation.rate > 0) {
+      try {
+        console.log("🆓 MARKING FREE MINUTE AS USED:", {
+          consultationId: consultation._id,
+          userId: consultationUserId,
+          providerId: consultation.provider,
+          isFirstMinuteFree: consultation.isFirstMinuteFree,
+        });
+
+        // Determine if user is guest or regular user
+        const isGuestUser = req.user?.isGuest;
+        let userModel;
+
+        if (isGuestUser) {
+          userModel = await Guest.findById(consultationUserId);
+        } else {
+          userModel = await User.findById(consultationUserId);
+        }
+
+        if (userModel) {
+          // Initialize freeMinutesUsed if it doesn't exist
+          if (!userModel.freeMinutesUsed) {
+            userModel.freeMinutesUsed = [];
+          }
+
+          // Check if not already marked as used
+          const alreadyMarked = userModel.freeMinutesUsed.some(
+            (entry) =>
+              entry.providerId.toString() === consultation.provider.toString()
+          );
+
+          if (!alreadyMarked) {
+            userModel.freeMinutesUsed.push({
+              providerId: consultation.provider,
+              consultationId: consultation._id,
+              usedAt: new Date(),
+            });
+            await userModel.save();
+
+            // Also update the consultation to reflect that free minute was used
+            consultation.freeMinuteUsed = true;
+            await consultation.save();
+
+            console.log("✅ FREE MINUTE MARKED AS USED:", {
+              userId: consultationUserId,
+              providerId: consultation.provider,
+              userType: isGuestUser ? "guest" : "regular",
+            });
+          } else {
+            console.log(
+              "ℹ️ Free minute already marked as used for this provider"
+            );
+          }
+        } else {
+          console.error(
+            "❌ User not found for free minute marking:",
+            consultationUserId
+          );
+        }
+      } catch (freeMinuteError) {
+        console.error("❌ Error marking free minute as used:", freeMinuteError);
+        // Don't fail the consultation completion if free minute marking fails
+      }
+    }
+
     // Check if provider has any other ongoing consultations and update status accordingly
     await checkProviderBusyStatus(consultation.provider);
 
-    console.log("✅ END CONSULTATION COMPLETED SUCCESSFULLY:", {
+    console.log("✅ END CONSULTATION API COMPLETED SUCCESSFULLY:", {
       consultationId: consultation._id,
       finalStatus: consultation.status,
       totalAmount: consultation.totalAmount,
@@ -832,7 +1065,7 @@ const endConsultation = async (req, res, next) => {
       data: consultation,
     });
   } catch (error) {
-    console.error("❌ END CONSULTATION ERROR:", {
+    console.error("❌ END CONSULTATION API ERROR:", {
       consultationId: req.params?.id,
       error: error.message,
       stack: error.stack,
@@ -886,6 +1119,75 @@ const cancelConsultation = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message,
+      data: consultation,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Reject consultation (provider declines call)
+// @route   PUT /api/consultations/:id/reject
+// @access  Private
+const rejectConsultation = async (req, res, next) => {
+  try {
+    const consultation = await Consultation.findById(req.params.id);
+
+    if (!consultation) {
+      return next(new AppError("Consultation not found", 404));
+    }
+
+    // Only provider can reject consultations
+    const consultationProviderId = consultation.provider.toString();
+    const requestingUserId = req.user?._id?.toString();
+
+    if (consultationProviderId !== requestingUserId) {
+      return next(
+        new AppError("Only the provider can reject this consultation", 403)
+      );
+    }
+
+    // Can only reject pending consultations
+    if (consultation.status !== "pending") {
+      return next(new AppError("Can only reject pending consultations", 400));
+    }
+
+    // Update consultation status to rejected
+    consultation.status = "rejected";
+    consultation.endTime = new Date();
+    consultation.endReason = "provider_rejected";
+    await consultation.save();
+
+    // Emit socket event to notify client
+    const io = req.app.get("io");
+    if (io) {
+      // Notify the client that call was rejected
+      io.to(`user:${consultation.user}`).emit("consultation:call-rejected", {
+        consultationId: consultation._id,
+        reason: "Provider declined the call",
+        rejectedByName: req.user.fullName || req.user.name,
+        status: "rejected",
+        timestamp: new Date().toISOString(),
+      });
+
+      // Also emit to consultation room
+      io.to(`consultation:${consultation._id}`).emit(
+        "consultation:call-rejected",
+        {
+          consultationId: consultation._id,
+          reason: "Provider declined the call",
+          rejectedByName: req.user.fullName || req.user.name,
+          status: "rejected",
+          timestamp: new Date().toISOString(),
+        }
+      );
+
+      console.log("📡 SOCKET: Call rejection emitted to client");
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Consultation rejected successfully",
       data: consultation,
     });
   } catch (error) {
@@ -1180,6 +1482,7 @@ module.exports = {
   startConsultation,
   endConsultation,
   cancelConsultation,
+  rejectConsultation,
   getConsultationHistory,
   getGuestConsultationHistory,
   submitRating,

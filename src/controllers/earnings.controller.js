@@ -759,6 +759,19 @@ const requestWithdrawal = async (req, res) => {
     const processingFee = Math.round(amount * feePercentage);
     const netAmount = amount - processingFee;
 
+    // 🛡️ WALLET PROTECTION: Check balance before withdrawal
+    if (user.wallet < amount) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient wallet balance. Available: ₹${user.wallet}, Requested: ₹${amount}`,
+        data: {
+          currentBalance: user.wallet,
+          requestedAmount: amount,
+          shortfall: amount - user.wallet,
+        },
+      });
+    }
+
     // IMMEDIATE DEDUCTION: Deduct money from wallet when withdrawal is requested
     console.log(
       "💰 IMMEDIATE DEDUCTION: Deducting withdrawal amount from wallet",
@@ -771,6 +784,18 @@ const requestWithdrawal = async (req, res) => {
     );
 
     user.wallet -= amount;
+
+    // 🛡️ SAFETY CHECK: Ensure wallet never goes negative
+    if (user.wallet < 0) {
+      console.log("🚨 WALLET WENT NEGATIVE AFTER WITHDRAWAL - CORRECTING:", {
+        userId: user._id,
+        walletBefore: user.wallet + amount,
+        walletAfter: user.wallet,
+        correction: "Setting to 0",
+      });
+      user.wallet = 0;
+    }
+
     await user.save();
 
     // Create withdrawal request using the Withdrawal model

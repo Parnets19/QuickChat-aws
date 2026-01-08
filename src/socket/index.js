@@ -323,28 +323,106 @@ const initializeSocket = (io) => {
           return;
         }
 
+        // Get sender information for proper notifications
+        let senderUser = null;
+        let senderName = "User";
+
+        if (socket.data.user?.isGuest) {
+          // Handle guest users
+          senderName =
+            socket.data.user.fullName || socket.data.user.name || "Guest User";
+        } else {
+          // Handle regular users
+          senderUser = await User.findById(userId).select(
+            "fullName name firstName lastName profilePhoto"
+          );
+          senderName = senderUser
+            ? senderUser.fullName ||
+              senderUser.name ||
+              `${senderUser.firstName || ""} ${
+                senderUser.lastName || ""
+              }`.trim() ||
+              "User"
+            : "User";
+        }
+
+        // Create unique message ID to prevent duplicates
+        const messageId = `msg_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+
         const messageData = {
+          _id: messageId,
           sender: userId,
+          senderName: senderName,
+          senderAvatar: senderUser?.profilePhoto || null,
           message: data.message,
           timestamp: new Date(),
           type: data.type || "text",
-          file: data.file || null, // Include file data for file messages
+          file: data.file || null,
+          status: "delivered",
+          readBy: [], // Track who has read this message
         };
 
         console.log("📨 BACKEND: Saving message data:", messageData);
 
         consultation.messages.push(messageData);
+
+        // Update last message timestamp for conversation sorting
+        consultation.lastMessageAt = new Date();
+
         await consultation.save();
 
         console.log(
           "📨 BACKEND: Broadcasting message to room:",
           `consultation:${data.consultationId}`
         );
-        console.log("📨 BACKEND: Message data being broadcast:", messageData);
 
+        // FIXED: Only broadcast once to consultation room
+        // Remove duplicate emissions that were causing 3x message display
         io.to(`consultation:${data.consultationId}`).emit(
           "consultation:message",
           messageData
+        );
+
+        // Send targeted notifications to users not in the consultation room
+        const otherUserId =
+          consultationUserId === userId
+            ? consultationProviderId
+            : consultationUserId;
+
+        // Update unread count for the other user
+        const unreadCountUpdate = {
+          consultationId: data.consultationId,
+          unreadCount: 1,
+          lastMessage: {
+            message: data.message,
+            timestamp: messageData.timestamp,
+            senderName: senderName,
+          },
+        };
+
+        // Send notification to other user's personal room
+        io.to(`user:${otherUserId}`).emit(
+          "chat:unreadUpdate",
+          unreadCountUpdate
+        );
+
+        // Send push notification data
+        const notificationData = {
+          senderId: userId,
+          senderName: senderName,
+          senderAvatar: messageData.senderAvatar,
+          receiverId: otherUserId,
+          message: data.message,
+          consultationId: data.consultationId,
+          timestamp: messageData.timestamp.toISOString(),
+          type: "consultation_message",
+        };
+
+        io.to(`user:${otherUserId}`).emit(
+          "chat:notification",
+          notificationData
         );
 
         logger.info(
@@ -358,11 +436,80 @@ const initializeSocket = (io) => {
       }
     });
 
-    // Handle consultation end
+    // Handle message read status
+    socket.on("consultation:markAsRead", async (data) => {
+      try {
+        const { consultationId, messageIds } = data;
+
+        const consultation = await Consultation.findById(consultationId);
+        if (!consultation) {
+          socket.emit("error", { message: "Consultation not found" });
+          return;
+        }
+
+        // Check if user is part of consultation
+        const consultationUserId =
+          typeof consultation.user === "string"
+            ? consultation.user
+            : consultation.user.toString();
+        const consultationProviderId = consultation.provider.toString();
+
+        if (
+          consultationUserId !== userId &&
+          consultationProviderId !== userId
+        ) {
+          socket.emit("error", { message: "Unauthorized" });
+          return;
+        }
+
+        // Mark messages as read
+        let updated = false;
+        consultation.messages.forEach((msg) => {
+          if (
+            messageIds.includes(msg._id.toString()) ||
+            messageIds.includes(msg._id)
+          ) {
+            if (!msg.readBy) msg.readBy = [];
+            if (!msg.readBy.includes(userId)) {
+              msg.readBy.push(userId);
+              updated = true;
+            }
+          }
+        });
+
+        if (updated) {
+          await consultation.save();
+
+          // Broadcast read status to other participants
+          socket
+            .to(`consultation:${consultationId}`)
+            .emit("consultation:messagesRead", {
+              messageIds,
+              readBy: userId,
+              readByName:
+                socket.data.user?.fullName || socket.data.user?.name || "User",
+            });
+
+          // Update unread count for the reader
+          io.to(`user:${userId}`).emit("chat:unreadUpdate", {
+            consultationId,
+            unreadCount: 0, // Reset unread count
+            markAsRead: true,
+          });
+        }
+
+        console.log(`Messages marked as read by user ${userId}`);
+      } catch (error) {
+        console.error("Error marking messages as read:", error);
+        socket.emit("error", { message: "Failed to mark messages as read" });
+      }
+    });
+
+    // Handle consultation end - ENHANCED FOR BILATERAL TERMINATION
     socket.on("consultation:end", async (data) => {
       try {
         console.log(
-          `User ${userId} is ending consultation ${data.consultationId}`
+          `🛑 BACKEND: User ${userId} is ending consultation ${data.consultationId}`
         );
 
         const consultation = await Consultation.findById(data.consultationId);
@@ -437,46 +584,90 @@ const initializeSocket = (io) => {
 
         await consultation.save();
         console.log(
-          `Consultation ${data.consultationId} status: ${consultation.status}`
+          `✅ BACKEND: Consultation ${data.consultationId} status: ${consultation.status}`
         );
 
-        // Notify ALL participants in the consultation room that it has ended
+        // BILATERAL TERMINATION FIX: Notify ALL participants in BOTH room formats
         console.log(
-          `Broadcasting consultation end to room: consultation:${data.consultationId}`
+          `🛑 BACKEND: Broadcasting consultation end to ALL room formats for bilateral termination`
         );
+
+        const endEventData = {
+          consultationId: data.consultationId,
+          endTime: consultation.endTime,
+          duration: consultation.duration,
+          totalAmount: consultation.totalAmount,
+          endedBy: userId,
+          consultation: consultation, // Include full consultation data
+        };
+
+        // Send to mobile app format room
         io.to(`consultation:${data.consultationId}`).emit(
           "consultation:ended",
-          {
-            consultationId: data.consultationId,
-            endTime: consultation.endTime,
-            duration: consultation.duration,
-            totalAmount: consultation.totalAmount,
-            endedBy: userId,
-          }
+          endEventData
         );
 
-        // Force disconnect all sockets in this consultation room
-        const room = io.sockets.adapter.rooms.get(
+        // Send to web app format room
+        io.to(`billing:${data.consultationId}`).emit(
+          "consultation:ended",
+          endEventData
+        );
+
+        // Also send to individual user rooms to ensure delivery
+        const otherUserId =
+          consultationUserId === userId
+            ? consultationProviderId
+            : consultationUserId;
+
+        io.to(`user:${otherUserId}`).emit("consultation:ended", endEventData);
+
+        console.log(
+          `✅ BACKEND: Bilateral termination events sent to all room formats and user rooms`
+        );
+
+        // Force disconnect all sockets in consultation rooms
+        const consultationRoom = io.sockets.adapter.rooms.get(
           `consultation:${data.consultationId}`
         );
-        if (room) {
+        const billingRoom = io.sockets.adapter.rooms.get(
+          `billing:${data.consultationId}`
+        );
+
+        if (consultationRoom) {
           console.log(
-            `Force disconnecting ${room.size} clients from consultation room`
+            `🛑 BACKEND: Force disconnecting ${consultationRoom.size} clients from consultation room`
           );
-          room.forEach((socketId) => {
+          consultationRoom.forEach((socketId) => {
             const clientSocket = io.sockets.sockets.get(socketId);
             if (clientSocket) {
               clientSocket.leave(`consultation:${data.consultationId}`);
-              console.log(`Removed socket ${socketId} from consultation room`);
+              console.log(
+                `🛑 BACKEND: Removed socket ${socketId} from consultation room`
+              );
+            }
+          });
+        }
+
+        if (billingRoom) {
+          console.log(
+            `🛑 BACKEND: Force disconnecting ${billingRoom.size} clients from billing room`
+          );
+          billingRoom.forEach((socketId) => {
+            const clientSocket = io.sockets.sockets.get(socketId);
+            if (clientSocket) {
+              clientSocket.leave(`billing:${data.consultationId}`);
+              console.log(
+                `🛑 BACKEND: Removed socket ${socketId} from billing room`
+              );
             }
           });
         }
 
         logger.info(
-          `Consultation ended by user ${userId}: ${data.consultationId}`
+          `Consultation ended by user ${userId}: ${data.consultationId} - bilateral termination completed`
         );
       } catch (error) {
-        console.error("Error ending consultation:", error);
+        console.error("❌ BACKEND: Error ending consultation:", error);
         socket.emit("error", { message: "Failed to end consultation" });
       }
     });
@@ -838,11 +1029,42 @@ const initializeSocket = (io) => {
           console.log(`📡 Call notification broadcasted to both room formats`);
 
           // Set timeout for call (60 seconds)
-          const timeoutId = setTimeout(() => {
+          const timeoutId = setTimeout(async () => {
+            try {
+              // Update consultation status in database
+              const Consultation = require("../models/Consultation.model");
+              const consultation = await Consultation.findById(consultationId);
+
+              if (consultation && consultation.status === "pending") {
+                console.log(
+                  `⏰ Auto-rejecting call ${consultationId} - provider didn't answer within 1 minute`
+                );
+
+                // Update consultation status to rejected due to timeout
+                consultation.status = "rejected";
+                consultation.endTime = new Date();
+                consultation.endReason = "timeout_no_answer";
+                consultation.duration = 0;
+                consultation.totalAmount = 0;
+                await consultation.save();
+
+                console.log(
+                  `✅ Consultation ${consultationId} status updated to 'rejected' due to timeout`
+                );
+              }
+            } catch (dbError) {
+              console.error(
+                `❌ Error updating consultation status for timeout ${consultationId}:`,
+                dbError
+              );
+            }
+
             // Send timeout to caller
             socket.emit("consultation:call-timeout", {
               consultationId,
               message: "Provider did not answer the call",
+              status: "rejected",
+              reason: "timeout_no_answer",
             });
 
             // Also broadcast timeout to both room formats
@@ -851,6 +1073,8 @@ const initializeSocket = (io) => {
               {
                 consultationId,
                 message: "Provider did not answer the call",
+                status: "rejected",
+                reason: "timeout_no_answer",
                 timestamp: new Date().toISOString(),
               }
             );
@@ -860,12 +1084,14 @@ const initializeSocket = (io) => {
               {
                 consultationId,
                 message: "Provider did not answer the call",
+                status: "rejected",
+                reason: "timeout_no_answer",
                 timestamp: new Date().toISOString(),
               }
             );
 
             console.log(
-              `⏰ Call timeout sent for consultation ${consultationId}`
+              `⏰ Call timeout sent for consultation ${consultationId} - status set to rejected`
             );
 
             // Remove timeout from map

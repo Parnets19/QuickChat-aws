@@ -21,6 +21,7 @@ const chatRoutes = require("./chat.routes");
 const checkRoutes = require("./check.routes");
 const analyticsRoutes = require("./analytics.routes");
 const freeMinuteRoutes = require("./freeMinute.routes");
+const freeTrialRoutes = require("./freeTrial.routes");
 
 const router = express.Router();
 
@@ -46,6 +47,7 @@ router.use("/billing", realTimeBillingRoutes); // Real-time billing system
 router.use("/wallet", walletRoutes); // Wallet balance API
 router.use("/chat", chatRoutes); // Chat system
 router.use("/analytics", analyticsRoutes); // Analytics and reports
-router.use("/free-minute", freeMinuteRoutes); // First Minute Free Trial system
+router.use("/free-minute", freeMinuteRoutes); // First Minute Free Trial system (legacy)
+router.use("/free-trial", freeTrialRoutes); // First Time Free Trial system (new)
 
 module.exports = router;

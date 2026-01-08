@@ -6,6 +6,7 @@ const {
   startConsultation,
   endConsultation,
   cancelConsultation,
+  rejectConsultation,
   getConsultationHistory,
   getGuestConsultationHistory,
   submitRating,
@@ -31,6 +32,9 @@ router.get("/:id", getConsultation);
 router.put("/:id/start", startConsultation);
 router.put("/:id/end", endConsultation);
 router.put("/:id/cancel", cancelConsultation);
+
+// Reject consultation (provider declines call)
+router.put("/:id/reject", rejectConsultation);
 router.post("/:id/rating", submitRating);
 
 // Public route for getting provider ratings

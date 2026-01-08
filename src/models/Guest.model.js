@@ -97,6 +97,21 @@ const GuestSchema = new mongoose.Schema(
         },
       },
     ],
+
+    // NEW: First Time Free Trial System (one-time free call for new users)
+    hasUsedFreeTrialCall: {
+      type: Boolean,
+      default: false,
+    },
+    freeTrialUsedAt: {
+      type: Date,
+      default: null,
+    },
+    freeTrialConsultationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Consultation",
+      default: null,
+    },
   },
   {
     timestamps: true,

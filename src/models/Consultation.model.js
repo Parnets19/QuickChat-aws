@@ -85,27 +85,54 @@ const ConsultationSchema = new mongoose.Schema(
     messages: [
       {
         sender: {
-          type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String for guest users
+          type: mongoose.Schema.Types.ObjectId,
+          required: true,
         },
-        message: String,
+        senderName: {
+          type: String,
+          required: true,
+        },
+        senderAvatar: {
+          type: String,
+          default: null,
+        },
+        message: {
+          type: String,
+          required: true,
+        },
         timestamp: {
           type: Date,
           default: Date.now,
         },
         type: {
           type: String,
-          enum: ["text", "image", "file"],
+          enum: ["text", "image", "file", "audio", "video"],
           default: "text",
         },
         file: {
-          name: String,
+          filename: String,
+          originalName: String,
+          mimetype: String,
           size: Number,
-          type: String,
-          url: String,
-          isImage: Boolean,
+          path: String,
         },
+        status: {
+          type: String,
+          enum: ["sent", "delivered", "read"],
+          default: "delivered",
+        },
+        readBy: [
+          {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+          },
+        ],
       },
     ],
+    lastMessageAt: {
+      type: Date,
+      default: Date.now,
+    },
     rating: {
       stars: {
         type: Number,
@@ -149,14 +176,27 @@ const ConsultationSchema = new mongoose.Schema(
       default: false,
     },
     billingStartsAt: Date, // When billing actually starts (startTime + 1 minute if first minute free)
+
+    // NEW: First Time Free Trial System
+    isFirstTimeFreeTrial: {
+      type: Boolean,
+      default: false,
+    },
+    freeTrialUsed: {
+      type: Boolean,
+      default: false,
+    },
+    entireCallFree: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// Indexes
-ConsultationSchema.index({ consultationId: 1 });
+// Indexes (consultationId unique index handled by schema)
 ConsultationSchema.index({ user: 1, status: 1 });
 ConsultationSchema.index({ provider: 1, status: 1 });
 ConsultationSchema.index({ createdAt: -1 });

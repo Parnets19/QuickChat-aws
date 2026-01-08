@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const WithdrawalSchema = new mongoose.Schema(
   {
@@ -6,18 +6,18 @@ const WithdrawalSchema = new mongoose.Schema(
     user: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
-      refPath: 'userType'
+      refPath: "userType",
     },
     userType: {
       type: String,
       required: true,
-      enum: ['User', 'Guest'],
-      default: 'User'
+      enum: ["User", "Guest"],
+      default: "User",
     },
     // Legacy field for backward compatibility
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
     },
     amount: {
       type: Number,
@@ -35,14 +35,14 @@ const WithdrawalSchema = new mongoose.Schema(
     bankDetails: {
       accountNumber: {
         type: String,
-        required: function() {
-          return this.paymentMethod !== 'upi';
+        required: function () {
+          return this.paymentMethod !== "upi";
         },
       },
       ifscCode: {
         type: String,
-        required: function() {
-          return this.paymentMethod !== 'upi';
+        required: function () {
+          return this.paymentMethod !== "upi";
         },
       },
       accountHolderName: {
@@ -51,35 +51,43 @@ const WithdrawalSchema = new mongoose.Schema(
       },
       bankName: {
         type: String,
-        required: function() {
-          return this.paymentMethod !== 'upi';
+        required: function () {
+          return this.paymentMethod !== "upi";
         },
       },
       upiId: {
         type: String,
-        required: function() {
-          return this.paymentMethod === 'upi';
+        required: function () {
+          return this.paymentMethod === "upi";
         },
       },
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected', 'processing', 'processed', 'failed', 'cancelled'],
-      default: 'pending',
+      enum: [
+        "pending",
+        "approved",
+        "rejected",
+        "processing",
+        "processed",
+        "failed",
+        "cancelled",
+      ],
+      default: "pending",
     },
     // Admin review tracking
     reviewedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User', // Admin user
+      ref: "User", // Admin user
     },
     reviewedAt: Date,
     adminNotes: String,
     rejectionReason: String,
-    
+
     // Processing tracking
     processedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User', // Admin user
+      ref: "User", // Admin user
     },
     transactionId: {
       type: String,
@@ -89,12 +97,12 @@ const WithdrawalSchema = new mongoose.Schema(
     processedAt: Date,
     failureReason: String,
     notes: String,
-    
+
     // Payment method for processing
     paymentMethod: {
       type: String,
-      enum: ['bank_transfer', 'upi', 'cheque'],
-      default: 'bank_transfer',
+      enum: ["bank_transfer", "upi", "cheque"],
+      default: "bank_transfer",
     },
   },
   {
@@ -107,16 +115,19 @@ WithdrawalSchema.index({ user: 1, createdAt: -1 });
 WithdrawalSchema.index({ userId: 1, createdAt: -1 }); // Legacy support
 WithdrawalSchema.index({ status: 1 });
 WithdrawalSchema.index({ userType: 1 });
-WithdrawalSchema.index({ transactionId: 1 });
+// transactionId unique index handled by schema
 WithdrawalSchema.index({ reviewedBy: 1 });
 WithdrawalSchema.index({ processedBy: 1 });
 
 // Generate unique transaction ID
-WithdrawalSchema.pre('save', function (next) {
-  if (!this.transactionId && this.status === 'processing') {
-    this.transactionId = `WD${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+WithdrawalSchema.pre("save", function (next) {
+  if (!this.transactionId && this.status === "processing") {
+    this.transactionId = `WD${Date.now()}${Math.random()
+      .toString(36)
+      .substr(2, 5)
+      .toUpperCase()}`;
   }
   next();
 });
 
-module.exports = mongoose.model('Withdrawal', WithdrawalSchema);
+module.exports = mongoose.model("Withdrawal", WithdrawalSchema);

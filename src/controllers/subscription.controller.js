@@ -1,5 +1,5 @@
-const { Subscription, User, Transaction, Settings } = require('../models');
-const { AppError } = require('../middlewares/errorHandler');
+const { Subscription, User, Transaction, Settings } = require("../models");
+const { AppError } = require("../middlewares/errorHandler");
 
 // @desc    Get all subscription plans
 // @route   GET /api/subscriptions
@@ -11,7 +11,10 @@ const getSubscriptions = async (req, res, next) => {
     const query = { isActive: true };
     if (type) query.type = type;
 
-    const subscriptions = await Subscription.find(query).sort({ displayOrder: 1, price: 1 });
+    const subscriptions = await Subscription.find(query).sort({
+      displayOrder: 1,
+      price: 1,
+    });
 
     res.status(200).json({
       success: true,
@@ -31,27 +34,51 @@ const purchaseSubscription = async (req, res, next) => {
 
     const subscription = await Subscription.findById(subscriptionId);
     if (!subscription) {
-      return next(new AppError('Subscription plan not found', 404));
+      return next(new AppError("Subscription plan not found", 404));
     }
 
     const user = await User.findById(req.user?._id);
     if (!user) {
-      return next(new AppError('User not found', 404));
+      return next(new AppError("User not found", 404));
     }
 
     // Check if user already has active subscription
     if (user.subscription?.isActive) {
-      return next(new AppError('You already have an active subscription', 400));
+      return next(new AppError("You already have an active subscription", 400));
     }
 
     // Check wallet balance
     if (user.wallet < subscription.price) {
-      return next(new AppError('Insufficient wallet balance', 400));
+      return next(new AppError("Insufficient wallet balance", 400));
+    }
+
+    // 🛡️ WALLET PROTECTION: Check balance before subscription purchase
+    if (user.wallet < subscription.price) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient wallet balance for subscription. Available: ₹${user.wallet}, Required: ₹${subscription.price}`,
+        data: {
+          currentBalance: user.wallet,
+          subscriptionPrice: subscription.price,
+          shortfall: subscription.price - user.wallet,
+        },
+      });
     }
 
     // Deduct from wallet
     const balanceBefore = user.wallet;
     user.wallet -= subscription.price;
+
+    // 🛡️ SAFETY CHECK: Ensure wallet never goes negative
+    if (user.wallet < 0) {
+      console.log("🚨 WALLET WENT NEGATIVE AFTER SUBSCRIPTION - CORRECTING:", {
+        userId: user._id,
+        walletBefore: balanceBefore,
+        walletAfter: user.wallet,
+        correction: "Setting to 0",
+      });
+      user.wallet = 0;
+    }
 
     // Activate subscription
     const startDate = new Date();
@@ -70,19 +97,21 @@ const purchaseSubscription = async (req, res, next) => {
     // Create transaction
     await Transaction.create({
       user: user._id,
-      userType: 'User',
-      type: 'debit',
-      category: 'subscription',
+      userType: "User",
+      type: "debit",
+      category: "subscription",
       amount: subscription.price,
       balance: user.wallet, // Balance after transaction
-      status: 'completed',
+      status: "completed",
       description: `Subscription: ${subscription.name}`,
-      transactionId: `SUB_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      transactionId: `SUB_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`,
     });
 
     res.status(200).json({
       success: true,
-      message: 'Subscription activated successfully',
+      message: "Subscription activated successfully",
       data: {
         subscription: user.subscription,
       },
@@ -97,13 +126,15 @@ const purchaseSubscription = async (req, res, next) => {
 // @access  Private
 const getMySubscription = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user?._id).populate('subscription.plan');
+    const user = await User.findById(req.user?._id).populate(
+      "subscription.plan"
+    );
 
     if (!user?.subscription?.isActive) {
       return res.status(200).json({
         success: true,
         data: null,
-        message: 'No active subscription',
+        message: "No active subscription",
       });
     }
 
@@ -115,7 +146,7 @@ const getMySubscription = async (req, res, next) => {
       return res.status(200).json({
         success: true,
         data: null,
-        message: 'Subscription expired',
+        message: "Subscription expired",
       });
     }
 
@@ -136,11 +167,11 @@ const cancelSubscription = async (req, res, next) => {
     const user = await User.findById(req.user?._id);
 
     if (!user) {
-      return next(new AppError('User not found', 404));
+      return next(new AppError("User not found", 404));
     }
 
     if (!user.subscription?.isActive) {
-      return next(new AppError('No active subscription found', 404));
+      return next(new AppError("No active subscription found", 404));
     }
 
     user.subscription.isActive = false;
@@ -148,7 +179,7 @@ const cancelSubscription = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Subscription cancelled successfully',
+      message: "Subscription cancelled successfully",
     });
   } catch (error) {
     next(error);
@@ -164,7 +195,7 @@ const createSubscriptionPlan = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Subscription plan created successfully',
+      message: "Subscription plan created successfully",
       data: subscription,
     });
   } catch (error) {
@@ -184,12 +215,12 @@ const updateSubscriptionPlan = async (req, res, next) => {
     );
 
     if (!subscription) {
-      return next(new AppError('Subscription plan not found', 404));
+      return next(new AppError("Subscription plan not found", 404));
     }
 
     res.status(200).json({
       success: true,
-      message: 'Subscription plan updated successfully',
+      message: "Subscription plan updated successfully",
       data: subscription,
     });
   } catch (error) {
@@ -205,12 +236,12 @@ const deleteSubscriptionPlan = async (req, res, next) => {
     const subscription = await Subscription.findByIdAndDelete(req.params.id);
 
     if (!subscription) {
-      return next(new AppError('Subscription plan not found', 404));
+      return next(new AppError("Subscription plan not found", 404));
     }
 
     res.status(200).json({
       success: true,
-      message: 'Subscription plan deleted successfully',
+      message: "Subscription plan deleted successfully",
     });
   } catch (error) {
     next(error);
@@ -225,8 +256,8 @@ const getSubscriptionRevenue = async (req, res, next) => {
     const { startDate, endDate } = req.query;
 
     const matchQuery = {
-      category: 'subscription',
-      status: 'completed',
+      category: "subscription",
+      status: "completed",
     };
 
     if (startDate || endDate) {
@@ -240,7 +271,7 @@ const getSubscriptionRevenue = async (req, res, next) => {
       {
         $group: {
           _id: null,
-          totalRevenue: { $sum: '$amount' },
+          totalRevenue: { $sum: "$amount" },
           count: { $sum: 1 },
         },
       },
@@ -250,8 +281,8 @@ const getSubscriptionRevenue = async (req, res, next) => {
       { $match: matchQuery },
       {
         $group: {
-          _id: '$description',
-          revenue: { $sum: '$amount' },
+          _id: "$description",
+          revenue: { $sum: "$amount" },
           count: { $sum: 1 },
         },
       },
@@ -279,20 +310,20 @@ const getActiveSubscribers = async (req, res, next) => {
     const { type, page = 1, limit = 20 } = req.query;
 
     const query = {
-      'subscription.isActive': true,
-      'subscription.endDate': { $gte: new Date() },
+      "subscription.isActive": true,
+      "subscription.endDate": { $gte: new Date() },
     };
 
-    if (type === 'user') {
+    if (type === "user") {
       query.isServiceProvider = false;
-    } else if (type === 'provider') {
+    } else if (type === "provider") {
       query.isServiceProvider = true;
     }
 
     const subscribers = await User.find(query)
-      .select('fullName email mobile subscription isServiceProvider')
-      .populate('subscription.plan')
-      .sort({ 'subscription.startDate': -1 })
+      .select("fullName email mobile subscription isServiceProvider")
+      .populate("subscription.plan")
+      .sort({ "subscription.startDate": -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
 
@@ -324,4 +355,3 @@ module.exports = {
   getSubscriptionRevenue,
   getActiveSubscribers,
 };
-

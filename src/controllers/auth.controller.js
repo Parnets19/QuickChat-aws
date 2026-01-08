@@ -1,10 +1,10 @@
-const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
-const { User, OTP } = require('../models');
-const { AppError } = require('../middlewares/errorHandler');
-const { sendOTPSMS } = require('../utils/sendSMS');
-const { sendOTPEmail, sendWelcomeEmail } = require('../utils/sendEmail');
-const { logger } = require('../utils/logger');
+const mongoose = require("mongoose");
+const jwt = require("jsonwebtoken");
+const { User, OTP } = require("../models");
+const { AppError } = require("../middlewares/errorHandler");
+const { sendOTPSMS } = require("../utils/sendSMS");
+const { sendOTPEmail, sendWelcomeEmail } = require("../utils/sendEmail");
+const { logger } = require("../utils/logger");
 
 // Generate OTP
 const generateOTP = () => {
@@ -19,22 +19,32 @@ const sendOTP = async (req, res, next) => {
     const { mobile, email, type, purpose } = req.body;
 
     if (!mobile && !email) {
-      return next(new AppError('Mobile number or email is required', 400));
+      return next(new AppError("Mobile number or email is required", 400));
     }
 
     // Check if user already exists (only for registration purpose)
-    if (purpose === 'registration') {
+    if (purpose === "registration") {
       if (mobile) {
         const existingUserByMobile = await User.findOne({ mobile });
         if (existingUserByMobile) {
-          return next(new AppError(`This mobile number (${mobile}) is already registered. Please login instead or use a different mobile number.`, 400));
+          return next(
+            new AppError(
+              `This mobile number (${mobile}) is already registered. Please login instead or use a different mobile number.`,
+              400
+            )
+          );
         }
       }
-      
+
       if (email) {
         const existingUserByEmail = await User.findOne({ email });
         if (existingUserByEmail) {
-          return next(new AppError(`This email (${email}) is already registered. Please login instead or use a different email.`, 400));
+          return next(
+            new AppError(
+              `This email (${email}) is already registered. Please login instead or use a different email.`,
+              400
+            )
+          );
         }
       }
     }
@@ -55,14 +65,14 @@ const sendOTP = async (req, res, next) => {
       mobile,
       email,
       otp,
-      type: type || 'mobile',
-      purpose: purpose || 'registration',
+      type: type || "mobile",
+      purpose: purpose || "registration",
       expiresAt,
     });
 
     // Send OTP
-    if (type === 'email' && email) {
-      await sendOTPEmail(email, otp, purpose || 'registration');
+    if (type === "email" && email) {
+      await sendOTPEmail(email, otp, purpose || "registration");
     } else if (mobile) {
       await sendOTPSMS(mobile, otp);
     }
@@ -70,10 +80,10 @@ const sendOTP = async (req, res, next) => {
     // Return dummy OTP in development mode for testing
     const responseData = {
       success: true,
-      message: `OTP sent successfully to ${type === 'email' ? email : mobile}`,
+      message: `OTP sent successfully to ${type === "email" ? email : mobile}`,
     };
 
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === "development") {
       responseData.dummyOtp = otp;
       responseData.message += ` (Development: Use OTP: ${otp})`;
     }
@@ -92,11 +102,11 @@ const verifyOTP = async (req, res, next) => {
     const { mobile, email, otp, purpose } = req.body;
 
     if (!mobile && !email) {
-      return next(new AppError('Mobile number or email is required', 400));
+      return next(new AppError("Mobile number or email is required", 400));
     }
 
     if (!otp) {
-      return next(new AppError('OTP is required', 400));
+      return next(new AppError("OTP is required", 400));
     }
 
     const query = { otp, purpose, isVerified: false };
@@ -106,11 +116,11 @@ const verifyOTP = async (req, res, next) => {
     const otpDoc = await OTP.findOne(query);
 
     if (!otpDoc) {
-      return next(new AppError('Invalid OTP', 400));
+      return next(new AppError("Invalid OTP", 400));
     }
 
     if (otpDoc.expiresAt < new Date()) {
-      return next(new AppError('OTP has expired', 400));
+      return next(new AppError("OTP has expired", 400));
     }
 
     otpDoc.isVerified = true;
@@ -118,7 +128,7 @@ const verifyOTP = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'OTP verified successfully',
+      message: "OTP verified successfully",
     });
   } catch (error) {
     next(error);
@@ -130,24 +140,47 @@ const verifyOTP = async (req, res, next) => {
 // @access  Public
 const register = async (req, res, next) => {
   try {
-    console.log('=== REGISTRATION REQUEST RECEIVED ===');
-    console.log('Request body keys:', Object.keys(req.body));
-    
+    console.log("=== REGISTRATION REQUEST RECEIVED ===");
+    console.log("Request body keys:", Object.keys(req.body));
+
     const {
-      fullName, mobile, email, password,
-      dateOfBirth, gender, place, address,
-      profession, education, hobbies, skills, hobbiesSkills, languagesKnown, bio,
-      serviceCategories, consultationModes, rates, availability,
-      aadharNumber, profilePhoto, aadharDocuments, portfolioMedia,
+      fullName,
+      mobile,
+      email,
+      password,
+      dateOfBirth,
+      gender,
+      place,
+      address,
+      profession,
+      education,
+      hobbies,
+      skills,
+      hobbiesSkills,
+      languagesKnown,
+      bio,
+      serviceCategories,
+      consultationModes,
+      rates,
+      availability,
+      aadharNumber,
+      profilePhoto,
+      aadharDocuments,
+      portfolioMedia,
       bankDetails,
-      isServiceProvider
+      isServiceProvider,
     } = req.body;
 
-    console.log('Extracted fields:', {
-      fullName, mobile, email,
+    console.log("Extracted fields:", {
+      fullName,
+      mobile,
+      email,
       hasPassword: !!password,
-      dateOfBirth, gender, place,
-      profession, education,
+      dateOfBirth,
+      gender,
+      place,
+      profession,
+      education,
       hobbiesCount: hobbies?.length,
       skillsCount: skills?.length,
       hobbiesSkillsCount: hobbiesSkills?.length,
@@ -158,7 +191,7 @@ const register = async (req, res, next) => {
       availabilityCount: availability?.length,
       aadharNumber,
       bankDetails,
-      isServiceProvider
+      isServiceProvider,
     });
 
     // Check if OTP is verified (mobile or email)
@@ -166,37 +199,49 @@ const register = async (req, res, next) => {
     if (mobile) {
       verifiedOTP = await OTP.findOne({
         mobile,
-        purpose: 'registration',
+        purpose: "registration",
         isVerified: true,
       });
     } else if (email) {
       verifiedOTP = await OTP.findOne({
         email,
-        purpose: 'registration',
+        purpose: "registration",
         isVerified: true,
       });
     }
 
-    console.log('OTP verification status:', !!verifiedOTP);
+    console.log("OTP verification status:", !!verifiedOTP);
 
     if (!verifiedOTP) {
-      return next(new AppError('Please verify your mobile number or email first', 400));
+      return next(
+        new AppError("Please verify your mobile number or email first", 400)
+      );
     }
 
     // Double-check if user already exists (comprehensive check)
     const existingUserByMobile = await User.findOne({ mobile });
     if (existingUserByMobile) {
-      return next(new AppError(`Registration failed: This mobile number (${mobile}) is already registered. Please login instead or use a different mobile number.`, 400));
+      return next(
+        new AppError(
+          `Registration failed: This mobile number (${mobile}) is already registered. Please login instead or use a different mobile number.`,
+          400
+        )
+      );
     }
 
     const existingUserByEmail = await User.findOne({ email });
     if (existingUserByEmail) {
-      return next(new AppError(`Registration failed: This email (${email}) is already registered. Please login instead or use a different email.`, 400));
+      return next(
+        new AppError(
+          `Registration failed: This email (${email}) is already registered. Please login instead or use a different email.`,
+          400
+        )
+      );
     }
 
     // Validate required fields
     if (!email) {
-      return next(new AppError('Email is required', 400));
+      return next(new AppError("Email is required", 400));
     }
 
     // Prepare user data
@@ -224,15 +269,17 @@ const register = async (req, res, next) => {
       if (hobbies && hobbies.length > 0) userData.hobbies = hobbies;
       if (skills && skills.length > 0) userData.skills = skills;
     }
-    if (languagesKnown && languagesKnown.length > 0) userData.languagesKnown = languagesKnown;
+    if (languagesKnown && languagesKnown.length > 0)
+      userData.languagesKnown = languagesKnown;
     if (bio) userData.bio = bio;
     if (aadharNumber) userData.aadharNumber = aadharNumber;
     if (profilePhoto) userData.profilePhoto = profilePhoto;
     if (aadharDocuments) userData.aadharDocuments = aadharDocuments;
-    if (portfolioMedia && portfolioMedia.length > 0) userData.portfolioMedia = portfolioMedia;
+    if (portfolioMedia && portfolioMedia.length > 0)
+      userData.portfolioMedia = portfolioMedia;
     if (serviceCategories && serviceCategories.length > 0) {
       // Handle both ObjectId references and plain strings
-      userData.serviceCategories = serviceCategories.map(cat => {
+      userData.serviceCategories = serviceCategories.map((cat) => {
         // Check if it's a valid ObjectId format
         if (mongoose.Types.ObjectId.isValid(cat) && cat.length === 24) {
           return cat; // Store as ObjectId reference
@@ -244,35 +291,36 @@ const register = async (req, res, next) => {
     userData.consultationModes = consultationModes || {
       chat: true,
       audio: true,
-      video: true
+      video: true,
     };
-    
-    // Set default rates (chat is free)
+
+    // Set default rates (chat is free, audio/video default to ₹3/min)
     userData.rates = rates || {
-      chargeType: 'per-minute',
+      chargeType: "per-minute",
       chat: 0,
       perMinute: {
-        audioVideo: rates?.callRate || rates?.audio || rates?.video || 0,
-        audio: rates?.callRate || rates?.audio || 0,
-        video: rates?.callRate || rates?.video || 0
+        audioVideo: rates?.callRate || rates?.audio || rates?.video || 3, // Default ₹3/min
+        audio: rates?.callRate || rates?.audio || 3, // Default ₹3/min
+        video: rates?.callRate || rates?.video || 3, // Default ₹3/min
       },
       perHour: {
         audioVideo: 0,
         audio: 0,
-        video: 0
+        video: 0,
       },
-      defaultChargeType: 'per-minute',
+      defaultChargeType: "per-minute",
       // Legacy fields for backward compatibility
-      audio: rates?.callRate || rates?.audio || 0,
-      video: rates?.callRate || rates?.video || 0
+      audio: rates?.callRate || rates?.audio || 3, // Default ₹3/min
+      video: rates?.callRate || rates?.video || 3, // Default ₹3/min
     };
-    if (availability && availability.length > 0) userData.availability = availability;
+    if (availability && availability.length > 0)
+      userData.availability = availability;
     if (bankDetails) userData.bankDetails = bankDetails;
 
     // Create user
-    console.log('Creating user with data:', JSON.stringify(userData, null, 2));
+    console.log("Creating user with data:", JSON.stringify(userData, null, 2));
     const user = await User.create(userData);
-    console.log('User created successfully:', user._id);
+    console.log("User created successfully:", user._id);
 
     // Send welcome email
     if (email) {
@@ -289,7 +337,7 @@ const register = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: "User registered successfully",
       data: {
         user: userResponse,
         token,
@@ -309,7 +357,7 @@ const login = async (req, res, next) => {
     const { mobile, email, password } = req.body;
 
     if ((!mobile && !email) || !password) {
-      return next(new AppError('Please provide credentials', 400));
+      return next(new AppError("Please provide credentials", 400));
     }
 
     // Find user
@@ -317,26 +365,31 @@ const login = async (req, res, next) => {
     if (mobile) query.mobile = mobile;
     if (email) query.email = email;
 
-    const user = await User.findOne(query).select('+password');
+    const user = await User.findOne(query).select("+password");
 
     if (!user) {
-      return next(new AppError('Invalid credentials', 401));
+      return next(new AppError("Invalid credentials", 401));
     }
 
     // Check if user has a password set
     if (!user.password) {
-      return next(new AppError('No password set for this account. Please use OTP login or reset your password', 401));
+      return next(
+        new AppError(
+          "No password set for this account. Please use OTP login or reset your password",
+          401
+        )
+      );
     }
 
     // Check password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
-      return next(new AppError('Invalid credentials', 401));
+      return next(new AppError("Invalid credentials", 401));
     }
 
     // Check if account is active
-    if (user.status !== 'active') {
-      return next(new AppError('Your account has been suspended', 403));
+    if (user.status !== "active") {
+      return next(new AppError("Your account has been suspended", 403));
     }
 
     // Update last active
@@ -353,7 +406,7 @@ const login = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful",
       data: {
         user: userResponse,
         token,
@@ -373,34 +426,34 @@ const loginWithOTP = async (req, res, next) => {
     const { mobile, otp } = req.body;
 
     if (!mobile || !otp) {
-      return next(new AppError('Mobile number and OTP are required', 400));
+      return next(new AppError("Mobile number and OTP are required", 400));
     }
 
     // Verify OTP
     const verifiedOTP = await OTP.findOne({
       mobile,
       otp,
-      purpose: 'login',
+      purpose: "login",
       isVerified: false,
     });
 
     if (!verifiedOTP) {
-      return next(new AppError('Invalid OTP', 400));
+      return next(new AppError("Invalid OTP", 400));
     }
 
     if (verifiedOTP.expiresAt < new Date()) {
-      return next(new AppError('OTP has expired', 400));
+      return next(new AppError("OTP has expired", 400));
     }
 
     // Find user
     const user = await User.findOne({ mobile });
     if (!user) {
-      return next(new AppError('User not found', 404));
+      return next(new AppError("User not found", 404));
     }
 
     // Check if account is active
-    if (user.status !== 'active') {
-      return next(new AppError('Your account has been suspended', 403));
+    if (user.status !== "active") {
+      return next(new AppError("Your account has been suspended", 403));
     }
 
     // Mark OTP as verified
@@ -417,7 +470,7 @@ const loginWithOTP = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful",
       data: {
         user,
         token,
@@ -435,51 +488,58 @@ const loginWithOTP = async (req, res, next) => {
 const getMe = async (req, res, next) => {
   try {
     const user = await User.findById(req.user?._id)
-      .populate('serviceCategories')
-      .populate('subscription.plan');
+      .populate("serviceCategories")
+      .populate("subscription.plan");
 
     // Ensure user has proper nested rate structure for backward compatibility
     if (user && user.rates) {
       let needsUpdate = false;
-      const currentChargeType = user.rates.chargeType || 'per-minute';
-      
+      const currentChargeType = user.rates.chargeType || "per-minute";
+
       const updatedRates = { ...user.rates };
-      
+
       // Ensure perMinute exists with audioVideo field
       if (!user.rates.perMinute) {
         updatedRates.perMinute = {
-          audioVideo: currentChargeType === 'per-minute' ? (user.rates.audio || user.rates.video || 0) : 0,
-          audio: currentChargeType === 'per-minute' ? (user.rates.audio || 0) : 0,
-          video: currentChargeType === 'per-minute' ? (user.rates.video || 0) : 0
+          audioVideo:
+            currentChargeType === "per-minute"
+              ? user.rates.audio || user.rates.video || 0
+              : 0,
+          audio: currentChargeType === "per-minute" ? user.rates.audio || 0 : 0,
+          video: currentChargeType === "per-minute" ? user.rates.video || 0 : 0,
         };
         needsUpdate = true;
       } else if (user.rates.perMinute.audioVideo === undefined) {
         updatedRates.perMinute = {
           ...user.rates.perMinute,
-          audioVideo: user.rates.perMinute.audio || user.rates.perMinute.video || 0
+          audioVideo:
+            user.rates.perMinute.audio || user.rates.perMinute.video || 0,
         };
         needsUpdate = true;
       }
-      
+
       // Ensure perHour exists with audioVideo field
       if (!user.rates.perHour) {
         updatedRates.perHour = {
-          audioVideo: currentChargeType === 'per-hour' ? (user.rates.audio || user.rates.video || 0) : 0,
-          audio: currentChargeType === 'per-hour' ? (user.rates.audio || 0) : 0,
-          video: currentChargeType === 'per-hour' ? (user.rates.video || 0) : 0
+          audioVideo:
+            currentChargeType === "per-hour"
+              ? user.rates.audio || user.rates.video || 0
+              : 0,
+          audio: currentChargeType === "per-hour" ? user.rates.audio || 0 : 0,
+          video: currentChargeType === "per-hour" ? user.rates.video || 0 : 0,
         };
         needsUpdate = true;
       } else if (user.rates.perHour.audioVideo === undefined) {
         updatedRates.perHour = {
           ...user.rates.perHour,
-          audioVideo: user.rates.perHour.audio || user.rates.perHour.video || 0
+          audioVideo: user.rates.perHour.audio || user.rates.perHour.video || 0,
         };
         needsUpdate = true;
       }
-      
+
       // Ensure defaultChargeType exists
       if (!user.rates.defaultChargeType) {
-        updatedRates.defaultChargeType = user.rates.chargeType || 'per-minute';
+        updatedRates.defaultChargeType = user.rates.chargeType || "per-minute";
         needsUpdate = true;
       }
 
@@ -514,14 +574,16 @@ const logout = async (req, res, next) => {
     if (req.body.fcmToken && req.user) {
       const user = await User.findById(req.user._id);
       if (user && user.fcmTokens) {
-        user.fcmTokens = user.fcmTokens.filter(token => token !== req.body.fcmToken);
+        user.fcmTokens = user.fcmTokens.filter(
+          (token) => token !== req.body.fcmToken
+        );
         await user.save();
       }
     }
 
     res.status(200).json({
       success: true,
-      message: 'Logout successful',
+      message: "Logout successful",
     });
   } catch (error) {
     next(error);
@@ -536,16 +598,16 @@ const refreshToken = async (req, res, next) => {
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
-      return next(new AppError('Refresh token is required', 400));
+      return next(new AppError("Refresh token is required", 400));
     }
 
     // Verify refresh token
-    const jwt = require('jsonwebtoken');
+    const jwt = require("jsonwebtoken");
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
 
     const user = await User.findById(decoded.id);
     if (!user) {
-      return next(new AppError('User not found', 404));
+      return next(new AppError("User not found", 404));
     }
 
     // Generate new tokens
@@ -560,7 +622,7 @@ const refreshToken = async (req, res, next) => {
       },
     });
   } catch (error) {
-    next(new AppError('Invalid refresh token', 401));
+    next(new AppError("Invalid refresh token", 401));
   }
 };
 
@@ -572,12 +634,12 @@ const updateFCMToken = async (req, res, next) => {
     const { fcmToken } = req.body;
 
     if (!fcmToken) {
-      return next(new AppError('FCM token is required', 400));
+      return next(new AppError("FCM token is required", 400));
     }
 
     const user = await User.findById(req.user?._id);
     if (!user) {
-      return next(new AppError('User not found', 404));
+      return next(new AppError("User not found", 404));
     }
 
     // Add FCM token if not already present
@@ -592,7 +654,7 @@ const updateFCMToken = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'FCM token updated successfully',
+      message: "FCM token updated successfully",
     });
   } catch (error) {
     next(error);
@@ -607,23 +669,25 @@ const guestLogin = async (req, res, next) => {
     const { mobile, otp, name, issue } = req.body;
 
     if (!mobile || !otp || !name) {
-      return next(new AppError('Mobile number, OTP, and name are required', 400));
+      return next(
+        new AppError("Mobile number, OTP, and name are required", 400)
+      );
     }
 
     // Verify OTP
     const verifiedOTP = await OTP.findOne({
       mobile,
       otp,
-      purpose: 'guest',
+      purpose: "guest",
       isVerified: false,
     });
 
     if (!verifiedOTP) {
-      return next(new AppError('Invalid OTP', 400));
+      return next(new AppError("Invalid OTP", 400));
     }
 
     if (verifiedOTP.expiresAt < new Date()) {
-      return next(new AppError('OTP has expired', 400));
+      return next(new AppError("OTP has expired", 400));
     }
 
     // Mark OTP as verified
@@ -635,7 +699,7 @@ const guestLogin = async (req, res, next) => {
       id: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       name,
       mobile,
-      issue: issue || '',
+      issue: issue || "",
       isGuest: true,
       verifiedAt: new Date(),
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
@@ -643,19 +707,19 @@ const guestLogin = async (req, res, next) => {
 
     // Generate JWT token for guest user
     const token = jwt.sign(
-      { 
-        id: guestSession.id, 
+      {
+        id: guestSession.id,
         isGuest: true,
         mobile: mobile,
-        name: name
+        name: name,
       },
       process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: "24h" }
     );
 
     res.status(200).json({
       success: true,
-      message: 'Guest verification successful',
+      message: "Guest verification successful",
       data: {
         guest: guestSession,
         token: token, // Add JWT token for guest authentication
@@ -678,4 +742,3 @@ module.exports = {
   updateFCMToken,
   guestLogin,
 };
-

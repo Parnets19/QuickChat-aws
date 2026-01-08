@@ -22,7 +22,7 @@ async function autoProcessCompletedConsultations() {
       // Check if transactions already exist for this consultation
       const existingClientTx = await Transaction.findOne({
         consultationId: consultation._id,
-        type: { $in: ["consultation", "consultation_payment", "debit"] },
+        type: { $in: ["consultation_payment", "debit"] },
       });
 
       const existingProviderTx = await Transaction.findOne({
@@ -73,8 +73,48 @@ async function autoProcessCompletedConsultations() {
 
         // Process client deduction if missing
         if (!existingClientTx) {
+          // 🛡️ WALLET PROTECTION: Check balance before deduction
+          if (client.wallet < totalAmount) {
+            console.log(`   🚨 INSUFFICIENT BALANCE - SKIPPING DEDUCTION:`, {
+              clientId: client._id,
+              currentBalance: client.wallet,
+              requiredAmount: totalAmount,
+              shortfall: totalAmount - client.wallet,
+              consultationId: consultation._id,
+            });
+
+            // Log this as a failed transaction for audit
+            await Transaction.create({
+              user: client._id,
+              userType: consultation.userType,
+              type: "consultation_payment_failed",
+              category: "consultation",
+              amount: totalAmount,
+              balance: client.wallet,
+              status: "failed",
+              description: `Failed consultation payment - insufficient funds: ${consultation.type} with ${provider.fullName}`,
+              consultationId: consultation._id,
+              transactionId: `FAILED_${Date.now()}_${Math.random()
+                .toString(36)
+                .substr(2, 9)}`,
+            });
+
+            continue; // Skip this consultation
+          }
+
           console.log(`   💸 Deducting ₹${totalAmount} from client`);
           client.wallet -= totalAmount;
+
+          // 🛡️ SAFETY CHECK: Ensure wallet never goes negative
+          if (client.wallet < 0) {
+            console.log(`   🚨 WALLET WENT NEGATIVE - CORRECTING:`, {
+              clientId: client._id,
+              walletBefore: client.wallet + totalAmount,
+              walletAfter: client.wallet,
+              correction: "Setting to 0",
+            });
+            client.wallet = 0;
+          }
 
           // Update totalSpent for both regular users and guest users
           client.totalSpent = (client.totalSpent || 0) + totalAmount;
@@ -84,7 +124,7 @@ async function autoProcessCompletedConsultations() {
           await Transaction.create({
             user: client._id,
             userType: consultation.userType, // Use the correct userType
-            type: "consultation",
+            type: "consultation_payment",
             category: "consultation",
             amount: totalAmount,
             balance: client.wallet,

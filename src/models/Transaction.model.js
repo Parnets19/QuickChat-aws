@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const TransactionSchema = new mongoose.Schema(
   {
@@ -6,36 +6,55 @@ const TransactionSchema = new mongoose.Schema(
     user: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
-      refPath: 'userType'
+      refPath: "userType",
     },
     userType: {
       type: String,
       required: true,
-      enum: ['User', 'Guest'],
-      default: 'User'
+      enum: ["User", "Guest"],
+      default: "User",
     },
     // Legacy field for backward compatibility
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
     },
     consultationId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Consultation',
+      ref: "Consultation",
     },
     type: {
       type: String,
       enum: [
-        'credit', 'debit', 'earning', 'withdrawal', 'refund', 'bonus', 'penalty',
-        'wallet_credit', 'consultation_payment', 'wallet_debit', 'deposit', 'payout'
+        "credit",
+        "debit",
+        "earning",
+        "withdrawal",
+        "refund",
+        "bonus",
+        "penalty",
+        "wallet_credit",
+        "consultation_payment",
+        "consultation_payment_failed",
+        "wallet_debit",
+        "deposit",
+        "payout",
       ],
       required: true,
     },
     category: {
       type: String,
       enum: [
-        'consultation', 'deposit', 'withdrawal', 'refund', 'bonus', 'penalty',
-        'commission', 'fee', 'adjustment', 'transfer'
+        "consultation",
+        "deposit",
+        "withdrawal",
+        "refund",
+        "bonus",
+        "penalty",
+        "commission",
+        "fee",
+        "adjustment",
+        "transfer",
       ],
       required: true,
     },
@@ -53,45 +72,53 @@ const TransactionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'completed', 'failed', 'cancelled'],
-      default: 'completed',
+      enum: ["pending", "completed", "failed", "cancelled"],
+      default: "completed",
     },
     // Transaction ID for external payment gateways
     transactionId: {
       type: String,
       sparse: true, // This allows multiple null values
-      default: function() {
+      default: function () {
         // Generate unique transaction ID if not provided
         return `TXN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      }
+      },
     },
     // Payment method used
     paymentMethod: {
       type: String,
-      enum: ['wallet', 'upi', 'card', 'netbanking', 'bank_transfer', 'demo'],
-      default: 'wallet'
+      enum: ["wallet", "upi", "card", "netbanking", "bank_transfer", "demo"],
+      default: "wallet",
     },
     // Withdrawal reference
     withdrawalId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Withdrawal',
+      ref: "Withdrawal",
     },
-    
+
     // Payment gateway details
     paymentGateway: {
       type: String,
-      enum: ['razorpay', 'stripe', 'paytm', 'phonepe', 'gpay', 'manual', 'demo'],
+      enum: [
+        "razorpay",
+        "stripe",
+        "paytm",
+        "phonepe",
+        "gpay",
+        "manual",
+        "demo",
+      ],
     },
     gatewayTransactionId: String,
     gatewayResponse: mongoose.Schema.Types.Mixed,
-    
+
     // Admin processing
     processedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User', // Admin user
+      ref: "User", // Admin user
     },
     processedAt: Date,
-    
+
     metadata: {
       clientName: String,
       consultationType: String,
@@ -121,7 +148,7 @@ TransactionSchema.index({ category: 1 });
 TransactionSchema.index({ status: 1 });
 TransactionSchema.index({ consultationId: 1 });
 TransactionSchema.index({ withdrawalId: 1 });
-TransactionSchema.index({ transactionId: 1 });
+// transactionId sparse index handled by schema
 TransactionSchema.index({ processedBy: 1 });
 
-module.exports = mongoose.model('Transaction', TransactionSchema);
+module.exports = mongoose.model("Transaction", TransactionSchema);

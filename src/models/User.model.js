@@ -116,16 +116,16 @@ const UserSchema = new mongoose.Schema(
       perMinute: {
         audioVideo: {
           type: Number,
-          default: 0,
+          default: 3, // Default ₹3 per minute for new providers
         },
         // Legacy fields for backward compatibility
         audio: {
           type: Number,
-          default: 0,
+          default: 3, // Default ₹3 per minute
         },
         video: {
           type: Number,
-          default: 0,
+          default: 3, // Default ₹3 per minute
         },
       },
       perHour: {
@@ -136,11 +136,11 @@ const UserSchema = new mongoose.Schema(
         // Legacy fields for backward compatibility
         audio: {
           type: Number,
-          default: 0,
+          default: 3, // Default ₹3 per minute
         },
         video: {
           type: Number,
-          default: 0,
+          default: 3, // Default ₹3 per minute
         },
       },
       // Default charge type for display
@@ -363,15 +363,28 @@ const UserSchema = new mongoose.Schema(
         },
       },
     ],
+
+    // NEW: First Time Free Trial System (one-time free call for new users)
+    hasUsedFreeTrialCall: {
+      type: Boolean,
+      default: false,
+    },
+    freeTrialUsedAt: {
+      type: Date,
+      default: null,
+    },
+    freeTrialConsultationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Consultation",
+      default: null,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// Index for better query performance
-UserSchema.index({ mobile: 1 });
-UserSchema.index({ email: 1 });
+// Index for better query performance (unique indexes handled by schema)
 UserSchema.index({ "place.city": 1 });
 UserSchema.index({ skills: 1 });
 UserSchema.index({ isServiceProvider: 1 });
