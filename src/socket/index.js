@@ -324,18 +324,16 @@ const initializeSocket = (io) => {
         }
 
         // Get sender information for proper notifications
-        let senderUser = null;
+        let senderUser = socket.data.user; // Use already loaded user data
         let senderName = "User";
+        let senderAvatar = null;
 
         if (socket.data.user?.isGuest) {
           // Handle guest users
           senderName =
             socket.data.user.fullName || socket.data.user.name || "Guest User";
         } else {
-          // Handle regular users
-          senderUser = await User.findById(userId).select(
-            "fullName name firstName lastName profilePhoto"
-          );
+          // Handle regular users - use socket.data.user instead of querying again
           senderName = senderUser
             ? senderUser.fullName ||
               senderUser.name ||
@@ -344,18 +342,15 @@ const initializeSocket = (io) => {
               }`.trim() ||
               "User"
             : "User";
+          senderAvatar = senderUser?.profilePhoto || null;
         }
 
         // Create unique message ID to prevent duplicates
-        const messageId = `msg_${Date.now()}_${Math.random()
-          .toString(36)
-          .substr(2, 9)}`;
-
+        // Note: Mongoose will auto-generate _id as ObjectId
         const messageData = {
-          _id: messageId,
           sender: userId,
           senderName: senderName,
-          senderAvatar: senderUser?.profilePhoto || null,
+          senderAvatar: senderAvatar,
           message: data.message,
           timestamp: new Date(),
           type: data.type || "text",
@@ -373,6 +368,10 @@ const initializeSocket = (io) => {
 
         await consultation.save();
 
+        // Get the saved message with auto-generated _id
+        const savedMessage =
+          consultation.messages[consultation.messages.length - 1];
+
         console.log(
           "📨 BACKEND: Broadcasting message to room:",
           `consultation:${data.consultationId}`
@@ -382,7 +381,7 @@ const initializeSocket = (io) => {
         // Remove duplicate emissions that were causing 3x message display
         io.to(`consultation:${data.consultationId}`).emit(
           "consultation:message",
-          messageData
+          savedMessage.toObject() // Use the saved message with proper _id
         );
 
         // Send targeted notifications to users not in the consultation room
@@ -397,7 +396,7 @@ const initializeSocket = (io) => {
           unreadCount: 1,
           lastMessage: {
             message: data.message,
-            timestamp: messageData.timestamp,
+            timestamp: savedMessage.timestamp,
             senderName: senderName,
           },
         };
@@ -412,11 +411,11 @@ const initializeSocket = (io) => {
         const notificationData = {
           senderId: userId,
           senderName: senderName,
-          senderAvatar: messageData.senderAvatar,
+          senderAvatar: senderAvatar,
           receiverId: otherUserId,
           message: data.message,
           consultationId: data.consultationId,
-          timestamp: messageData.timestamp.toISOString(),
+          timestamp: savedMessage.timestamp.toISOString(),
           type: "consultation_message",
         };
 
@@ -427,8 +426,8 @@ const initializeSocket = (io) => {
 
         logger.info(
           `Message sent in consultation ${data.consultationId} - Type: ${
-            messageData.type
-          }, Has file: ${!!messageData.file}`
+            savedMessage.type
+          }, Has file: ${!!savedMessage.file}`
         );
       } catch (error) {
         console.error("❌ BACKEND: Error handling message:", error);
