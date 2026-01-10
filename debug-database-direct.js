@@ -1,176 +1,95 @@
 const mongoose = require("mongoose");
 
-// Connect to MongoDB
-mongoose.connect("mongodb://localhost:27017/quickchat", {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
-
-// Define schemas (simplified)
-const consultationSchema = new mongoose.Schema({}, { strict: false });
-const userSchema = new mongoose.Schema({}, { strict: false });
-
-const Consultation = mongoose.model("Consultation", consultationSchema);
-const User = mongoose.model("User", userSchema);
-
-async function debugDatabase() {
+async function debugDatabaseDirect() {
   try {
-    console.log("🔍 DEBUGGING DATABASE DIRECTLY");
-    console.log("===============================");
+    console.log("🔍 Direct Database Debug");
+    console.log("=======================");
 
-    // Find Nandu Bhide
-    const nandu = await User.findOne({ email: "nandubhide@gmail.com" });
-    if (!nandu) {
-      console.log("❌ Nandu not found");
-      return;
-    }
+    // Connect to MongoDB
+    await mongoose.connect("mongodb://localhost:27017/quickchat");
+    console.log("✅ Connected to MongoDB");
 
-    console.log("👤 NANDU BHIDE:");
-    console.log(`   ID: ${nandu._id}`);
-    console.log(`   Wallet: ₹${nandu.wallet}`);
-    console.log(`   Total Spent: ₹${nandu.totalSpent}`);
-    console.log(`   Free Minutes Used: ${nandu.freeMinutesUsed?.length || 0}`);
-
-    // Show free minutes used
-    if (nandu.freeMinutesUsed && nandu.freeMinutesUsed.length > 0) {
-      console.log("\n🆓 FREE MINUTES USED:");
-      nandu.freeMinutesUsed.forEach((fm, index) => {
-        console.log(`   ${index + 1}. Provider: ${fm.providerId}`);
-        console.log(`      Used at: ${new Date(fm.usedAt).toLocaleString()}`);
-        console.log(`      Consultation: ${fm.consultationId}`);
-      });
-    }
-
-    // Find Sai Pavithra
-    const sai = await User.findOne({ email: "saipavithra@gmail.com" });
-    if (!sai) {
-      console.log("❌ Sai not found");
-      return;
-    }
-
-    console.log(`\n👤 SAI PAVITHRA:`);
-    console.log(`   ID: ${sai._id}`);
-    console.log(`   Wallet: ₹${sai.wallet}`);
-    console.log(`   Total Earnings: ₹${sai.totalEarnings || 0}`);
-
-    // Find recent consultations for Nandu
-    const consultations = await Consultation.find({ user: nandu._id })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .populate("provider", "fullName");
-
-    console.log(`\n📋 NANDU'S RECENT CONSULTATIONS (${consultations.length}):`);
-
-    consultations.forEach((consultation, index) => {
-      console.log(`\n${index + 1}. ID: ${consultation._id}`);
-      console.log(
-        `   Provider: ${consultation.provider?.fullName || "Unknown"}`
-      );
-      console.log(
-        `   Provider ID: ${consultation.provider?._id || consultation.provider}`
-      );
-      console.log(`   Type: ${consultation.type}`);
-      console.log(`   Status: ${consultation.status}`);
-      console.log(`   Rate: ₹${consultation.rate}/min`);
-      console.log(`   Total Amount: ₹${consultation.totalAmount || 0}`);
-      console.log(`   Duration: ${consultation.duration || 0} minutes`);
-      console.log(`   Is First Minute Free: ${consultation.isFirstMinuteFree}`);
-      console.log(`   Free Minute Used: ${consultation.freeMinuteUsed}`);
-      console.log(
-        `   Created: ${new Date(consultation.createdAt).toLocaleString()}`
-      );
-      console.log(
-        `   Started: ${
-          consultation.startTime
-            ? new Date(consultation.startTime).toLocaleString()
-            : "Not started"
-        }`
-      );
-      console.log(
-        `   Ended: ${
-          consultation.endTime
-            ? new Date(consultation.endTime).toLocaleString()
-            : "Not ended"
-        }`
-      );
-    });
-
-    // Check specifically for consultations with Sai Pavithra
-    const saiConsultations = await Consultation.find({
-      user: nandu._id,
-      provider: sai._id,
-    }).sort({ createdAt: -1 });
-
-    console.log(`\n🔍 CONSULTATIONS WITH SAI PAVITHRA:`);
-    console.log(`   Found: ${saiConsultations.length} consultations`);
-
-    saiConsultations.forEach((consultation, index) => {
-      console.log(`\n   ${index + 1}. ID: ${consultation._id}`);
-      console.log(`      Status: ${consultation.status}`);
-      console.log(`      Rate: ₹${consultation.rate}/min`);
-      console.log(`      Total Amount: ₹${consultation.totalAmount || 0}`);
-      console.log(
-        `      Is First Minute Free: ${consultation.isFirstMinuteFree}`
-      );
-      console.log(`      Free Minute Used: ${consultation.freeMinuteUsed}`);
-      console.log(
-        `      Created: ${new Date(consultation.createdAt).toLocaleString()}`
-      );
-      console.log(
-        `      Started: ${
-          consultation.startTime
-            ? new Date(consultation.startTime).toLocaleString()
-            : "Not started"
-        }`
-      );
-      console.log(
-        `      Ended: ${
-          consultation.endTime
-            ? new Date(consultation.endTime).toLocaleString()
-            : "Not ended"
-        }`
-      );
-    });
-
-    // Check if Nandu has used free minute with Sai
-    const hasUsedWithSai = nandu.freeMinutesUsed?.some(
-      (fm) => fm.providerId.toString() === sai._id.toString()
+    // Get all collection names
+    const collections = await mongoose.connection.db
+      .listCollections()
+      .toArray();
+    console.log(
+      "\n� Available collections:",
+      collections.map((c) => c.name)
     );
 
-    console.log(`\n📊 ANALYSIS:`);
-    console.log(`   Nandu ID: ${nandu._id}`);
-    console.log(`   Sai ID: ${sai._id}`);
-    console.log(`   Has used free minute with Sai: ${hasUsedWithSai}`);
-    console.log(`   Should be free call: ${!hasUsedWithSai}`);
-    console.log(`   Nandu's wallet: ₹${nandu.wallet}`);
-    console.log(`   Sai's wallet: ₹${sai.wallet}`);
+    // Check each possible message collection
+    const possibleCollections = ["chatmessages", "messages", "chats"];
 
-    // If there are consultations with Sai, analyze the most recent one
-    if (saiConsultations.length > 0) {
-      const mostRecent = saiConsultations[0];
-      console.log(`\n🚨 MOST RECENT CONSULTATION WITH SAI:`);
-      console.log(`   Should have been free: ${!hasUsedWithSai}`);
-      console.log(
-        `   Was marked as first minute free: ${mostRecent.isFirstMinuteFree}`
-      );
-      console.log(`   Was actually charged: ₹${mostRecent.totalAmount || 0}`);
+    for (const collectionName of possibleCollections) {
+      try {
+        const count = await mongoose.connection.db
+          .collection(collectionName)
+          .countDocuments();
+        console.log(`\n📊 Collection '${collectionName}': ${count} documents`);
 
-      if (!hasUsedWithSai && mostRecent.totalAmount > 0) {
-        console.log(`\n🚨 BUG CONFIRMED:`);
-        console.log(
-          `   - This should have been Nandu's FIRST free call with Sai`
-        );
-        console.log(`   - But he was charged ₹${mostRecent.totalAmount}`);
-        console.log(`   - This is why his wallet went negative`);
-        console.log(`   - The free minute system failed`);
+        if (count > 0) {
+          const sample = await mongoose.connection.db
+            .collection(collectionName)
+            .find({})
+            .sort({ timestamp: -1, _id: -1 })
+            .limit(3)
+            .toArray();
+
+          console.log(`\n📨 Sample documents from '${collectionName}':`);
+          sample.forEach((doc, index) => {
+            console.log(`\n   Document ${index + 1}:`);
+            console.log(`     ID: ${doc._id}`);
+            console.log(`     Sender: ${doc.sender}`);
+            console.log(`     SenderType: ${doc.senderType}`);
+            console.log(`     SenderName: ${doc.senderName || "MISSING ❌"}`);
+            console.log(
+              `     SenderAvatar: ${
+                doc.senderAvatar !== undefined
+                  ? doc.senderAvatar || "null"
+                  : "MISSING ❌"
+              }`
+            );
+            console.log(`     Message: ${doc.message || doc.lastMessage}`);
+            console.log(`     Timestamp: ${doc.timestamp || doc.createdAt}`);
+
+            // Show all fields for debugging
+            console.log(`     All fields:`, Object.keys(doc));
+          });
+        }
+      } catch (error) {
+        console.log(`   Error checking '${collectionName}':`, error.message);
       }
     }
+
+    // Also check if there are any messages in the chats collection
+    try {
+      const chats = await mongoose.connection.db
+        .collection("chats")
+        .find({})
+        .limit(3)
+        .toArray();
+
+      if (chats.length > 0) {
+        console.log(`\n💬 Sample chats:`);
+        chats.forEach((chat, index) => {
+          console.log(`\n   Chat ${index + 1}:`);
+          console.log(`     ID: ${chat._id}`);
+          console.log(`     User: ${chat.user}`);
+          console.log(`     Provider: ${chat.provider}`);
+          console.log(`     Last Message: ${chat.lastMessage}`);
+          console.log(`     Last Message Time: ${chat.lastMessageTime}`);
+        });
+      }
+    } catch (error) {
+      console.log("Error checking chats:", error.message);
+    }
   } catch (error) {
-    console.error("❌ Database debug failed:", error);
+    console.error("❌ Debug failed:", error.message);
   } finally {
-    mongoose.connection.close();
+    await mongoose.disconnect();
+    console.log("\n🔌 MongoDB connection closed");
   }
 }
 
-// Run debug
-debugDatabase();
+debugDatabaseDirect();

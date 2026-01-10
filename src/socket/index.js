@@ -1266,6 +1266,13 @@ const initializeSocket = (io) => {
         consultationStatus,
         isOnline: consultationStatus !== "offline",
       });
+
+      // Emit user status change for WhatsApp-like message status
+      socket.broadcast.emit("user:statusChange", {
+        userId,
+        isOnline: consultationStatus === "available",
+        consultationStatus,
+      });
     });
 
     // ===== CHAT SYSTEM EVENTS =====

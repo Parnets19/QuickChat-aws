@@ -1,5 +1,5 @@
-const { Chat, ChatMessage, User, Guest } = require('../models');
-const { AppError } = require('../middlewares/errorHandler');
+const { Chat, ChatMessage, User, Guest } = require("../models");
+const { AppError } = require("../middlewares/errorHandler");
 
 // @desc    Send a chat message
 // @route   POST /api/chat/send
@@ -11,15 +11,15 @@ const sendMessage = async (req, res, next) => {
     const isGuest = req.user.isGuest || false;
 
     if (!providerId || !message?.trim()) {
-      return next(new AppError('Provider ID and message are required', 400));
+      return next(new AppError("Provider ID and message are required", 400));
     }
 
     // Find or create chat
     let chat = await Chat.findOne({
       $or: [
         { user: senderId, provider: providerId },
-        { user: providerId, provider: senderId }
-      ]
+        { user: providerId, provider: senderId },
+      ],
     });
 
     if (!chat) {
@@ -30,38 +30,27 @@ const sendMessage = async (req, res, next) => {
         isGuestUser: isGuest,
         lastMessage: message.trim(),
         lastMessageTime: new Date(),
-        status: 'active'
+        status: "active",
       });
       await chat.save();
     } else {
       // Update existing chat
       chat.lastMessage = message.trim();
       chat.lastMessageTime = new Date();
-      chat.status = 'active';
+      chat.status = "active";
       await chat.save();
     }
 
-    // Create message
-    const chatMessage = new ChatMessage({
-      chat: chat._id,
-      sender: senderId,
-      senderType: isGuest ? 'Guest' : 'User',
-      message: message.trim(),
-      timestamp: new Date(),
-      status: 'sent'
-    });
-
-    await chatMessage.save();
-
-    // Manually populate sender info based on user type
-    let senderInfo = { name: 'Unknown User' };
+    // Get sender info first
+    let senderInfo = { name: "Unknown User", avatar: null };
     try {
       if (isGuest) {
         const guest = await Guest.findById(senderId);
         if (guest) {
           senderInfo = {
             name: guest.name,
-            _id: guest._id
+            _id: guest._id,
+            avatar: guest.profilePhoto || null,
           };
         }
       } else {
@@ -69,42 +58,85 @@ const sendMessage = async (req, res, next) => {
         if (user) {
           senderInfo = {
             name: user.fullName || user.name,
-            _id: user._id
+            _id: user._id,
+            avatar: user.profilePhoto || null,
           };
         }
       }
     } catch (error) {
-      console.error('Error populating sender info:', error);
+      console.error("Error populating sender info:", error);
     }
+
+    // Create message with sender info
+    const chatMessage = new ChatMessage({
+      chat: chat._id,
+      sender: senderId,
+      senderType: isGuest ? "Guest" : "User",
+      senderName: senderInfo.name,
+      senderAvatar: senderInfo.avatar,
+      message: message.trim(),
+      timestamp: new Date(),
+      status: "sent",
+    });
+
+    await chatMessage.save();
 
     // Add sender info to the message object
     const messageWithSender = {
       ...chatMessage.toObject(),
-      sender: senderInfo
+      sender: {
+        _id: senderInfo._id,
+        name: chatMessage.senderName,
+        avatar: chatMessage.senderAvatar,
+      },
+      senderName: chatMessage.senderName,
+      senderAvatar: chatMessage.senderAvatar,
     };
 
     // Emit socket event for real-time updates
-    const io = req.app.get('io');
+    const io = req.app.get("io");
     if (io) {
       const roomName = `chat:${chatId || chat._id}`;
-      
-      io.to(roomName).emit('chat:message', {
+
+      // Emit to chat room for real-time message display
+      io.to(roomName).emit("chat:message", {
         _id: chatMessage._id,
         sender: senderId, // Send as string for proper comparison
-        senderName: senderInfo.name,
+        senderName: chatMessage.senderName,
+        senderAvatar: chatMessage.senderAvatar,
         message: message.trim(),
         timestamp: chatMessage.timestamp,
-        status: 'sent'
+        status: "sent",
+      });
+
+      // Also emit globally for notifications (to all connected sockets)
+      console.log("🔔 Emitting global chat:newMessage for notifications");
+      io.emit("chat:newMessage", {
+        _id: chatMessage._id,
+        senderId: senderId, // Use senderId for notifications
+        senderName: chatMessage.senderName,
+        senderAvatar: chatMessage.senderAvatar,
+        message: message.trim(),
+        timestamp: chatMessage.timestamp,
+        chatId: chat._id,
+        status: "sent",
+      });
+
+      console.log("🔔 Notification event emitted to all sockets:", {
+        senderId,
+        senderName: chatMessage.senderName,
+        message: message.trim(),
+        chatId: chat._id,
       });
     }
 
     res.status(201).json({
       success: true,
-      message: 'Message sent successfully',
+      message: "Message sent successfully",
       data: {
         chatMessage: messageWithSender,
-        chatId: chat._id
-      }
+        chatId: chat._id,
+      },
     });
   } catch (error) {
     next(error);
@@ -124,8 +156,8 @@ const getChatHistory = async (req, res, next) => {
     const chat = await Chat.findOne({
       $or: [
         { user: userId, provider: providerId },
-        { user: providerId, provider: userId }
-      ]
+        { user: providerId, provider: userId },
+      ],
     });
 
     if (!chat) {
@@ -138,62 +170,44 @@ const getChatHistory = async (req, res, next) => {
             page: 1,
             limit: 50,
             total: 0,
-            pages: 0
-          }
-        }
+            pages: 0,
+          },
+        },
       });
     }
 
-    // Get messages with pagination
+    // Get messages with pagination - now with stored sender info
     const skip = (page - 1) * limit;
     const messages = await ChatMessage.find({ chat: chat._id })
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
-    // Manually populate sender information based on user type
-    const populatedMessages = await Promise.all(messages.map(async (message) => {
-      let senderInfo = { name: 'Unknown User' };
-      
-      try {
-        // First try to find as regular user
-        const user = await User.findById(message.sender);
-        if (user) {
-          senderInfo = {
-            name: user.fullName || user.name,
-            _id: user._id
-          };
-        } else {
-          // If not found as regular user, try as guest
-          const guest = await Guest.findById(message.sender);
-          if (guest) {
-            senderInfo = {
-              name: guest.name,
-              _id: guest._id
-            };
-          }
-        }
-      } catch (error) {
-        console.error('Error populating sender:', error);
+    // Messages now have senderName and senderAvatar stored directly
+    const populatedMessages = messages.map((message) => {
+      const messageObj = message.toObject();
+
+      // Use stored sender info if available, otherwise fallback to population
+      if (messageObj.senderName && messageObj.senderAvatar !== undefined) {
+        return {
+          ...messageObj,
+          sender: {
+            _id: messageObj.sender,
+            name: messageObj.senderName,
+            avatar: messageObj.senderAvatar,
+          },
+        };
       }
 
-      return {
-        ...message.toObject(),
-        sender: senderInfo
-      };
-    }));
+      // Fallback for old messages without stored sender info
+      return messageObj;
+    });
 
     const total = await ChatMessage.countDocuments({ chat: chat._id });
 
-    // Mark messages as read if user is the recipient
-    await ChatMessage.updateMany(
-      { 
-        chat: chat._id, 
-        sender: { $ne: userId },
-        status: { $ne: 'read' }
-      },
-      { status: 'read' }
-    );
+    // Don't automatically mark messages as read when loading chat history
+    // Messages should only be marked as read when user explicitly opens the chat
+    // This will be handled by the markMessagesAsRead endpoint
 
     res.status(200).json({
       success: true,
@@ -204,9 +218,9 @@ const getChatHistory = async (req, res, next) => {
           page: parseInt(page),
           limit: parseInt(limit),
           total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+          pages: Math.ceil(total / limit),
+        },
+      },
     });
   } catch (error) {
     next(error);
@@ -221,7 +235,9 @@ const getChatNotifications = async (req, res, next) => {
     const providerId = req.user.id || req.user._id;
 
     if (!req.user.isServiceProvider) {
-      return next(new AppError('Only service providers can access notifications', 403));
+      return next(
+        new AppError("Only service providers can access notifications", 403)
+      );
     }
 
     // Get recent chats where provider is the recipient
@@ -236,11 +252,14 @@ const getChatNotifications = async (req, res, next) => {
       const unreadCount = await ChatMessage.countDocuments({
         chat: chat._id,
         sender: { $ne: providerId },
-        status: { $ne: 'read' }
+        status: { $ne: "read" },
       });
 
-      if (unreadCount > 0 || chat.lastMessageTime > new Date(Date.now() - 24 * 60 * 60 * 1000)) {
-        let userName = 'Unknown User';
+      if (
+        unreadCount > 0 ||
+        chat.lastMessageTime > new Date(Date.now() - 24 * 60 * 60 * 1000)
+      ) {
+        let userName = "Unknown User";
         let userAvatar = null;
 
         // Handle guest users vs regular users
@@ -248,19 +267,19 @@ const getChatNotifications = async (req, res, next) => {
           try {
             const guest = await Guest.findById(chat.user);
             if (guest) {
-              userName = guest.name || 'Guest User';
+              userName = guest.name || "Guest User";
             }
           } catch (error) {
-            console.error('Error fetching guest user:', error);
+            console.error("Error fetching guest user:", error);
           }
         } else {
           try {
             const user = await User.findById(chat.user);
             if (user) {
-              userName = user.fullName || user.name || 'User';
+              userName = user.fullName || user.name || "User";
             }
           } catch (error) {
-            console.error('Error fetching regular user:', error);
+            console.error("Error fetching regular user:", error);
           }
         }
 
@@ -274,7 +293,7 @@ const getChatNotifications = async (req, res, next) => {
           isRead: unreadCount === 0,
           chatId: chat._id,
           unreadCount,
-          isGuestUser: chat.isGuestUser
+          isGuestUser: chat.isGuestUser,
         });
       }
     }
@@ -282,8 +301,8 @@ const getChatNotifications = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: {
-        notifications
-      }
+        notifications,
+      },
     });
   } catch (error) {
     next(error);
@@ -299,22 +318,27 @@ const markNotificationAsRead = async (req, res, next) => {
     const providerId = req.user.id || req.user._id;
 
     if (!req.user.isServiceProvider) {
-      return next(new AppError('Only service providers can mark notifications as read', 403));
+      return next(
+        new AppError(
+          "Only service providers can mark notifications as read",
+          403
+        )
+      );
     }
 
     // Mark all messages in this chat as read
     await ChatMessage.updateMany(
-      { 
+      {
         chat: notificationId,
         sender: { $ne: providerId },
-        status: { $ne: 'read' }
+        status: { $ne: "read" },
       },
-      { status: 'read' }
+      { status: "read" }
     );
 
     res.status(200).json({
       success: true,
-      message: 'Notification marked as read'
+      message: "Notification marked as read",
     });
   } catch (error) {
     next(error);
@@ -329,62 +353,116 @@ const getChatList = async (req, res, next) => {
     const userId = req.user.id || req.user._id;
     const isGuest = req.user.isGuest || false;
 
-    const chats = await Chat.find({
-      $or: [
-        { user: userId },
-        { provider: userId }
-      ]
-    })
-    .sort({ lastMessageTime: -1 });
+    console.log(
+      `📋 getChatList called for user: ${userId}, isGuest: ${isGuest}`
+    );
 
-    const chatList = await Promise.all(chats.map(async (chat) => {
-      const isUserTheClient = chat.user.toString() === userId.toString();
-      const otherUserId = isUserTheClient ? chat.provider : chat.user;
-      
-      // For guests calling this API, they are always the client (user field)
-      // So if they're the client, the other user is the provider (never a guest)
-      // If they're not the client, then they are a provider and the client could be a guest
-      const isOtherUserGuest = !isUserTheClient && chat.isGuestUser;
-      
-      let otherUserName = 'Unknown User';
-      
-      try {
-        if (isOtherUserGuest) {
-          // Other user is a guest
-          const guest = await Guest.findById(otherUserId);
-          if (guest) {
-            otherUserName = guest.name || 'Guest User';
+    const chats = await Chat.find({
+      $or: [{ user: userId }, { provider: userId }],
+    }).sort({ lastMessageTime: -1 });
+
+    console.log(`📋 Found ${chats.length} chats for user ${userId}`);
+
+    const chatList = await Promise.all(
+      chats.map(async (chat) => {
+        console.log(`🔍 Processing chat: ${chat._id}`);
+
+        const isUserTheClient = chat.user.toString() === userId.toString();
+        const otherUserId = isUserTheClient ? chat.provider : chat.user;
+
+        console.log(`🔍 Chat details:`, {
+          chatId: chat._id,
+          user: chat.user,
+          provider: chat.provider,
+          isUserTheClient,
+          otherUserId,
+        });
+
+        // For guests calling this API, they are always the client (user field)
+        // So if they're the client, the other user is the provider (never a guest)
+        // If they're not the client, then they are a provider and the client could be a guest
+        const isOtherUserGuest = !isUserTheClient && chat.isGuestUser;
+
+        let otherUserName = "Unknown User";
+        let otherUserAvatar = null;
+
+        try {
+          if (isOtherUserGuest) {
+            // Other user is a guest
+            const guest = await Guest.findById(otherUserId);
+            if (guest) {
+              otherUserName = guest.name || "Guest User";
+              otherUserAvatar = guest.profilePhoto || null;
+            }
+          } else {
+            // Other user is a regular user/provider
+            const user = await User.findById(otherUserId);
+            if (user) {
+              otherUserName = user.fullName || user.name || "User";
+              otherUserAvatar = user.profilePhoto || null;
+
+              // Debug logging
+              console.log(`🔍 Chat list user debug:`, {
+                userId: otherUserId,
+                userName: otherUserName,
+                profilePhoto: user.profilePhoto,
+                avatarSet: otherUserAvatar,
+              });
+            }
           }
-        } else {
-          // Other user is a regular user/provider
-          const user = await User.findById(otherUserId);
-          if (user) {
-            otherUserName = user.fullName || user.name || 'User';
-          }
+        } catch (error) {
+          console.error("Error fetching other user:", error);
         }
-      } catch (error) {
-        console.error('Error fetching other user:', error);
-      }
-      
-      return {
-        chatId: chat._id,
-        otherUser: {
-          id: otherUserId,
-          name: otherUserName,
-          avatar: null, // Add avatar logic if needed
-          isGuest: isOtherUserGuest
-        },
-        lastMessage: chat.lastMessage || '',
-        lastMessageTime: chat.lastMessageTime || new Date(),
-        status: chat.status || 'active'
-      };
-    }));
+
+        // Calculate unread message count for this chat
+        // Count messages where the sender is NOT the current user AND status is not 'read'
+        const unreadCount = await ChatMessage.countDocuments({
+          chat: chat._id,
+          sender: { $ne: userId },
+          status: { $in: ["sent", "delivered"] }, // Only count sent/delivered as unread, not 'read'
+        });
+
+        console.log(`🔍 Unread count calculation for chat ${chat._id}:`, {
+          chatId: chat._id,
+          currentUserId: userId,
+          unreadCount,
+          query: {
+            chat: chat._id,
+            sender: { $ne: userId },
+            status: { $in: ["sent", "delivered"] },
+          },
+        });
+
+        console.log(`🔍 Final chat object before return:`, {
+          chatId: chat._id,
+          otherUserName,
+          otherUserAvatar,
+          isOtherUserGuest,
+          unreadCount,
+        });
+
+        return {
+          chatId: chat._id,
+          otherUser: {
+            id: otherUserId,
+            name: otherUserName,
+            avatar: otherUserAvatar,
+            isGuest: isOtherUserGuest,
+          },
+          lastMessage: chat.lastMessage || "",
+          lastMessageTime: chat.lastMessageTime || new Date(),
+          status: chat.status || "active",
+          unreadCount: unreadCount,
+          hasUnreadMessages: unreadCount > 0,
+        };
+      })
+    );
 
     res.status(200).json({
       success: true,
       data: {
-        chats: chatList
-      }
+        chats: chatList,
+      },
     });
   } catch (error) {
     next(error);
@@ -401,15 +479,15 @@ const createOrGetChat = async (req, res, next) => {
     const isGuest = req.user.isGuest || false;
 
     if (!providerId) {
-      return next(new AppError('Provider ID is required', 400));
+      return next(new AppError("Provider ID is required", 400));
     }
 
     // Find existing chat
     let chat = await Chat.findOne({
       $or: [
         { user: userId, provider: providerId },
-        { user: providerId, provider: userId }
-      ]
+        { user: providerId, provider: userId },
+      ],
     });
 
     if (!chat) {
@@ -418,20 +496,86 @@ const createOrGetChat = async (req, res, next) => {
         user: userId,
         provider: providerId,
         isGuestUser: isGuest,
-        status: 'active'
+        status: "active",
       });
       await chat.save();
     }
 
     // Populate user and provider info
-    await chat.populate('user', 'name fullName');
-    await chat.populate('provider', 'name fullName');
+    await chat.populate("user", "name fullName");
+    await chat.populate("provider", "name fullName");
 
     res.status(200).json({
       success: true,
       data: {
-        chat
+        chat,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Mark messages as read
+// @route   POST /api/chat/mark-read
+// @access  Private (User/Guest)
+const markMessagesAsRead = async (req, res, next) => {
+  try {
+    const { consultationId, messageIds } = req.body;
+    const userId = req.user.id || req.user._id;
+
+    if (!consultationId && !messageIds) {
+      return next(
+        new AppError("Consultation ID or message IDs are required", 400)
+      );
+    }
+
+    let updateQuery = {};
+
+    if (messageIds && messageIds.length > 0) {
+      // Mark specific messages as read
+      updateQuery = {
+        _id: { $in: messageIds },
+        sender: { $ne: userId },
+        status: { $ne: "read" },
+      };
+    } else if (consultationId) {
+      // Mark all messages in consultation as read
+      const chat = await Chat.findById(consultationId);
+      if (!chat) {
+        return next(new AppError("Chat not found", 404));
       }
+
+      updateQuery = {
+        chat: consultationId,
+        sender: { $ne: userId },
+        status: { $ne: "read" },
+      };
+    }
+
+    const result = await ChatMessage.updateMany(updateQuery, {
+      status: "read",
+      readAt: new Date(),
+    });
+
+    // Emit socket event for real-time status updates
+    const io = req.app.get("io");
+    if (io && messageIds) {
+      messageIds.forEach((messageId) => {
+        io.emit("chat:messageStatus", {
+          messageId,
+          status: "read",
+          readBy: userId,
+        });
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Messages marked as read",
+      data: {
+        modifiedCount: result.modifiedCount,
+      },
     });
   } catch (error) {
     next(error);
@@ -444,5 +588,6 @@ module.exports = {
   getChatNotifications,
   markNotificationAsRead,
   getChatList,
-  createOrGetChat
+  createOrGetChat,
+  markMessagesAsRead,
 };
