@@ -540,17 +540,29 @@ const markMessagesAsRead = async (req, res, next) => {
         status: { $ne: "read" },
       };
     } else if (consultationId) {
-      // Mark all messages in consultation as read
-      const chat = await Chat.findById(consultationId);
+      // For new chat system, consultationId is actually the chatId
+      // Try to find chat by chatId first, then fall back to consultation lookup
+      let chat = await Chat.findOne({ chatId: consultationId });
+
       if (!chat) {
-        return next(new AppError("Chat not found", 404));
+        // Fall back to finding by _id for backward compatibility
+        chat = await Chat.findById(consultationId);
       }
 
-      updateQuery = {
-        chat: consultationId,
-        sender: { $ne: userId },
-        status: { $ne: "read" },
-      };
+      if (!chat) {
+        // If no chat found, try to mark messages directly by chatId
+        updateQuery = {
+          chatId: consultationId,
+          sender: { $ne: userId },
+          status: { $ne: "read" },
+        };
+      } else {
+        updateQuery = {
+          chat: chat._id,
+          sender: { $ne: userId },
+          status: { $ne: "read" },
+        };
+      }
     }
 
     const result = await ChatMessage.updateMany(updateQuery, {

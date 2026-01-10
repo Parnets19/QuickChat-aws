@@ -4,6 +4,7 @@ const { logger } = require("../utils/logger");
 
 const onlineUsers = new Map(); // userId -> socketIds[]
 const callTimeouts = new Map(); // consultationId -> timeoutId
+const offlineTimeouts = new Map(); // userId -> timeoutId (for debouncing offline status)
 
 const initializeSocket = (io) => {
   // Authentication middleware
@@ -85,6 +86,15 @@ const initializeSocket = (io) => {
       onlineUsers.get(userId).push(socket.id);
     } else {
       onlineUsers.set(userId, [socket.id]);
+    }
+
+    // Clear any pending offline timeout for this user
+    if (offlineTimeouts.has(userId)) {
+      clearTimeout(offlineTimeouts.get(userId));
+      offlineTimeouts.delete(userId);
+      console.log(
+        `🔄 Cleared offline timeout for user ${userId} (reconnected)`
+      );
     }
 
     // Update user online status (only for regular users, not guests)
@@ -1433,16 +1443,35 @@ const initializeSocket = (io) => {
           userSockets.splice(index, 1);
         }
 
-        // If no more sockets for this user, mark as offline (only for regular users, not guests)
+        // If no more sockets for this user, set a debounced offline timeout
         if (userSockets.length === 0) {
           onlineUsers.delete(userId);
-          if (!socket.data.user?.isGuest) {
-            User.findByIdAndUpdate(userId, {
-              isOnline: false,
-              lastActive: new Date(),
-            }).exec();
-          }
-          socket.broadcast.emit("user:offline", { userId });
+
+          // Set a 3-second delay before marking user as offline
+          // This prevents rapid online/offline flashing due to brief disconnections
+          const offlineTimeout = setTimeout(() => {
+            console.log(`⏰ Marking user ${userId} as offline after timeout`);
+
+            // Double-check user is still offline (not reconnected)
+            if (!onlineUsers.has(userId)) {
+              if (!socket.data.user?.isGuest) {
+                User.findByIdAndUpdate(userId, {
+                  isOnline: false,
+                  lastActive: new Date(),
+                }).exec();
+              }
+
+              // Emit offline status to all clients
+              io.emit("user:offline", { userId });
+              console.log(`📡 Emitted user:offline for user ${userId}`);
+            }
+
+            // Clean up timeout
+            offlineTimeouts.delete(userId);
+          }, 3000); // 3 second delay
+
+          offlineTimeouts.set(userId, offlineTimeout);
+          console.log(`⏱️ Set offline timeout for user ${userId} (3 seconds)`);
         }
       }
     });

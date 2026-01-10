@@ -1,5 +1,5 @@
 const express = require("express");
-const { protect, guestAuth } = require("../middlewares/auth");
+const { protect } = require("../middlewares/auth");
 const {
   sendMessage,
   getChatHistory,
@@ -12,21 +12,8 @@ const {
 
 const router = express.Router();
 
-// Middleware to handle both regular and guest authentication
-const authMiddleware = (req, res, next) => {
-  // Try regular auth first
-  protect(req, res, (err) => {
-    if (err) {
-      // If regular auth fails, try guest auth
-      guestAuth(req, res, next);
-    } else {
-      next();
-    }
-  });
-};
-
 // Apply authentication to all routes
-router.use(authMiddleware);
+router.use(protect);
 
 // Chat routes
 router.post("/send", sendMessage);
