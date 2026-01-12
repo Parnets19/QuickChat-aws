@@ -1089,27 +1089,63 @@ const initializeSocket = (io) => {
           );
         }
 
-        // Find caller's sockets
-        const callerSockets = onlineUsers.get(from);
+        const acceptanceData = {
+          consultationId,
+          acceptedBy: userId,
+          acceptedByName: socket.data.user?.fullName || "Provider",
+          timestamp: new Date().toISOString(),
+        };
 
+        // Find caller's sockets and notify directly
+        const callerSockets = onlineUsers.get(from);
         if (callerSockets && callerSockets.length > 0) {
-          // Notify caller that call was accepted
           callerSockets.forEach((socketId) => {
             const callerSocket = io.sockets.sockets.get(socketId);
             if (callerSocket) {
-              callerSocket.emit("consultation:call-accepted", {
-                consultationId,
-                acceptedBy: userId,
-                acceptedByName: socket.data.user?.fullName || "Provider",
-              });
+              callerSocket.emit("consultation:call-accepted", acceptanceData);
             }
           });
-
           console.log(`✅ Call acceptance notification sent to caller ${from}`);
         }
+
+        // CRITICAL FIX: Broadcast to both room formats for cross-platform compatibility
+        io.to(`consultation:${consultationId}`).emit(
+          "consultation:call-accepted",
+          acceptanceData
+        );
+        io.to(`billing:${consultationId}`).emit(
+          "consultation:call-accepted",
+          acceptanceData
+        );
+
+        // Also send WebRTC-specific acceptance events
+        io.to(`consultation:${consultationId}`).emit(
+          "webrtc:call-accepted",
+          acceptanceData
+        );
+        io.to(`billing:${consultationId}`).emit(
+          "webrtc:call-accepted",
+          acceptanceData
+        );
+
+        console.log(
+          `📡 Call acceptance broadcasted to both room formats for cross-platform compatibility`
+        );
       } catch (error) {
         console.error("Error handling call acceptance:", error);
       }
+    });
+
+    // Handle alternative call acceptance event format
+    socket.on("consultation:call-accepted", async (data) => {
+      // Delegate to the main handler
+      socket.emit("consultation:call-accept", data);
+    });
+
+    // Handle WebRTC-specific call acceptance
+    socket.on("webrtc:call-accepted", async (data) => {
+      // Delegate to the main handler
+      socket.emit("consultation:call-accept", data);
     });
 
     // Handle call rejection (provider rejects call)

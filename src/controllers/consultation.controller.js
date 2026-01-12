@@ -601,8 +601,8 @@ const getConsultation = async (req, res, next) => {
       "🔍 DEBUG - User's consultations:",
       userConsultations.map((c) => ({
         id: c._id.toString(),
-        user: c.user?.fullName,
-        provider: c.provider?.fullName,
+        user: c.user?.toString() || c.user,
+        provider: c.provider?.toString() || c.provider,
         status: c.status,
         type: c.type,
       }))
