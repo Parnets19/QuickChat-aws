@@ -681,8 +681,8 @@ const initializeSocket = (io) => {
       }
     });
 
-    // Handle WebRTC signaling for audio/video calls
-    socket.on("webrtc:offer", (data, callback) => {
+    // UNIFIED WebRTC OFFER HANDLER - Supports both mobile and web formats
+    const handleWebRTCOffer = (data, callback) => {
       try {
         // Get room info to check if other party is connected
         const room = io.sockets.adapter.rooms.get(
@@ -727,33 +727,46 @@ const initializeSocket = (io) => {
           } recipient(s): ${recipientSockets.join(", ")}`
         );
 
-        // CROSS-PLATFORM FIX: Send WebRTC offer to both room formats
-        socket.to(`consultation:${data.consultationId}`).emit("webrtc:offer", {
+        // CROSS-PLATFORM FIX: Send WebRTC offer to both room formats AND both event formats
+        const offerData = {
           offer: data.offer,
           from: userId,
           consultationId: data.consultationId, // Include consultationId for verification
           isUpgrade: data.isUpgrade, // Forward the upgrade flag
-        });
+        };
 
-        // Also send to billing room format (web app)
-        socket.to(`billing:${data.consultationId}`).emit("webrtc:offer", {
-          offer: data.offer,
-          from: userId,
-          consultationId: data.consultationId,
-          isUpgrade: data.isUpgrade,
-        });
+        // Send to mobile format (consultation room, webrtc: events)
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("webrtc:offer", offerData);
+
+        // Send to web format (billing room, plain events)
+        socket.to(`billing:${data.consultationId}`).emit("offer", offerData);
+        socket
+          .to(`billing:${data.consultationId}`)
+          .emit("webrtc:offer", offerData);
+
+        // Also send to consultation room with web format for cross-compatibility
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("offer", offerData);
 
         console.log(
-          `✅ WebRTC offer forwarded to both room formats: consultation:${data.consultationId} and billing:${data.consultationId}`
+          `✅ WebRTC offer forwarded to ALL room and event formats for maximum compatibility`
         );
         if (callback) callback({ success: true });
       } catch (error) {
         console.error("Error handling WebRTC offer:", error);
         if (callback) callback({ success: false, error: error.message });
       }
-    });
+    };
 
-    socket.on("webrtc:answer", (data, callback) => {
+    // Handle WebRTC signaling for audio/video calls - BOTH FORMATS
+    socket.on("webrtc:offer", handleWebRTCOffer); // Mobile format
+    socket.on("offer", handleWebRTCOffer); // Web format
+
+    // UNIFIED WebRTC ANSWER HANDLER - Supports both mobile and web formats
+    const handleWebRTCAnswer = (data, callback) => {
       try {
         const room = io.sockets.adapter.rooms.get(
           `consultation:${data.consultationId}`
@@ -776,56 +789,80 @@ const initializeSocket = (io) => {
           );
         }
 
-        // CROSS-PLATFORM FIX: Send WebRTC answer to both room formats
-        socket.to(`consultation:${data.consultationId}`).emit("webrtc:answer", {
+        // CROSS-PLATFORM FIX: Send WebRTC answer to both room formats AND both event formats
+        const answerData = {
           answer: data.answer,
           from: userId,
           consultationId: data.consultationId, // Include consultationId for verification
           isUpgrade: data.isUpgrade, // Forward the upgrade flag
-        });
+        };
 
-        // Also send to billing room format (web app)
-        socket.to(`billing:${data.consultationId}`).emit("webrtc:answer", {
-          answer: data.answer,
-          from: userId,
-          consultationId: data.consultationId,
-          isUpgrade: data.isUpgrade,
-        });
+        // Send to mobile format (consultation room, webrtc: events)
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("webrtc:answer", answerData);
+
+        // Send to web format (billing room, plain events)
+        socket.to(`billing:${data.consultationId}`).emit("answer", answerData);
+        socket
+          .to(`billing:${data.consultationId}`)
+          .emit("webrtc:answer", answerData);
+
+        // Also send to consultation room with web format for cross-compatibility
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("answer", answerData);
 
         console.log(
-          `✅ WebRTC answer forwarded to both room formats: consultation:${data.consultationId} and billing:${data.consultationId}`
+          `✅ WebRTC answer forwarded to ALL room and event formats for maximum compatibility`
         );
         if (callback) callback({ success: true });
       } catch (error) {
         console.error("Error handling WebRTC answer:", error);
         if (callback) callback({ success: false, error: error.message });
       }
-    });
+    };
 
-    socket.on("webrtc:ice-candidate", (data, callback) => {
+    socket.on("webrtc:answer", handleWebRTCAnswer); // Mobile format
+    socket.on("answer", handleWebRTCAnswer); // Web format
+
+    // UNIFIED WebRTC ICE CANDIDATE HANDLER - Supports both mobile and web formats
+    const handleWebRTCIceCandidate = (data, callback) => {
       try {
-        // CROSS-PLATFORM FIX: Send ICE candidates to both room formats
+        // CROSS-PLATFORM FIX: Send ICE candidates to both room formats AND both event formats
+        const candidateData = {
+          candidate: data.candidate,
+          from: userId,
+          consultationId: data.consultationId,
+        };
+
+        // Send to mobile format (consultation room, webrtc: events)
         socket
           .to(`consultation:${data.consultationId}`)
-          .emit("webrtc:ice-candidate", {
-            candidate: data.candidate,
-            from: userId,
-          });
+          .emit("webrtc:ice-candidate", candidateData);
 
-        // Also send to billing room format (web app)
+        // Send to web format (billing room, plain events)
         socket
           .to(`billing:${data.consultationId}`)
-          .emit("webrtc:ice-candidate", {
-            candidate: data.candidate,
-            from: userId,
-          });
+          .emit("ice-candidate", candidateData);
+        socket
+          .to(`billing:${data.consultationId}`)
+          .emit("webrtc:ice-candidate", candidateData);
+
+        // Also send to consultation room with web format for cross-compatibility
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("ice-candidate", candidateData);
 
         if (callback) callback({ success: true });
       } catch (error) {
         console.error("Error handling ICE candidate:", error);
         if (callback) callback({ success: false, error: error.message });
       }
-    });
+    };
+
+    socket.on("webrtc:ice-candidate", handleWebRTCIceCandidate); // Mobile format
+    socket.on("ice-candidate", handleWebRTCIceCandidate); // Web format
 
     // Handle video upgrade notification
     socket.on("consultation:upgrade-to-video", (data) => {
@@ -880,98 +917,6 @@ const initializeSocket = (io) => {
         socket.emit("error", {
           message: "Failed to send incoming call notification",
         });
-      }
-    });
-
-    // Web app compatibility - handle web format events
-    socket.on("offer", (data, callback) => {
-      try {
-        console.log(
-          `📞 WebRTC offer received (web format) from ${userId} for consultation ${data.consultationId}`
-        );
-
-        // Get room info to check if other party is connected
-        const room = io.sockets.adapter.rooms.get(
-          `consultation:${data.consultationId}`
-        );
-        const participantCount = room ? room.size : 0;
-        const roomMembers = room ? Array.from(room) : [];
-
-        console.log(
-          `📊 Room info: ${participantCount} participants, socket IDs: ${roomMembers.join(
-            ", "
-          )}`
-        );
-
-        if (participantCount < 2) {
-          console.log(
-            `⚠️ Cannot forward offer - only ${participantCount} participant(s) in room`
-          );
-          if (callback)
-            callback({
-              success: false,
-              error: "No other participant connected",
-            });
-          return;
-        }
-
-        // Get list of socket IDs in room (excluding sender)
-        const recipientSockets = roomMembers.filter((id) => id !== socket.id);
-        console.log(
-          `📤 Broadcasting offer to ${
-            recipientSockets.length
-          } recipient(s): ${recipientSockets.join(", ")}`
-        );
-
-        socket.to(`consultation:${data.consultationId}`).emit("offer", {
-          offer: data.offer,
-          from: userId,
-          consultationId: data.consultationId,
-        });
-
-        console.log(
-          `✅ WebRTC offer (web format) forwarded to room consultation:${data.consultationId}`
-        );
-        if (callback) callback({ success: true });
-      } catch (error) {
-        console.error("Error handling web format offer:", error);
-        if (callback) callback({ success: false, error: error.message });
-      }
-    });
-
-    socket.on("answer", (data, callback) => {
-      try {
-        console.log(
-          `📞 WebRTC answer received (web format) from ${userId} for consultation ${data.consultationId}`
-        );
-
-        socket.to(`consultation:${data.consultationId}`).emit("answer", {
-          answer: data.answer,
-          from: userId,
-          consultationId: data.consultationId,
-        });
-
-        console.log(
-          `✅ WebRTC answer (web format) forwarded to room consultation:${data.consultationId}`
-        );
-        if (callback) callback({ success: true });
-      } catch (error) {
-        console.error("Error handling web format answer:", error);
-        if (callback) callback({ success: false, error: error.message });
-      }
-    });
-
-    socket.on("ice-candidate", (data, callback) => {
-      try {
-        socket.to(`consultation:${data.consultationId}`).emit("ice-candidate", {
-          candidate: data.candidate,
-          from: userId,
-        });
-
-        if (callback) callback({ success: true });
-      } catch (error) {
-        console.error("Error handling web format ICE candidate:", error);
-        if (callback) callback({ success: false, error: error.message });
       }
     });
 

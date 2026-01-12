@@ -10,7 +10,8 @@ const setSocketIO = (socketInstance) => {
 // Helper function to emit billing updates
 const emitBillingUpdate = (consultationId, data) => {
   if (io) {
-    io.to(`billing:${consultationId}`).emit("billing:update", data);
+    // STANDARDIZED: Use consultation room format for all billing events
+    io.to(`consultation:${consultationId}`).emit("billing:update", data);
     console.log("📡 SOCKET: Billing update emitted:", data);
   }
 };
@@ -18,7 +19,8 @@ const emitBillingUpdate = (consultationId, data) => {
 // Helper function to emit auto-termination
 const emitAutoTermination = (consultationId, data) => {
   if (io) {
-    io.to(`billing:${consultationId}`).emit("billing:terminated", data);
+    // STANDARDIZED: Use consultation room format for all billing events
+    io.to(`consultation:${consultationId}`).emit("billing:terminated", data);
     io.to(`consultation:${consultationId}`).emit(
       "consultation:auto-terminated",
       data
@@ -1421,11 +1423,17 @@ const endConsultation = async (req, res) => {
         });
       }
 
-      // Calculate commission split with proper decimal handling
-      const platformCommission =
-        Math.round(finalAmount * PLATFORM_COMMISSION_RATE * 100) / 100;
-      const providerEarnings =
-        Math.round(finalAmount * PROVIDER_SHARE_RATE * 100) / 100;
+      // Calculate commission split with PRECISE decimal handling
+      const platformCommission = preciseMoneyCalculation(
+        finalAmount,
+        PLATFORM_COMMISSION_RATE,
+        "multiply"
+      );
+      const providerEarnings = preciseMoneyCalculation(
+        finalAmount,
+        platformCommission,
+        "subtract"
+      );
 
       console.log("💰 FINAL COMMISSION CALCULATION:", {
         finalAmount,
@@ -2093,7 +2101,8 @@ const handleBillingError = async (error, consultationId, context) => {
 
   // Emit error to frontend
   if (io) {
-    io.to(`billing:${consultationId}`).emit("billing:error", {
+    // STANDARDIZED: Use consultation room format for all billing events
+    io.to(`consultation:${consultationId}`).emit("billing:error", {
       message: "Billing system error - call may be terminated",
       errorCount: billingErrorCounts[consultationId],
       timestamp: new Date(),

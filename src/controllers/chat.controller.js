@@ -43,6 +43,12 @@ const sendMessage = async (req, res, next) => {
 
     // Get sender info first
     let senderInfo = { name: "Unknown User", avatar: null };
+    console.log("🔔 SENDER INFO DEBUG - Getting sender details:", {
+      senderId: senderId,
+      isGuest: isGuest,
+      senderType: isGuest ? "Guest" : "User",
+    });
+
     try {
       if (isGuest) {
         const guest = await Guest.findById(senderId);
@@ -52,6 +58,9 @@ const sendMessage = async (req, res, next) => {
             _id: guest._id,
             avatar: guest.profilePhoto || null,
           };
+          console.log("🔔 GUEST SENDER INFO:", senderInfo);
+        } else {
+          console.log("🔔 Guest not found for ID:", senderId);
         }
       } else {
         const user = await User.findById(senderId);
@@ -61,6 +70,9 @@ const sendMessage = async (req, res, next) => {
             _id: user._id,
             avatar: user.profilePhoto || null,
           };
+          console.log("🔔 USER SENDER INFO:", senderInfo);
+        } else {
+          console.log("🔔 User not found for ID:", senderId);
         }
       }
     } catch (error) {
@@ -109,25 +121,105 @@ const sendMessage = async (req, res, next) => {
         status: "sent",
       });
 
-      // Also emit globally for notifications (to all connected sockets)
-      console.log("🔔 Emitting global chat:newMessage for notifications");
-      io.emit("chat:newMessage", {
-        _id: chatMessage._id,
-        senderId: senderId, // Use senderId for notifications
-        senderName: chatMessage.senderName,
-        senderAvatar: chatMessage.senderAvatar,
-        message: message.trim(),
-        timestamp: chatMessage.timestamp,
+      // ENHANCED DEBUG: Determine the correct receiver based on chat structure
+      // In the chat model: user = client/guest, provider = service provider
+      // The receiver should be the OTHER participant in the chat
+      let receiverId;
+
+      console.log("🔔 ENHANCED DEBUG - Chat structure analysis:", {
         chatId: chat._id,
-        status: "sent",
+        chatUser: chat.user,
+        chatProvider: chat.provider,
+        senderId: senderId,
+        providerId: providerId,
+        isGuestUser: chat.isGuestUser,
+        senderEqualsUser: senderId.toString() === chat.user.toString(),
+        senderEqualsProvider: senderId.toString() === chat.provider.toString(),
       });
 
-      console.log("🔔 Notification event emitted to all sockets:", {
+      if (senderId.toString() === chat.user.toString()) {
+        // Sender is the client/guest, receiver is the provider
+        receiverId = chat.provider;
+        console.log("🔔 CASE 1: Sender is USER/CLIENT, receiver is PROVIDER");
+      } else if (senderId.toString() === chat.provider.toString()) {
+        // Sender is the provider, receiver is the client/guest
+        receiverId = chat.user;
+        console.log("🔔 CASE 2: Sender is PROVIDER, receiver is USER/CLIENT");
+      } else {
+        // Enhanced fallback logic for edge cases
+        console.log(
+          "🔔 CASE 3: Using fallback logic - sender not found in chat participants"
+        );
+        // If sender is not in chat, assume they are the provider and receiver is the user
+        receiverId = chat.user;
+      }
+
+      console.log("🔔 Enhanced notification logic:", {
         senderId,
-        senderName: chatMessage.senderName,
-        message: message.trim(),
-        chatId: chat._id,
+        providerId,
+        chatUser: chat.user,
+        chatProvider: chat.provider,
+        receiverId,
+        senderIsUser: senderId.toString() === chat.user.toString(),
+        senderIsProvider: senderId.toString() === chat.provider.toString(),
+        shouldSendNotification:
+          receiverId && receiverId.toString() !== senderId.toString(),
       });
+
+      // Only send notification if receiver is different from sender
+      if (receiverId && receiverId.toString() !== senderId.toString()) {
+        // Send targeted notification to the receiver only
+        console.log("🔔 EMITTING NOTIFICATION - Details:", {
+          receiverId: receiverId,
+          receiverRoom: `user:${receiverId}`,
+          senderId: senderId,
+          senderName: chatMessage.senderName,
+          message: message.trim(),
+          chatId: chat._id,
+          timestamp: new Date().toISOString(),
+        });
+
+        // CRITICAL: Double-check that we're not sending to the sender
+        if (receiverId.toString() === senderId.toString()) {
+          console.error(
+            "🚨 CRITICAL ERROR: Trying to send notification to sender! Aborting."
+          );
+          return;
+        }
+
+        // Send to receiver's personal room ONLY
+        const receiverRoom = `user:${receiverId}`;
+        console.log(`🔔 Emitting to room: ${receiverRoom}`);
+
+        // Send to receiver's personal room
+        io.to(receiverRoom).emit("chat:newMessage", {
+          _id: chatMessage._id,
+          senderId: senderId,
+          senderName: chatMessage.senderName,
+          senderAvatar: chatMessage.senderAvatar,
+          message: message.trim(),
+          timestamp: chatMessage.timestamp,
+          chatId: chat._id,
+          status: "sent",
+        });
+
+        // Also send direct notification for better reliability
+        io.to(receiverRoom).emit("direct:notification", {
+          senderId: senderId,
+          senderName: chatMessage.senderName,
+          senderAvatar: chatMessage.senderAvatar,
+          targetUserId: receiverId,
+          message: message.trim(),
+          timestamp: chatMessage.timestamp,
+          consultationId: chat._id,
+        });
+
+        console.log("🔔 Targeted notification sent to receiver:", receiverId);
+      } else {
+        console.log(
+          "🔔 Skipping notification - sender and receiver are the same"
+        );
+      }
     }
 
     res.status(201).json({
@@ -572,14 +664,63 @@ const markMessagesAsRead = async (req, res, next) => {
 
     // Emit socket event for real-time status updates
     const io = req.app.get("io");
-    if (io && messageIds) {
-      messageIds.forEach((messageId) => {
-        io.emit("chat:messageStatus", {
-          messageId,
-          status: "read",
-          readBy: userId,
+    if (io && result.modifiedCount > 0) {
+      // Emit message read status updates
+      if (messageIds) {
+        messageIds.forEach((messageId) => {
+          io.emit("chat:messageStatus", {
+            messageId,
+            status: "read",
+            readBy: userId,
+          });
+        });
+      }
+
+      // ENHANCED: Clear notifications for the user who read the messages
+      console.log(
+        "🔔 Clearing notifications for user who read messages:",
+        userId
+      );
+
+      // Send notification clear event to the user who read the messages
+      // Use multiple room patterns to ensure delivery
+      const userRooms = [
+        `user:${userId}`,
+        `provider:${userId}`,
+        `client:${userId}`,
+      ];
+
+      userRooms.forEach((room) => {
+        io.to(room).emit("chat:notificationsClear", {
+          consultationId: consultationId,
+          chatId: consultationId,
+          clearedBy: userId,
+          messageCount: result.modifiedCount,
+        });
+
+        // Also emit a general notification update to refresh notification counts
+        io.to(room).emit("chat:unreadUpdate", {
+          consultationId: consultationId,
+          chatId: consultationId,
+          unreadCount: 0,
+          markAsRead: true,
         });
       });
+
+      // Also emit to all connected sockets for this user (fallback)
+      io.emit("chat:globalNotificationClear", {
+        userId: userId,
+        consultationId: consultationId,
+        chatId: consultationId,
+        clearedBy: userId,
+        messageCount: result.modifiedCount,
+      });
+
+      console.log(
+        "🔔 Enhanced notification clear events sent for",
+        result.modifiedCount,
+        "messages to multiple room patterns"
+      );
     }
 
     res.status(200).json({

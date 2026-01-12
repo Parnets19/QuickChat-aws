@@ -201,10 +201,51 @@ ConsultationSchema.index({ user: 1, status: 1 });
 ConsultationSchema.index({ provider: 1, status: 1 });
 ConsultationSchema.index({ createdAt: -1 });
 
-// Calculate total amount based on duration and rate
+// Helper function for precise money calculation to avoid floating point issues
+const preciseMoneyCalculation = (amount1, amount2, operation) => {
+  // Convert to cents to avoid floating point issues
+  const cents1 = Math.round(amount1 * 100);
+  const cents2 = Math.round(amount2 * 100);
+
+  let resultCents;
+  switch (operation) {
+    case "add":
+      resultCents = cents1 + cents2;
+      break;
+    case "subtract":
+      resultCents = cents1 - cents2;
+      break;
+    case "multiply":
+      resultCents = Math.round((cents1 * cents2) / 100);
+      break;
+    case "divide":
+      resultCents = Math.round((cents1 / cents2) * 100);
+      break;
+    default:
+      throw new Error("Invalid operation");
+  }
+
+  // Convert back to rupees with exactly 2 decimal places
+  return Math.round(resultCents) / 100;
+};
+
+// Calculate total amount based on duration and rate - FIXED FOR PRECISION
 ConsultationSchema.pre("save", function (next) {
   if (this.duration && this.rate) {
-    this.totalAmount = this.duration * this.rate;
+    // CRITICAL FIX: Use precise calculation instead of direct multiplication
+    this.totalAmount = preciseMoneyCalculation(
+      this.duration,
+      this.rate,
+      "multiply"
+    );
+
+    console.log("💰 CONSULTATION MODEL - PRECISE CALCULATION:", {
+      duration: this.duration,
+      rate: this.rate,
+      totalAmount: this.totalAmount,
+      consultationId: this._id,
+      note: "Using precise money calculation to avoid floating point issues",
+    });
   }
   next();
 });
