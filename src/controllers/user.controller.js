@@ -940,7 +940,7 @@ const getUserDocuments = async (req, res, next) => {
     const ensureFullUrl = (url) => {
       if (!url) return null;
       if (url.startsWith("http")) return url;
-      const baseUrl = process.env.BASE_URL || "http://localhost:5001";
+      const baseUrl = process.env.BASE_URL || "http://192.168.1.39:5001";
       return url.startsWith("/") ? `${baseUrl}${url}` : `${baseUrl}/${url}`;
     };
 
