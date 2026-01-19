@@ -864,6 +864,41 @@ const initializeSocket = (io) => {
     socket.on("webrtc:ice-candidate", handleWebRTCIceCandidate); // Mobile format
     socket.on("ice-candidate", handleWebRTCIceCandidate); // Web format
 
+    // CRITICAL FIX: Handle ready-to-receive signal from answerer
+    socket.on("webrtc:ready-to-receive", (data) => {
+      try {
+        console.log(
+          `📢 User ${userId} is ready to receive offers for consultation ${data.consultationId}`
+        );
+
+        // Broadcast ready signal to other participants (the initiator)
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("webrtc:ready-to-receive", {
+            from: userId,
+            consultationId: data.consultationId,
+            role: data.role,
+            timestamp: data.timestamp,
+          });
+
+        // Also send to billing room for web compatibility
+        socket
+          .to(`billing:${data.consultationId}`)
+          .emit("webrtc:ready-to-receive", {
+            from: userId,
+            consultationId: data.consultationId,
+            role: data.role,
+            timestamp: data.timestamp,
+          });
+
+        console.log(
+          `✅ Ready-to-receive signal forwarded to initiator for consultation ${data.consultationId}`
+        );
+      } catch (error) {
+        console.error("Error handling ready-to-receive signal:", error);
+      }
+    });
+
     // Handle video upgrade notification
     socket.on("consultation:upgrade-to-video", (data) => {
       try {
