@@ -45,10 +45,10 @@ const io = new Server(httpServer, {
 });
 
 // Middleware
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  crossOriginEmbedderPolicy: false,
-})); // Security headers
+// app.use(helmet({
+//   crossOriginResourcePolicy: { policy: "cross-origin" },
+//   crossOriginEmbedderPolicy: false,
+// }));
 
 // CORS configuration - more permissive for production
 const corsOptions = {
@@ -60,7 +60,7 @@ const corsOptions = {
       process.env.FRONTEND_URL || 'http://localhost:3000',
       process.env.ADMIN_URL || 'http://localhost:3001',
       'https://skill-quick-chats.netlify.app',
-      'https://skillhub-a00h.onrender.com',
+      'http://192.168.1.39:5001',
     ];
     
     // Allow any origin in development
@@ -84,8 +84,8 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(compression()); // Compress responses
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true}));
 app.use(mongoSanitize()); // Prevent MongoDB injection
 
 // Initialize Socket.IO handlers
