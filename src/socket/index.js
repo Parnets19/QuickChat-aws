@@ -601,12 +601,21 @@ const initializeSocket = (io) => {
           `🛑 BACKEND: Broadcasting consultation end to ALL room formats for bilateral termination`
         );
 
+        // Get the user who ended the call
+        const endingUser = await User.findById(userId).select('fullName name');
+        const endedByName = endingUser?.fullName || endingUser?.name || 'User';
+        
+        // Determine if ended by provider or client
+        const endedByRole = consultationProviderId === userId ? 'provider' : 'client';
+
         const endEventData = {
           consultationId: data.consultationId,
           endTime: consultation.endTime,
           duration: consultation.duration,
           totalAmount: consultation.totalAmount,
-          endedBy: userId,
+          endedBy: endedByRole,
+          endedByUserId: userId,
+          endedByName: endedByName,
           consultation: consultation, // Include full consultation data
         };
 
