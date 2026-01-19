@@ -1310,6 +1310,48 @@ const initializeSocket = (io) => {
       });
     });
 
+    // Handle user status request - allows clients to query current online status
+    socket.on("user:requestStatus", async (data) => {
+      try {
+        const { userId: requestedUserId } = data;
+        console.log(`📡 Status request for user: ${requestedUserId} from ${userId}`);
+
+        // Find the requested user in the database
+        const requestedUser = await User.findById(requestedUserId).select(
+          "isOnline consultationStatus lastActive"
+        );
+
+        if (requestedUser) {
+          const isUserOnline = requestedUser.isOnline === true;
+          const userConsultationStatus = requestedUser.consultationStatus || "offline";
+          
+          console.log(`📡 Sending status response:`, {
+            userId: requestedUserId,
+            isOnline: isUserOnline,
+            consultationStatus: userConsultationStatus,
+          });
+
+          // Send status response back to the requesting socket
+          socket.emit("user:statusResponse", {
+            userId: requestedUserId,
+            isOnline: isUserOnline,
+            consultationStatus: userConsultationStatus,
+            lastActive: requestedUser.lastActive,
+          });
+        } else {
+          console.log(`⚠️ User not found: ${requestedUserId}`);
+          socket.emit("user:statusResponse", {
+            userId: requestedUserId,
+            isOnline: false,
+            consultationStatus: "offline",
+          });
+        }
+      } catch (error) {
+        console.error("❌ Error handling user:requestStatus:", error);
+        socket.emit("error", { message: "Failed to get user status" });
+      }
+    });
+
     // ===== CHAT SYSTEM EVENTS =====
 
     // Join chat room
