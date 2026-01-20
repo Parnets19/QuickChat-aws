@@ -1203,15 +1203,34 @@ const submitRating = async (req, res, next) => {
     const { stars, review, tags, isAnonymous } = req.body;
     const consultationId = req.params.id;
 
+    console.log('⭐ Rating submission received:', {
+      consultationId,
+      stars,
+      hasReview: !!review,
+      tagsCount: tags?.length || 0,
+      isAnonymous,
+      userId: req.user?._id || req.user?.id,
+      isGuest: req.user?.isGuest,
+    });
+
     if (!stars || stars < 1 || stars > 5) {
+      console.log('❌ Invalid stars value:', stars);
       return next(new AppError("Rating must be between 1 and 5 stars", 400));
     }
 
     const consultation = await Consultation.findById(consultationId);
 
     if (!consultation) {
+      console.log('❌ Consultation not found:', consultationId);
       return next(new AppError("Consultation not found", 404));
     }
+
+    console.log('✅ Consultation found:', {
+      id: consultation._id,
+      status: consultation.status,
+      provider: consultation.provider,
+      user: consultation.user,
+    });
 
     // Check if user is part of consultation (handle guest users and providers)
     const consultationUserId =
@@ -1226,31 +1245,34 @@ const submitRating = async (req, res, next) => {
     const isClient = consultationUserId === requestingUserId;
     const isProvider = consultationProviderId === req.user?._id?.toString();
 
+    console.log('🔍 User authorization check:', {
+      consultationUserId,
+      requestingUserId,
+      consultationProviderId,
+      isClient,
+      isProvider,
+    });
+
     if (!isClient && !isProvider) {
+      console.log('❌ User not authorized to rate this consultation');
       return next(
         new AppError("Only participants can rate the consultation", 403)
       );
     }
 
-    // Check if consultation is completed
-    if (consultation.status !== "completed") {
-      return next(new AppError("Can only rate completed consultations", 400));
-    }
-
-    // Check if already rated by this user
-    const existingRating = await Rating.findOne({
-      consultation: consultationId,
-      user: req.user?.isGuest ? req.user.id : req.user?._id,
-    });
-    if (existingRating) {
-      return next(
-        new AppError("You have already rated this consultation", 400)
-      );
-    }
+    // REMOVED: Status check - allow rating regardless of consultation status
+    // REMOVED: Duplicate rating check - allow multiple ratings
 
     // Determine who is being rated
     const ratedUserId = isProvider ? consultation.user : consultation.provider;
     const ratedUserType = isProvider ? "client" : "provider";
+
+    console.log('✅ Creating rating:', {
+      ratedUserId,
+      ratedUserType,
+      isProvider,
+      isClient,
+    });
 
     // Create rating
     const rating = await Rating.create({
@@ -1265,6 +1287,8 @@ const submitRating = async (req, res, next) => {
       tags: tags || [],
       isAnonymous: isAnonymous || false,
     });
+
+    console.log('✅ Rating created successfully:', rating._id);
 
     // Update the rated user's rating (only for providers for now)
     if (ratedUserType === "provider") {
@@ -1291,6 +1315,11 @@ const submitRating = async (req, res, next) => {
         }
 
         await provider.save();
+        console.log('✅ Provider rating updated:', {
+          providerId: provider._id,
+          newAverage: provider.rating.average,
+          totalCount: provider.rating.count,
+        });
       }
     }
 
@@ -1303,12 +1332,15 @@ const submitRating = async (req, res, next) => {
     };
     await consultation.save();
 
+    console.log('✅ Rating submission complete');
+
     res.status(201).json({
       success: true,
       message: "Rating submitted successfully",
       data: rating,
     });
   } catch (error) {
+    console.error('❌ Error submitting rating:', error);
     next(error);
   }
 };
