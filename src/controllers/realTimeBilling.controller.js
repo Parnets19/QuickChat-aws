@@ -1250,6 +1250,15 @@ const endConsultation = async (req, res) => {
     consultation.status = "completed";
     consultation.endTime = new Date();
 
+    console.log("📊 CONSULTATION DATA BEFORE BILLING:", {
+      consultationId: consultation._id,
+      rate: consultation.rate,
+      bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+      billingStarted: consultation.billingStarted,
+      currentDuration: consultation.duration,
+      currentTotalAmount: consultation.totalAmount,
+    });
+
     // Calculate final duration and amount based on BILLING time, not consultation creation time
     let finalDuration = 0;
     let finalAmount = 0;
@@ -1260,60 +1269,41 @@ const endConsultation = async (req, res) => {
         (consultation.endTime - consultation.bothSidesAcceptedAt) / 1000
       );
 
-      // CRITICAL FIX: Check if this was within free minute
-      const wasWithinFreeMinute =
-        consultation.isFirstMinuteFree &&
-        consultation.billingStartsAt &&
-        consultation.endTime < consultation.billingStartsAt;
+      console.log("⏱️ DURATION CALCULATION:", {
+        bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+        endTime: consultation.endTime,
+        durationInSeconds,
+        durationInMinutes: (durationInSeconds / 60).toFixed(2),
+      });
 
-      if (wasWithinFreeMinute) {
-        // Call ended within free minute - NO CHARGE
-        finalAmount = 0;
-        finalDuration = Math.ceil(durationInSeconds / 60);
+      // STRICT PREPAID MODEL - NO FREE MINUTES
+      // Round UP: 2min 30sec = 3 minutes charged
+      const billableMinutes = Math.ceil(durationInSeconds / 60);
+      const ratePerMinute = consultation.rate || 0;
+      
+      console.log("💵 RATE CHECK:", {
+        consultationRate: consultation.rate,
+        ratePerMinute,
+        isZero: ratePerMinute === 0,
+        type: typeof ratePerMinute,
+      });
+      
+      // PRECISE CALCULATION using integer arithmetic
+      const rateInCents = Math.round(ratePerMinute * 100);
+      const totalAmountInCents = billableMinutes * rateInCents;
+      finalAmount = Math.round(totalAmountInCents) / 100;
+      finalDuration = billableMinutes;
 
-        console.log("🆓 FREE MINUTE - NO CHARGE:", {
-          durationInSeconds: durationInSeconds,
-          durationInMinutes: finalDuration,
-          billingStartsAt: consultation.billingStartsAt,
-          endTime: consultation.endTime,
-          wasWithinFreeMinute: true,
-          finalAmount: 0,
-        });
-      } else {
-        // ROUND-UP BILLING: Any usage = full minute charge
-        let billableSeconds = durationInSeconds;
-
-        // If free minute was used, subtract it from billable time
-        if (consultation.isFirstMinuteFree) {
-          billableSeconds = Math.max(0, durationInSeconds - 60);
-          console.log("🆓 SUBTRACTING FREE MINUTE:", {
-            totalSeconds: durationInSeconds,
-            billableSeconds: billableSeconds,
-            freeMinuteDeducted: 60,
-          });
-        }
-
-        // Only charge if there are billable seconds after free minute
-        if (billableSeconds > 0) {
-          const billableMinutes = Math.ceil(billableSeconds / 60); // Round UP
-          finalAmount = billableMinutes * consultation.rate;
-        } else {
-          finalAmount = 0; // No charge if only free minute was used
-        }
-
-        finalDuration = Math.ceil(durationInSeconds / 60);
-
-        console.log("💰 ROUND-UP BILLING CALCULATION:", {
-          durationInSeconds: durationInSeconds,
-          durationInMinutes: finalDuration,
-          billableSeconds: billableSeconds,
-          billableMinutes:
-            billableSeconds > 0 ? Math.ceil(billableSeconds / 60) : 0,
-          rate: consultation.rate,
-          finalAmount: finalAmount,
-          freeMinuteApplied: consultation.isFirstMinuteFree,
-        });
-      }
+      console.log("💰 FINAL BILLING CALCULATION:", {
+        durationInSeconds,
+        billableMinutes,
+        ratePerMinute,
+        rateInCents,
+        totalAmountInCents,
+        finalAmount,
+        finalDuration,
+        calculation: `${billableMinutes} minutes × ₹${ratePerMinute} = ₹${finalAmount}`,
+      });
     } else {
       console.log(
         "⚠️ No billing occurred - consultation ended before both sides accepted"
@@ -1322,43 +1312,6 @@ const endConsultation = async (req, res) => {
 
     consultation.duration = finalDuration;
     consultation.totalAmount = finalAmount;
-
-    // CRITICAL: Track free minute usage if it was used
-    if (consultation.isFirstMinuteFree && consultation.bothSidesAcceptedAt) {
-      const durationInSeconds = Math.floor(
-        (consultation.endTime - consultation.bothSidesAcceptedAt) / 1000
-      );
-
-      if (durationInSeconds > 0) {
-        const isGuest = consultation.userType === "Guest";
-        const UserModel = isGuest ? Guest : User;
-        const user = await UserModel.findById(consultation.user);
-
-        if (user) {
-          // Check if free minute with this provider is already tracked
-          const alreadyTracked = user.freeMinutesUsed?.some(
-            (entry) =>
-              entry.providerId.toString() === consultation.provider.toString()
-          );
-
-          if (!alreadyTracked) {
-            // Add free minute usage tracking
-            user.freeMinutesUsed.push({
-              providerId: consultation.provider,
-              usedAt: new Date(),
-              consultationId: consultation._id,
-            });
-            await user.save();
-
-            console.log("🆓 FREE MINUTE USAGE TRACKED:", {
-              userId: user._id,
-              providerId: consultation.provider,
-              consultationId: consultation._id,
-            });
-          }
-        }
-      }
-    }
 
     // 🚨 ENHANCED VALIDATION: Only process billing if amount > 0 AND no existing transactions
     if (finalAmount > 0 && !existingClientPayment && !existingProviderEarning) {
