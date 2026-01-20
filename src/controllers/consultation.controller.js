@@ -871,16 +871,32 @@ const endConsultation = async (req, res, next) => {
     consultation.status = "completed";
     consultation.endTime = new Date();
 
-    // Calculate duration and amount
+    // Calculate duration and amount - FIXED TO MATCH BILLING CONTROLLER
     if (consultation.startTime) {
-      const duration = Math.ceil(
-        (consultation.endTime.getTime() - consultation.startTime.getTime()) /
-          (1000 * 60)
+      // Use bothSidesAcceptedAt if available (for real-time billing), otherwise use startTime
+      const billingStartTime = consultation.bothSidesAcceptedAt || consultation.startTime;
+      
+      // Calculate EXACT duration in seconds first
+      const durationInSeconds = Math.floor(
+        (consultation.endTime - billingStartTime) / 1000
       );
-      consultation.duration = duration;
+      
+      // Round UP to nearest minute (2min 30sec = 3 minutes charged)
+      const billableMinutes = Math.ceil(durationInSeconds / 60);
+      
+      console.log("💰 OLD CONTROLLER - DURATION CALCULATION:", {
+        billingStartTime,
+        endTime: consultation.endTime,
+        durationInSeconds,
+        billableMinutes,
+        rate: consultation.rate,
+      });
+      
+      consultation.duration = billableMinutes; // Store as whole minutes, not decimal
+      
       // Use precise calculation for totalAmount
       consultation.totalAmount = preciseMoneyCalculation(
-        duration,
+        billableMinutes,
         consultation.rate,
         "multiply"
       );

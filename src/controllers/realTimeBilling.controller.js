@@ -145,10 +145,17 @@ const checkConsultationAffordability = async (req, res) => {
       provider.rates?.audioVideo || 
       1; // Default 1 rupee per minute
 
-    console.log("💵 RATE CONFIGURATION:", {
+    console.log("💵 RATE CONFIGURATION - DETAILED:", {
       ratePerMinute,
       consultationType,
       providerName: provider.fullName,
+      providerRates: provider.rates,
+      'rates.perMinute': provider.rates?.perMinute,
+      'rates.perMinute.audioVideo': provider.rates?.perMinute?.audioVideo,
+      'rates[consultationType]': provider.rates?.[consultationType],
+      'rates.audioVideo': provider.rates?.audioVideo,
+      'rates.video': provider.rates?.video,
+      'rates.audio': provider.rates?.audio,
     });
 
     // 🚨 STRICT WALLET VALIDATION - NO EXCEPTIONS
@@ -280,10 +287,17 @@ const startConsultation = async (req, res) => {
       provider.rates?.audioVideo ||
       1; // Default 1 rupee per minute
 
-    console.log("💰 RATE CONFIGURATION:", {
+    console.log("💰 RATE CONFIGURATION - DETAILED:", {
       consultationType,
       ratePerMinute,
       providerName: provider.fullName,
+      providerRates: provider.rates,
+      'rates.perMinute': provider.rates?.perMinute,
+      'rates.perMinute.audioVideo': provider.rates?.perMinute?.audioVideo,
+      'rates[consultationType]': provider.rates?.[consultationType],
+      'rates.audioVideo': provider.rates?.audioVideo,
+      'rates.video': provider.rates?.video,
+      'rates.audio': provider.rates?.audio,
     });
 
     // 🚨 STRICT WALLET VALIDATION - NO FREE TRIALS, NO EXCEPTIONS
