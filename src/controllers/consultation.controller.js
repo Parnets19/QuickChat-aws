@@ -810,11 +810,14 @@ const startConsultation = async (req, res, next) => {
 // @access  Private
 const endConsultation = async (req, res, next) => {
   try {
-    console.log("🛑 END CONSULTATION API CALLED:", {
+    console.log("🛑 OLD CONTROLLER - END CONSULTATION API CALLED:", {
       consultationId: req.params.id,
       userId: req.user?.id || req.user?._id,
       userRole: req.user?.isServiceProvider ? "provider" : "client",
       timestamp: new Date().toISOString(),
+      endpoint: '/consultations/:id/end',
+      controller: 'consultation.controller.js',
+      WARNING: '⚠️ This is the OLD endpoint - should use /billing/end instead!',
     });
 
     const consultation = await Consultation.findById(req.params.id);

@@ -1156,9 +1156,11 @@ const endConsultation = async (req, res) => {
     const { consultationId } = req.body;
     const userId = req.user.id || req.user._id;
 
-    console.log("🛑 ENDING CONSULTATION:", {
+    console.log("🛑 BILLING CONTROLLER - ENDING CONSULTATION:", {
       consultationId,
       userId,
+      endpoint: '/billing/end',
+      controller: 'realTimeBilling.controller.js',
     });
 
     const consultation = await Consultation.findById(consultationId);
@@ -1545,8 +1547,12 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
       // FIXED: Use per-minute billing (round up to full minutes)
       const durationInMinutes = durationInSeconds / 60;
       const billableMinutes = Math.ceil(durationInMinutes); // Round UP to next minute
-      finalAmount = billableMinutes * consultation.rate;
-      finalDuration = durationInMinutes; // Keep actual duration for display
+      
+      // PRECISE CALCULATION using integer arithmetic
+      const rateInCents = Math.round(consultation.rate * 100);
+      const totalAmountInCents = billableMinutes * rateInCents;
+      finalAmount = Math.round(totalAmountInCents) / 100;
+      finalDuration = billableMinutes; // Store billable minutes, not decimal minutes
 
       console.log("💸 PRECISE BILLING - INSUFFICIENT FUNDS:", {
         durationInSeconds,
