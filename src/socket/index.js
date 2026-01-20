@@ -569,13 +569,15 @@ const initializeSocket = (io) => {
             cancelledByName: cancelledByName,
           };
 
-          // Notify both parties
+          console.log(`📞 BACKEND: Broadcasting cancellation to all parties:`, cancelEventData);
+
+          // Notify via consultation room
           io.to(`consultation:${data.consultationId}`).emit(
             "consultation:cancelled",
             cancelEventData
           );
 
-          // Also send to individual user rooms
+          // Also send to individual user rooms to ensure delivery
           const otherUserId =
             consultationUserId === userId
               ? consultationProviderId
@@ -585,7 +587,7 @@ const initializeSocket = (io) => {
           io.to(`user:${userId}`).emit("consultation:cancelled", cancelEventData);
 
           console.log(
-            `✅ BACKEND: Call cancellation notifications sent to both parties`
+            `✅ BACKEND: Call cancellation notifications sent to both parties (user:${userId} and user:${otherUserId})`
           );
         } else {
           console.log(
@@ -1288,6 +1290,17 @@ const initializeSocket = (io) => {
           `📞 Call rejected by provider ${userId} for consultation ${consultationId}`
         );
 
+        // Update consultation status to rejected
+        const consultation = await Consultation.findById(consultationId);
+        if (consultation && consultation.status === "pending") {
+          consultation.status = "rejected";
+          consultation.endTime = new Date();
+          consultation.endReason = "rejected_by_provider";
+          consultation.duration = 0;
+          consultation.totalAmount = 0;
+          await consultation.save();
+        }
+
         // Clear the call timeout since provider rejected (no need to wait anymore)
         const timeoutId = callTimeouts.get(consultationId);
         if (timeoutId) {
@@ -1298,7 +1311,23 @@ const initializeSocket = (io) => {
           );
         }
 
-        // Find caller's sockets
+        // Get provider info
+        const providerUser = await User.findById(userId).select('fullName name');
+        const rejectedByName = providerUser?.fullName || providerUser?.name || 'Provider';
+
+        const rejectionData = {
+          consultationId,
+          rejectedBy: 'provider',
+          rejectedByUserId: userId,
+          rejectedByName: rejectedByName,
+          reason: reason || "Call declined",
+          cancelledBy: 'provider',
+          cancelledByUserId: userId,
+          cancelledByName: rejectedByName,
+          timestamp: new Date(),
+        };
+
+        // Find caller's sockets and notify
         const callerSockets = onlineUsers.get(from);
 
         if (callerSockets && callerSockets.length > 0) {
@@ -1306,17 +1335,19 @@ const initializeSocket = (io) => {
           callerSockets.forEach((socketId) => {
             const callerSocket = io.sockets.sockets.get(socketId);
             if (callerSocket) {
-              callerSocket.emit("consultation:call-rejected", {
-                consultationId,
-                rejectedBy: userId,
-                rejectedByName: socket.data.user?.fullName || "Provider",
-                reason: reason || "Call declined",
-              });
+              callerSocket.emit("consultation:call-rejected", rejectionData);
+              callerSocket.emit("consultation:cancelled", rejectionData);
             }
           });
 
           console.log(`✅ Call rejection notification sent to caller ${from}`);
         }
+
+        // Also emit to user rooms for reliability
+        io.to(`user:${from}`).emit("consultation:call-rejected", rejectionData);
+        io.to(`user:${from}`).emit("consultation:cancelled", rejectionData);
+        
+        console.log(`✅ BACKEND: Call rejection sent to user:${from}`);
       } catch (error) {
         console.error("Error handling call rejection:", error);
       }
