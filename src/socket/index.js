@@ -603,7 +603,7 @@ const initializeSocket = (io) => {
       }
     });
 
-    // Handle consultation end - ENHANCED FOR BILATERAL TERMINATION
+    // Handle consultation end - ENHANCED FOR BILATERAL TERMINATION WITH BILLING
     socket.on("consultation:end", async (data) => {
       try {
         console.log(
@@ -632,22 +632,39 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Only update if consultation is ongoing (not pending, already completed, or auto-cancelled)
-        // Don't override statuses like 'no_answer', 'cancelled', 'missed' that were set by system
+        // CRITICAL FIX: Call the billing controller to process billing properly
+        // This ensures wallet deduction, provider credit, and transaction records
         if (consultation.status === "ongoing") {
-          consultation.status = "completed";
-          consultation.endTime = new Date();
-
-          // Calculate duration in minutes
-          if (consultation.startTime) {
-            const duration = Math.ceil(
-              (consultation.endTime.getTime() -
-                consultation.startTime.getTime()) /
-                (1000 * 60)
-            );
-            consultation.duration = duration;
-            consultation.totalAmount = duration * consultation.rate;
-          }
+          console.log("💰 SOCKET: Calling billing controller to process final billing...");
+          
+          // Import the billing controller
+          const { endConsultation: endConsultationWithBilling } = require('../controllers/realTimeBilling.controller');
+          
+          // Create a mock request/response to call the controller
+          const mockReq = {
+            body: { consultationId: data.consultationId },
+            user: { id: userId, _id: userId }
+          };
+          
+          const mockRes = {
+            json: (data) => {
+              console.log("✅ SOCKET: Billing processed successfully:", data);
+              return data;
+            },
+            status: (code) => ({
+              json: (data) => {
+                console.log(`⚠️ SOCKET: Billing response status ${code}:`, data);
+                return data;
+              }
+            })
+          };
+          
+          // Call the billing controller to process billing
+          await endConsultationWithBilling(mockReq, mockRes);
+          
+          // Reload consultation to get updated values
+          await consultation.reload();
+          
         } else if (
           ["no_answer", "cancelled", "missed"].includes(consultation.status)
         ) {
@@ -680,7 +697,6 @@ const initializeSocket = (io) => {
           `📱 Provider ${consultation.provider} status updated to: ${newStatus} (${ongoingConsultations} ongoing consultations)`
         );
 
-        await consultation.save();
         console.log(
           `✅ BACKEND: Consultation ${data.consultationId} status: ${consultation.status}`
         );
