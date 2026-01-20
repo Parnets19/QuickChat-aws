@@ -103,7 +103,7 @@ const preciseMoneyCalculation = (amount1, amount2, operation) => {
 
 /**
  * Check if user can afford consultation with proper wallet protection
- * UPDATED FOR FIRST TIME FREE TRIAL SYSTEM
+ * STRICT WALLET VALIDATION - 1 MINUTE = 1 RUPEE (or custom rate)
  */
 const checkConsultationAffordability = async (req, res) => {
   try {
@@ -111,147 +111,120 @@ const checkConsultationAffordability = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const isGuest = req.user.isGuest;
 
-    console.log("💰 AFFORDABILITY CHECK:", {
+    console.log("💰 AFFORDABILITY CHECK (STRICT MODE):", {
       userId,
       providerId,
       consultationType,
       isGuest,
     });
 
-    // Get user/guest wallet balance and free trial status
+    // Get user/guest wallet balance
     let userWallet = 0;
     let userModel = null;
 
     if (isGuest) {
-      userModel = await Guest.findById(userId).select(
-        "wallet hasUsedFreeTrialCall"
-      );
+      userModel = await Guest.findById(userId).select("wallet name");
       userWallet = userModel?.wallet || 0;
     } else {
-      userModel = await User.findById(userId).select(
-        "wallet hasUsedFreeTrialCall"
-      );
+      userModel = await User.findById(userId).select("wallet fullName");
       userWallet = userModel?.wallet || 0;
     }
 
     // Get provider rates
-    const provider = await User.findById(providerId).select("rates");
+    const provider = await User.findById(providerId).select("rates fullName");
     if (!provider) {
-      return res.status(404).json({ message: "Provider not found" });
-    }
-
-    const ratePerMinute =
-      provider.rates?.[consultationType] || provider.rates?.audioVideo || 0;
-
-    // Check if user is eligible for first-time free trial
-    const hasUsedFreeTrial = userModel?.hasUsedFreeTrialCall || false;
-    const isEligibleForFreeTrial = !hasUsedFreeTrial;
-
-    console.log("🎯 FIRST TIME FREE TRIAL CHECK:", {
-      userId,
-      providerId,
-      isEligibleForFreeTrial,
-      hasUsedFreeTrial,
-      ratePerMinute,
-      userWallet,
-    });
-
-    // For free trial calls - no wallet balance required!
-    if (ratePerMinute > 0 && isEligibleForFreeTrial) {
-      console.log("🎉 FREE TRIAL CALL APPROVED - No wallet balance required!");
-
-      return res.json({
-        success: true,
-        message: "First call is completely FREE!",
-        data: {
-          canAfford: true,
-          userWallet,
-          ratePerMinute,
-          minimumRequired: 0, // No minimum required for free trial
-          isEligibleForFreeTrial: true,
-          hasUsedFreeTrial: false,
-          maxTalkTimeMinutes: 999, // Unlimited for free trial
-          reason: "first_time_free_trial",
-        },
+      return res.status(404).json({ 
+        success: false,
+        message: "Provider not found" 
       });
     }
 
-    // For non-free-trial calls - normal wallet validation
+    const ratePerMinute =
+      provider.rates?.perMinute?.audioVideo || 
+      provider.rates?.[consultationType] || 
+      provider.rates?.audioVideo || 
+      1; // Default 1 rupee per minute
+
+    console.log("💵 RATE CONFIGURATION:", {
+      ratePerMinute,
+      consultationType,
+      providerName: provider.fullName,
+    });
+
+    // 🚨 STRICT WALLET VALIDATION - NO EXCEPTIONS
     if (ratePerMinute > 0) {
-      // 🚨 CRITICAL: Reject negative or zero balances immediately
+      // Reject negative or zero balances immediately
       if (userWallet <= 0) {
-        console.log("🚨 CRITICAL WALLET PROTECTION - NEGATIVE/ZERO BALANCE:", {
+        console.log("🚨 CALL REJECTED - ZERO/NEGATIVE BALANCE:", {
           userId,
           userWallet,
           ratePerMinute,
-          message:
-            "User has negative or zero balance - rejecting all paid calls",
         });
 
         return res.status(400).json({
           success: false,
-          message: `Insufficient wallet balance. You have ₹${userWallet} in your wallet. Please add money to your wallet before starting any paid consultations.`,
+          message: `Insufficient wallet balance. You have ₹${userWallet.toFixed(2)} in your wallet. Please add money to your wallet before starting any paid consultations.`,
           data: {
             canAfford: false,
             userWallet,
             ratePerMinute,
             minimumRequired: ratePerMinute,
-            isEligibleForFreeTrial: false,
-            hasUsedFreeTrial: true,
-            reason: "negative_or_zero_balance",
+            maxTalkTimeMinutes: 0,
+            reason: "zero_balance",
           },
         });
       }
 
+      // Check if user has at least 1 minute worth of balance
       if (userWallet < ratePerMinute) {
-        console.log("🚨 INSUFFICIENT FUNDS FOR PAID CALL:", {
+        console.log("🚨 CALL REJECTED - INSUFFICIENT FUNDS:", {
           userWallet,
           ratePerMinute,
-          message: "User doesn't have sufficient balance for paid consultation",
+          shortfall: ratePerMinute - userWallet,
         });
 
         return res.status(400).json({
           success: false,
-          message: `Insufficient balance. You need at least ₹${ratePerMinute} for 1 minute consultation. Current balance: ₹${userWallet}`,
+          message: `Insufficient balance. You need at least ₹${ratePerMinute} for 1 minute consultation. Current balance: ₹${userWallet.toFixed(2)}. Please add ₹${(ratePerMinute - userWallet).toFixed(2)} or more.`,
           data: {
             canAfford: false,
             userWallet,
             ratePerMinute,
             minimumRequired: ratePerMinute,
-            isEligibleForFreeTrial: false,
-            hasUsedFreeTrial: true,
+            shortfall: ratePerMinute - userWallet,
+            maxTalkTimeMinutes: 0,
             reason: "insufficient_balance",
           },
         });
       }
     }
 
-    // Regular paid call approved
+    // Calculate maximum talk time
     const maxTalkTimeMinutes =
       ratePerMinute > 0 ? Math.floor(userWallet / ratePerMinute) : 999;
 
-    console.log("✅ PAID CALL APPROVED:", {
+    console.log("✅ CALL APPROVED:", {
       userWallet,
       ratePerMinute,
       maxTalkTimeMinutes,
+      userName: isGuest ? userModel.name : userModel.fullName,
     });
 
     return res.json({
       success: true,
-      message: "Consultation affordable",
+      message: `You can talk for up to ${maxTalkTimeMinutes} minutes with your current balance.`,
       data: {
         canAfford: true,
         userWallet,
         ratePerMinute,
         minimumRequired: ratePerMinute,
-        isEligibleForFreeTrial: false,
-        hasUsedFreeTrial: true,
         maxTalkTimeMinutes,
+        estimatedCost: ratePerMinute,
         reason: "sufficient_balance",
       },
     });
   } catch (error) {
-    console.error("Error checking affordability:", error);
+    console.error("❌ Error checking affordability:", error);
     res.status(500).json({
       success: false,
       message: "Failed to check affordability",
@@ -261,7 +234,8 @@ const checkConsultationAffordability = async (req, res) => {
 };
 
 /**
- * Start consultation with real-time billing and First Minute Free Trial
+ * Start consultation with STRICT real-time billing
+ * 1 MINUTE = 1 RUPEE (or custom rate) - PREPAID MODEL
  */
 const startConsultation = async (req, res) => {
   try {
@@ -269,13 +243,12 @@ const startConsultation = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const isGuest = req.user.isGuest;
 
-    console.log("🚀 START CONSULTATION API CALLED:", {
+    console.log("🚀 START CONSULTATION (PREPAID MODEL):", {
       userId,
       providerId,
       consultationType,
       isGuest,
       timestamp: new Date().toISOString(),
-      requestBody: req.body,
     });
 
     // Get user and provider models
@@ -286,102 +259,69 @@ const startConsultation = async (req, res) => {
       userModel = await User.findById(userId);
     }
 
-    const provider = await User.findById(providerId).select("rates fullName");
-    const ratePerMinute =
-      provider.rates?.[consultationType] || provider.rates?.audioVideo || 0;
+    if (!userModel) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
 
-    console.log("💰 CONSULTATION RATE CHECK:", {
+    const provider = await User.findById(providerId).select("rates fullName");
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: "Provider not found",
+      });
+    }
+
+    const ratePerMinute =
+      provider.rates?.perMinute?.audioVideo ||
+      provider.rates?.[consultationType] ||
+      provider.rates?.audioVideo ||
+      1; // Default 1 rupee per minute
+
+    console.log("💰 RATE CONFIGURATION:", {
       consultationType,
       ratePerMinute,
-      isFree: ratePerMinute === 0,
       providerName: provider.fullName,
     });
 
-    // Check if this is first-time interaction with this provider for FIRST MINUTE FREE
-    let isFirstTimeWithProvider = false;
-    if (isGuest) {
-      isFirstTimeWithProvider = !userModel?.freeMinutesUsed?.some(
-        (entry) => entry.providerId.toString() === providerId
-      );
-    } else {
-      isFirstTimeWithProvider = !userModel?.freeMinutesUsed?.some(
-        (entry) => entry.providerId.toString() === providerId
-      );
-    }
+    // 🚨 STRICT WALLET VALIDATION - NO FREE TRIALS, NO EXCEPTIONS
+    const userWallet = userModel?.wallet || 0;
 
-    console.log("🆓 FIRST MINUTE FREE CHECK (START CONSULTATION):", {
-      userId,
-      providerId,
-      isFirstTimeWithProvider,
-      ratePerMinute,
-      isGuest,
-    });
-
-    // Handle free calls (rate = 0) and paid calls
-    if (ratePerMinute === 0) {
-      // Free calls - no wallet check needed, use billing system with 0 charge
-      console.log("🆓 FREE CALL DETECTED - No billing needed");
-    } else {
-      // Paid calls - check wallet balance with enhanced protection
-      console.log("💰 PAID CALL - Checking wallet balance...");
-
-      const userWallet = userModel?.wallet || 0;
-
-      // 🛡️ ENHANCED WALLET PROTECTION FOR FREE MINUTE CALLS
-      // Even for "first minute free", user must have balance for charges after free minute
-
-      // 🚨 CRITICAL: Reject negative or zero balances immediately
+    if (ratePerMinute > 0) {
+      // Reject zero or negative balances
       if (userWallet <= 0) {
-        console.log("🚨 CRITICAL WALLET PROTECTION - NEGATIVE/ZERO BALANCE:", {
+        console.log("🚨 CALL REJECTED - ZERO/NEGATIVE BALANCE:", {
           userId,
           userWallet,
           ratePerMinute,
-          message:
-            "User has negative or zero balance - rejecting all paid calls",
         });
 
         return res.status(400).json({
           success: false,
-          message: `Insufficient wallet balance. You have ₹${userWallet} in your wallet. Please add money to your wallet before starting any paid consultations.`,
+          message: `Insufficient wallet balance. You have ₹${userWallet.toFixed(2)} in your wallet. Please add money before starting the call.`,
         });
       }
 
-      if (isFirstTimeWithProvider) {
-        // First minute free - but user MUST have balance for minute 2 onwards
-        if (userWallet < ratePerMinute) {
-          console.log("🚨 INSUFFICIENT FUNDS FOR FREE MINUTE CALL:", {
-            userWallet,
-            ratePerMinute,
-            message: "User must have balance for charges after free minute",
-          });
-
-          return res.status(400).json({
-            success: false,
-            message: `Insufficient balance for consultation. Even though the first minute is free, you need at least ₹${ratePerMinute} in your wallet for charges after the free minute. Current balance: ₹${userWallet}. Please add money to your wallet first.`,
-          });
-        }
-
-        console.log("✅ FREE MINUTE CALL APPROVED:", {
+      // Check minimum balance (at least 1 minute)
+      if (userWallet < ratePerMinute) {
+        console.log("🚨 CALL REJECTED - INSUFFICIENT FUNDS:", {
           userWallet,
           ratePerMinute,
-          message: "User has sufficient balance for charges after free minute",
+          shortfall: ratePerMinute - userWallet,
         });
-      } else {
-        // Returning user - full balance check required
-        if (userWallet < ratePerMinute) {
-          console.log("❌ INSUFFICIENT FUNDS - CONSULTATION REJECTED");
-          return res.status(400).json({
-            success: false,
-            message: `Insufficient wallet balance. You need at least ₹${ratePerMinute} for 1 minute consultation. Current balance: ₹${userWallet}`,
-          });
-        }
+
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient balance. You need at least ₹${ratePerMinute} for 1 minute. Current balance: ₹${userWallet.toFixed(2)}. Please add ₹${(ratePerMinute - userWallet).toFixed(2)} or more.`,
+        });
       }
 
-      console.log("✅ CONSULTATION APPROVED:", {
+      console.log("✅ WALLET VALIDATION PASSED:", {
         userWallet,
         ratePerMinute,
-        isFirstTime: isFirstTimeWithProvider,
-        canAfford: userWallet >= ratePerMinute,
+        maxMinutes: Math.floor(userWallet / ratePerMinute),
       });
     }
 
@@ -969,58 +909,9 @@ const processRealTimeBilling = async (req, res) => {
       });
     }
 
-    // CRITICAL FIX: Check if billing should start (free minute logic)
-    const billingCheckTime = new Date();
-    const shouldStartBilling =
-      !consultation.billingStartsAt ||
-      billingCheckTime >= consultation.billingStartsAt;
-
-    console.log("🆓 FREE MINUTE CHECK:", {
-      isFirstMinuteFree: consultation.isFirstMinuteFree,
-      billingStartsAt: consultation.billingStartsAt,
-      currentTime: billingCheckTime,
-      shouldStartBilling: shouldStartBilling,
-      elapsedSeconds: elapsedSeconds,
-    });
-
-    // CRITICAL FIX: If this is first minute free and we're still within free minute, don't charge
-    if (consultation.isFirstMinuteFree && !shouldStartBilling) {
-      console.log("🆓 FIRST MINUTE FREE - No billing yet");
-
-      return res.json({
-        success: true,
-        data: {
-          charged: 0,
-          remainingBalance: currentWallet,
-          canContinue: true,
-          remainingSeconds: 999999, // Plenty of time during free minute
-          duration: 0,
-          totalAmount: 0,
-          freeMinuteActive: true,
-          message: "First minute is free!",
-        },
-      });
-    }
-
-    // Calculate billable time (subtract free minute if applicable)
-    let billableSeconds = elapsedSeconds;
-    if (consultation.isFirstMinuteFree && !consultation.freeMinuteUsed) {
-      billableSeconds = Math.max(0, elapsedSeconds - 60); // Subtract 60 seconds for free minute
-
-      // Mark free minute as used
-      consultation.freeMinuteUsed = true;
-
-      console.log("🆓 APPLYING FREE MINUTE:", {
-        totalElapsedSeconds: elapsedSeconds,
-        billableSeconds: billableSeconds,
-        freeMinuteDeducted: 60,
-      });
-    }
-
-    // Process billing - ROUND UP APPROACH (any usage = full minute charge)
-    const billableMinutesRoundedUp = Math.ceil(billableSeconds / 60); // Round UP to next minute
-    const minutesToBill =
-      billableMinutesRoundedUp - (consultation.duration || 0);
+    // Process billing - STRICT PER-MINUTE DEDUCTION (NO FREE TRIALS)
+    const billableMinutesRoundedUp = Math.ceil(elapsedSeconds / 60); // Round UP to next minute
+    const minutesToBill = billableMinutesRoundedUp - (consultation.duration || 0);
 
     if (minutesToBill > 0) {
       // PRECISE MONEY CALCULATION for billing amount
@@ -1030,19 +921,17 @@ const processRealTimeBilling = async (req, res) => {
         "multiply"
       );
 
-      console.log("💰 ROUND UP BILLING (Any usage = full minute charge):", {
+      console.log("💰 PER-MINUTE BILLING (STRICT MODE):", {
         elapsedSeconds,
-        billableSeconds,
         billableMinutesRoundedUp,
         minutesToBill,
         amountToBill,
         currentWallet,
         newBalance: currentWallet - amountToBill,
-        approach: "10 seconds = ₹1, 1min 10sec = ₹2, etc.",
-        freeMinuteApplied: consultation.isFirstMinuteFree,
+        approach: "1 minute = ₹" + ratePerMinute,
       });
 
-      // PRECISE MONEY CALCULATION - Deduct money from CLIENT
+      // PRECISE MONEY CALCULATION - Deduct money from CLIENT (caller)
       const newWalletBalance = preciseMoneyCalculation(
         clientUser.wallet,
         amountToBill,
@@ -1054,9 +943,18 @@ const processRealTimeBilling = async (req, res) => {
         "add"
       );
 
-      clientUser.wallet = newWalletBalance;
+      clientUser.wallet = Math.max(0, newWalletBalance);
       clientUser.totalSpent = newTotalSpent;
       await clientUser.save();
+
+      console.log("💸 CALLER WALLET DEDUCTED:", {
+        callerId: clientUser._id,
+        callerName: clientUser.name || clientUser.fullName,
+        amountDeducted: amountToBill,
+        previousBalance: currentWallet,
+        newBalance: clientUser.wallet,
+        totalSpent: clientUser.totalSpent,
+      });
 
       // Update consultation with precise calculation
       const newTotalAmount = preciseMoneyCalculation(
@@ -1064,12 +962,12 @@ const processRealTimeBilling = async (req, res) => {
         amountToBill,
         "add"
       );
-      consultation.duration = elapsedMinutes;
+      consultation.duration = billableMinutesRoundedUp;
       consultation.totalAmount = newTotalAmount;
       consultation.lastBillingTime = currentTime;
       await consultation.save();
 
-      // Add earnings to provider with precise calculation
+      // REAL-TIME CREDIT TO PROVIDER (receiver)
       const provider = await User.findById(consultation.provider);
       if (provider) {
         const platformCommission = preciseMoneyCalculation(
@@ -1083,13 +981,16 @@ const processRealTimeBilling = async (req, res) => {
           "subtract"
         );
 
+        const previousProviderWallet = provider.wallet || 0;
+        const previousProviderEarnings = provider.earnings || 0;
+
         const newProviderEarnings = preciseMoneyCalculation(
-          provider.earnings || 0,
+          previousProviderEarnings,
           providerEarnings,
           "add"
         );
         const newProviderWallet = preciseMoneyCalculation(
-          provider.wallet || 0,
+          previousProviderWallet,
           providerEarnings,
           "add"
         );
@@ -1098,49 +999,120 @@ const processRealTimeBilling = async (req, res) => {
         provider.wallet = newProviderWallet;
         await provider.save();
 
-        console.log("💰 PRECISE PROVIDER EARNINGS:", {
-          amountToBill,
+        console.log("💰 RECEIVER WALLET CREDITED (REAL-TIME):", {
+          receiverId: provider._id,
+          receiverName: provider.fullName,
+          amountCredited: providerEarnings,
           platformCommission,
-          providerEarnings,
-          newProviderEarnings,
-          newProviderWallet,
+          previousWallet: previousProviderWallet,
+          newWallet: provider.wallet,
+          previousEarnings: previousProviderEarnings,
+          newEarnings: provider.earnings,
         });
+
+        // Create transaction records for both parties
+        await Transaction.create([
+          {
+            user: clientUser._id,
+            userType: isGuest ? "Guest" : "User",
+            consultationId: consultation._id,
+            type: "debit",
+            category: "consultation",
+            amount: amountToBill,
+            balance: clientUser.wallet,
+            description: `Call charge - ${minutesToBill} minute(s) @ ₹${ratePerMinute}/min with ${provider.fullName}`,
+            status: "completed",
+            paymentMethod: "wallet",
+            metadata: {
+              providerId: provider._id,
+              providerName: provider.fullName,
+              duration: minutesToBill,
+              rate: ratePerMinute,
+              previousBalance: currentWallet,
+              newBalance: clientUser.wallet,
+            },
+          },
+          {
+            user: provider._id,
+            userType: "User",
+            consultationId: consultation._id,
+            type: "credit",
+            category: "consultation",
+            amount: providerEarnings,
+            balance: provider.wallet,
+            description: `Earnings from call - ${minutesToBill} minute(s) @ ₹${ratePerMinute}/min with ${clientUser.name || clientUser.fullName}`,
+            status: "completed",
+            paymentMethod: "wallet",
+            metadata: {
+              clientId: clientUser._id,
+              clientName: clientUser.name || clientUser.fullName,
+              duration: minutesToBill,
+              rate: ratePerMinute,
+              grossAmount: amountToBill,
+              platformCommission,
+              netAmount: providerEarnings,
+              previousBalance: previousProviderWallet,
+              newBalance: provider.wallet,
+            },
+          },
+        ]);
+
+        console.log("📝 TRANSACTION RECORDS CREATED for both parties");
       }
     }
 
     // Calculate remaining time
     const updatedWallet = clientUser.wallet;
-    const remainingAffordableSeconds = Math.floor(
-      (updatedWallet / ratePerMinute) * 60
-    );
-    const remainingTime = Math.max(
-      0,
-      remainingAffordableSeconds -
-        (elapsedSeconds - (consultation.duration || 0) * 60)
-    );
+    const remainingAffordableMinutes = Math.floor(updatedWallet / ratePerMinute);
+    const remainingAffordableSeconds = remainingAffordableMinutes * 60;
 
-    // CRITICAL FIX 9: Emit real-time update to CLIENT
+    console.log("⏱️ REMAINING TIME CALCULATION:", {
+      updatedWallet,
+      ratePerMinute,
+      remainingAffordableMinutes,
+      remainingAffordableSeconds,
+      elapsedSeconds,
+    });
+
+    // Emit real-time update to BOTH parties
     if (io) {
-      io.to(`consultation:${consultationId}`).emit("billing_update", {
+      const billingUpdate = {
+        consultationId: consultation._id,
         currentBalance: updatedWallet,
         totalCharged: consultation.totalAmount || 0,
         duration: consultation.duration || 0,
-        remainingSeconds: remainingTime,
-        canContinue: remainingTime > 0,
-        warningThreshold: remainingTime <= 60,
+        remainingMinutes: remainingAffordableMinutes,
+        remainingSeconds: remainingAffordableSeconds,
+        canContinue: remainingAffordableMinutes > 0,
+        warningThreshold: remainingAffordableMinutes <= 1,
+        ratePerMinute,
+      };
+
+      // Notify caller about their wallet
+      io.to(`user:${consultation.user}`).emit("billing:update", billingUpdate);
+      
+      // Notify receiver about earnings
+      io.to(`user:${consultation.provider}`).emit("billing:update", {
+        ...billingUpdate,
+        isProvider: true,
+        message: `Earning ₹${ratePerMinute}/min`,
       });
+
+      console.log("📡 REAL-TIME BILLING UPDATE SENT to both parties");
     }
 
     return res.json({
       success: true,
       data: {
-        charged: minutesToBill > 0 ? minutesToBill * ratePerMinute : 0,
+        charged: minutesToBill > 0 ? amountToBill : 0,
         remainingBalance: updatedWallet,
-        canContinue: remainingTime > 0,
-        remainingSeconds: remainingTime,
+        canContinue: remainingAffordableMinutes > 0,
+        remainingMinutes: remainingAffordableMinutes,
+        remainingSeconds: remainingAffordableSeconds,
         duration: consultation.duration || 0,
         totalAmount: consultation.totalAmount || 0,
-        warningThreshold: remainingTime <= 60,
+        warningThreshold: remainingAffordableMinutes <= 1,
+        ratePerMinute,
       },
     });
   } catch (error) {
