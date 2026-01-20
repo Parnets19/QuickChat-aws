@@ -325,7 +325,7 @@ const startConsultation = async (req, res) => {
       });
     }
 
-    // Create consultation record with First Minute Free Trial logic
+    // Create consultation record - STRICT PREPAID MODEL (NO FREE TRIALS)
     const consultation = new Consultation({
       user: userId,
       userType: isGuest ? "Guest" : "User",
@@ -343,10 +343,10 @@ const startConsultation = async (req, res) => {
       clientAcceptedAt: new Date(),
       providerAcceptedAt: null,
       bothSidesAcceptedAt: null,
-      // First Minute Free Trial fields
-      isFirstMinuteFree: isFirstTimeWithProvider && ratePerMinute > 0,
+      // NO FREE TRIALS - Billing starts immediately when call connects
+      isFirstMinuteFree: false,
       freeMinuteUsed: false,
-      billingStartsAt: null, // Will be set based on first minute free logic
+      billingStartsAt: null, // Will be set when call connects
     });
 
     await consultation.save();
@@ -382,7 +382,7 @@ const startConsultation = async (req, res) => {
           from: userId, // Add 'from' field for mobile app compatibility
           fromName: clientName, // Add fromName for mobile app compatibility
           amount: ratePerMinute,
-          isFirstMinuteFree: isFirstTimeWithProvider && ratePerMinute > 0,
+          isFirstMinuteFree: false, // NO FREE TRIALS
           isFree: ratePerMinute === 0, // Add flag to indicate if it's a free call
           timestamp: new Date(),
           source: "real-time-billing",
@@ -503,7 +503,7 @@ const startConsultation = async (req, res) => {
         ratePerMinute,
         providerName: provider.fullName,
         startTime: consultation.startTime,
-        isFirstMinuteFree: isFirstTimeWithProvider && ratePerMinute > 0,
+        isFirstMinuteFree: false, // NO FREE TRIALS
         isFree: ratePerMinute === 0, // Add flag to indicate if it's a free call
         message:
           ratePerMinute === 0
