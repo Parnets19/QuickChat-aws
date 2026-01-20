@@ -111,7 +111,8 @@ const sendMessage = async (req, res, next) => {
       const roomName = `chat:${chatId || chat._id}`;
 
       // Emit to chat room for real-time message display
-      io.to(roomName).emit("chat:message", {
+      // FIXED: Emit as 'consultation:message' to match mobile app listeners
+      io.to(roomName).emit("consultation:message", {
         _id: chatMessage._id,
         sender: senderId, // Send as string for proper comparison
         senderName: chatMessage.senderName,
