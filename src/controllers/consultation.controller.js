@@ -1290,37 +1290,61 @@ const submitRating = async (req, res, next) => {
 
     console.log('✅ Rating created successfully:', rating._id);
 
-    // Update the rated user's rating (only for providers for now)
-    if (ratedUserType === "provider") {
-      const provider = await User.findById(consultation.provider);
-      if (provider) {
-        provider.rating.totalStars += stars;
-        provider.rating.count += 1;
-        provider.rating.average =
-          provider.rating.totalStars / provider.rating.count;
+    // Update the rated user's rating (for both providers and clients)
+    const ratedUser = await User.findById(ratedUserId);
+    if (ratedUser) {
+      console.log('📊 Updating rating for:', {
+        userId: ratedUser._id,
+        userType: ratedUserType,
+        currentCount: ratedUser.rating?.count || 0,
+        currentAverage: ratedUser.rating?.average || 0,
+      });
 
-        // Add to reviews array (keep last 50 reviews)
-        provider.rating.reviews.unshift({
-          consultationId,
-          userId: req.user?.isGuest ? req.user.id : req.user?._id,
-          userName: isAnonymous ? "Anonymous" : req.user?.fullName,
-          stars,
-          review,
-          tags: tags || [],
-        });
-
-        // Keep only last 50 reviews
-        if (provider.rating.reviews.length > 50) {
-          provider.rating.reviews = provider.rating.reviews.slice(0, 50);
-        }
-
-        await provider.save();
-        console.log('✅ Provider rating updated:', {
-          providerId: provider._id,
-          newAverage: provider.rating.average,
-          totalCount: provider.rating.count,
-        });
+      // Initialize rating object if it doesn't exist
+      if (!ratedUser.rating) {
+        ratedUser.rating = {
+          average: 0,
+          count: 0,
+          totalStars: 0,
+          reviews: [],
+        };
       }
+
+      // Update rating statistics
+      ratedUser.rating.totalStars = (ratedUser.rating.totalStars || 0) + stars;
+      ratedUser.rating.count = (ratedUser.rating.count || 0) + 1;
+      ratedUser.rating.average =
+        ratedUser.rating.totalStars / ratedUser.rating.count;
+
+      // Add to reviews array (keep last 50 reviews)
+      if (!ratedUser.rating.reviews) {
+        ratedUser.rating.reviews = [];
+      }
+
+      ratedUser.rating.reviews.unshift({
+        consultationId,
+        userId: req.user?.isGuest ? req.user.id : req.user?._id,
+        userName: isAnonymous ? "Anonymous" : req.user?.fullName,
+        stars,
+        review,
+        tags: tags || [],
+      });
+
+      // Keep only last 50 reviews
+      if (ratedUser.rating.reviews.length > 50) {
+        ratedUser.rating.reviews = ratedUser.rating.reviews.slice(0, 50);
+      }
+
+      await ratedUser.save();
+      console.log('✅ User rating updated:', {
+        userId: ratedUser._id,
+        userType: ratedUserType,
+        newAverage: ratedUser.rating.average,
+        newCount: ratedUser.rating.count,
+        totalStars: ratedUser.rating.totalStars,
+      });
+    } else {
+      console.log('⚠️ Rated user not found:', ratedUserId);
     }
 
     // Update consultation with rating
