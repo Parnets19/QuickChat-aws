@@ -514,6 +514,93 @@ const initializeSocket = (io) => {
       }
     });
 
+    // Handle manual call cancellation during ringing phase
+    socket.on("consultation:cancel", async (data) => {
+      try {
+        console.log(
+          `📞 BACKEND: User ${userId} is cancelling consultation ${data.consultationId} during ringing`
+        );
+
+        const consultation = await Consultation.findById(data.consultationId);
+
+        if (!consultation) {
+          socket.emit("error", { message: "Consultation not found" });
+          return;
+        }
+
+        // Either party can cancel during ringing
+        const consultationUserId =
+          typeof consultation.user === "string"
+            ? consultation.user
+            : consultation.user.toString();
+        const consultationProviderId = consultation.provider.toString();
+
+        if (
+          consultationUserId !== userId &&
+          consultationProviderId !== userId
+        ) {
+          socket.emit("error", { message: "Unauthorized" });
+          return;
+        }
+
+        // Only allow cancellation if call is still pending (not answered yet)
+        if (consultation.status === "pending") {
+          consultation.status = "cancelled";
+          consultation.endTime = new Date();
+          consultation.endReason = "manual_cancel";
+          consultation.duration = 0;
+          consultation.totalAmount = 0;
+          await consultation.save();
+
+          // Get the user who cancelled
+          const cancellingUser = await User.findById(userId).select('fullName name');
+          const cancelledByName = cancellingUser?.fullName || cancellingUser?.name || 'User';
+          
+          // Determine if cancelled by provider or client
+          const cancelledByRole = consultationProviderId === userId ? 'provider' : 'client';
+
+          const cancelEventData = {
+            consultationId: data.consultationId,
+            reason: "manual_cancel",
+            message: `Call cancelled by ${cancelledByName}`,
+            timestamp: new Date(),
+            cancelledBy: cancelledByRole,
+            cancelledByUserId: userId,
+            cancelledByName: cancelledByName,
+          };
+
+          // Notify both parties
+          io.to(`consultation:${data.consultationId}`).emit(
+            "consultation:cancelled",
+            cancelEventData
+          );
+
+          // Also send to individual user rooms
+          const otherUserId =
+            consultationUserId === userId
+              ? consultationProviderId
+              : consultationUserId;
+
+          io.to(`user:${otherUserId}`).emit("consultation:cancelled", cancelEventData);
+          io.to(`user:${userId}`).emit("consultation:cancelled", cancelEventData);
+
+          console.log(
+            `✅ BACKEND: Call cancellation notifications sent to both parties`
+          );
+        } else {
+          console.log(
+            `⚠️ Cannot cancel consultation - status is ${consultation.status}`
+          );
+          socket.emit("error", { 
+            message: "Call cannot be cancelled at this stage" 
+          });
+        }
+      } catch (error) {
+        console.error("❌ BACKEND: Error cancelling consultation:", error);
+        socket.emit("error", { message: "Failed to cancel consultation" });
+      }
+    });
+
     // Handle consultation end - ENHANCED FOR BILATERAL TERMINATION
     socket.on("consultation:end", async (data) => {
       try {

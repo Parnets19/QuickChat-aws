@@ -506,12 +506,19 @@ const startConsultation = async (req, res) => {
 
           // Notify both sides via Socket.IO
           if (io) {
+            // Get the user who cancelled (the caller)
+            const cancellingUser = await User.findById(userId).select('fullName name');
+            const cancelledByName = cancellingUser?.fullName || cancellingUser?.name || 'User';
+
             io.to(`user:${userId}`).emit("consultation:auto-cancelled", {
               consultationId: consultation._id,
               reason: "no_answer",
               message:
                 "Call cancelled - Provider did not answer within 1 minute",
               timestamp: new Date(),
+              cancelledBy: 'client',
+              cancelledByUserId: userId,
+              cancelledByName: cancelledByName,
             });
 
             io.to(`user:${providerId}`).emit("consultation:cancelled", {
@@ -519,6 +526,9 @@ const startConsultation = async (req, res) => {
               reason: "auto_timeout",
               message: "Incoming call timed out",
               timestamp: new Date(),
+              cancelledBy: 'system',
+              cancelledByUserId: null,
+              cancelledByName: 'System',
             });
 
             console.log(
