@@ -1585,36 +1585,74 @@ const initializeSocket = (io) => {
       const { chatId, isTyping } = data;
       const roomName = `chat:${chatId}`;
 
+      console.log(`⌨️ BACKEND: User ${userId} typing status: ${isTyping} in room ${roomName}`);
+
+      // Broadcast typing status to other users in the room (not to sender)
       socket.to(roomName).emit("chat:typing", {
         userId,
         isTyping,
         userName:
           socket.data.user?.fullName || socket.data.user?.name || "User",
       });
+      
+      console.log(`✅ BACKEND: Typing indicator broadcasted to room ${roomName}`);
     });
 
     // Handle marking messages as read
-    socket.on("chat:markAsRead", (data) => {
-      const { messageId, chatId, messageIds } = data;
-      const roomName = `chat:${chatId}`;
+    socket.on("chat:markAsRead", async (data) => {
+      try {
+        const { messageId, chatId, messageIds } = data;
+        const roomName = `chat:${chatId}`;
 
-      if (messageIds) {
-        // Multiple messages
-        socket.to(roomName).emit("chat:messagesRead", {
-          messageIds,
-          readBy: userId,
-          readByName:
-            socket.data.user?.fullName || socket.data.user?.name || "User",
-        });
-      } else if (messageId) {
-        // Single message
-        socket.to(roomName).emit("chat:messageStatus", {
+        console.log(`📖 BACKEND: User ${userId} marking messages as read in ${roomName}`, {
           messageId,
-          status: "read",
+          messageIds,
         });
-      }
 
-      console.log(`Messages marked as read by user ${userId}`);
+        // Update message status in database
+        const ChatMessage = require('../models/ChatMessage');
+        
+        if (messageIds && messageIds.length > 0) {
+          // Multiple messages
+          await ChatMessage.updateMany(
+            { _id: { $in: messageIds }, sender: { $ne: userId } },
+            { status: 'read', readAt: new Date() }
+          );
+          
+          // Broadcast read status to other users in the room
+          socket.to(roomName).emit("chat:messagesRead", {
+            messageIds,
+            readBy: userId,
+            readByName:
+              socket.data.user?.fullName || socket.data.user?.name || "User",
+          });
+          
+          // Also emit individual status updates for each message
+          messageIds.forEach((msgId) => {
+            socket.to(roomName).emit("consultation:messageStatus", {
+              messageId: msgId,
+              status: "read",
+            });
+          });
+          
+          console.log(`✅ BACKEND: ${messageIds.length} messages marked as read`);
+        } else if (messageId) {
+          // Single message
+          await ChatMessage.findByIdAndUpdate(messageId, {
+            status: 'read',
+            readAt: new Date(),
+          });
+          
+          socket.to(roomName).emit("consultation:messageStatus", {
+            messageId,
+            status: "read",
+          });
+          
+          console.log(`✅ BACKEND: Message ${messageId} marked as read`);
+        }
+      } catch (error) {
+        console.error('❌ BACKEND: Error marking messages as read:', error);
+      }
     });
 
     // Join provider room for notifications

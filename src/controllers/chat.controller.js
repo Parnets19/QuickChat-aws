@@ -130,7 +130,7 @@ const sendMessage = async (req, res, next) => {
         senderAvatar: chatMessage.senderAvatar,
         message: message.trim(),
         timestamp: chatMessage.timestamp,
-        status: "sent",
+        status: "sent", // Initial status is 'sent'
       };
       
       console.log(`📨 CHAT CONTROLLER: Message payload:`, messagePayload);
@@ -138,6 +138,30 @@ const sendMessage = async (req, res, next) => {
       io.to(roomName).emit("consultation:message", messagePayload);
       
       console.log(`✅ CHAT CONTROLLER: Message emitted to room ${roomName}`);
+      
+      // CRITICAL FIX: Update message status to 'delivered' if receiver is online
+      // Check if the receiver is in the chat room (online and viewing chat)
+      const receiverRoom = io.sockets.adapter.rooms.get(roomName);
+      const receiverInRoom = receiverRoom && receiverRoom.size > 1; // More than just sender
+      
+      if (receiverInRoom) {
+        console.log(`📨 CHAT CONTROLLER: Receiver is in room, updating status to delivered`);
+        
+        // Update message status in database
+        chatMessage.status = 'delivered';
+        await chatMessage.save();
+        
+        // Emit status update to all users in room
+        setTimeout(() => {
+          io.to(roomName).emit("consultation:messageStatus", {
+            messageId: chatMessage._id,
+            status: "delivered",
+          });
+          console.log(`✅ CHAT CONTROLLER: Message status updated to delivered`);
+        }, 100);
+      } else {
+        console.log(`📨 CHAT CONTROLLER: Receiver not in room, status remains 'sent'`);
+      }
 
       // ENHANCED DEBUG: Determine the correct receiver based on chat structure
       // In the chat model: user = client/guest, provider = service provider
