@@ -188,11 +188,11 @@ const createConsultation = async (req, res, next) => {
 
     // CRITICAL: Check if users have blocked each other
     const userId = req.user.id || req.user._id;
-    const user = await User.findById(userId);
+    const currentUser = await User.findById(userId);
 
-    if (user) {
+    if (currentUser) {
       // Check if user blocked provider
-      const userBlockedProvider = user.blockedUsers.some(
+      const userBlockedProvider = currentUser.blockedUsers.some(
         (blocked) => blocked.userId.toString() === providerId
       );
 
