@@ -14,7 +14,7 @@ const sendMessage = async (req, res, next) => {
       return next(new AppError("Provider ID and message are required", 400));
     }
 
-    // CRITICAL: Check if users have blocked each other
+    // CRITICAL: Check if sender has blocked receiver (one-way check)
     const sender = await User.findById(senderId);
     const receiver = await User.findById(providerId);
 
@@ -32,8 +32,12 @@ const sendMessage = async (req, res, next) => {
       (blocked) => blocked.userId.toString() === senderId.toString()
     );
 
-    if (senderBlockedReceiver || receiverBlockedSender) {
-      return next(new AppError("Cannot send message. User is blocked.", 403));
+    if (senderBlockedReceiver) {
+      return next(new AppError("You have blocked this user. Unblock to send messages.", 403));
+    }
+
+    if (receiverBlockedSender) {
+      return next(new AppError("This user has blocked you. Cannot send messages.", 403));
     }
 
     // Find or create chat

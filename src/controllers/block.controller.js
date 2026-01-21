@@ -1,7 +1,7 @@
 const { User } = require("../models");
 const { AppError } = require("../middlewares/errorHandler");
 
-// @desc    Block a user (bidirectional)
+// @desc    Block a user (one-way block)
 // @route   POST /api/users/block/:userId
 // @access  Private
 const blockUser = async (req, res, next) => {
@@ -32,34 +32,23 @@ const blockUser = async (req, res, next) => {
       return next(new AppError("User is already blocked", 400));
     }
 
-    // CRITICAL: Bidirectional block - both users block each other
-    // Add current user to blocked list of the other user
+    // ONE-WAY BLOCK: Only current user blocks the other user
     currentUser.blockedUsers.push({
       userId,
       reason: reason || "No reason provided",
       blockedAt: new Date(),
     });
 
-    // Add other user to blocked list of current user
-    userToBlock.blockedUsers.push({
-      userId: currentUserId,
-      reason: "Blocked mutually",
-      blockedAt: new Date(),
-    });
-
-    // Save both users
     await currentUser.save();
-    await userToBlock.save();
 
-    console.log(`✅ Bidirectional block: User ${currentUserId} ↔ User ${userId}`);
+    console.log(`✅ One-way block: User ${currentUserId} blocked user ${userId}`);
 
     res.status(200).json({
       success: true,
-      message: "User blocked successfully. Both users can no longer contact each other.",
+      message: "User blocked successfully. You can no longer contact this user.",
       data: {
         blockedUserId: userId,
         blockedAt: new Date(),
-        isMutual: true,
       },
     });
   } catch (error) {
@@ -67,7 +56,7 @@ const blockUser = async (req, res, next) => {
   }
 };
 
-// @desc    Unblock a user (bidirectional)
+// @desc    Unblock a user (one-way unblock)
 // @route   DELETE /api/users/block/:userId
 // @access  Private
 const unblockUser = async (req, res, next) => {
@@ -76,35 +65,25 @@ const unblockUser = async (req, res, next) => {
     const currentUserId = req.user.id || req.user._id;
 
     const currentUser = await User.findById(currentUserId);
-    const otherUser = await User.findById(userId);
 
-    if (!otherUser) {
+    if (!currentUser) {
       return next(new AppError("User not found", 404));
     }
 
-    // CRITICAL: Bidirectional unblock - remove block from both sides
-    // Remove from current user's blocked list
+    // ONE-WAY UNBLOCK: Only remove from current user's blocked list
     currentUser.blockedUsers = currentUser.blockedUsers.filter(
       (blocked) => blocked.userId.toString() !== userId
     );
 
-    // Remove from other user's blocked list
-    otherUser.blockedUsers = otherUser.blockedUsers.filter(
-      (blocked) => blocked.userId.toString() !== currentUserId.toString()
-    );
-
-    // Save both users
     await currentUser.save();
-    await otherUser.save();
 
-    console.log(`✅ Bidirectional unblock: User ${currentUserId} ↔ User ${userId}`);
+    console.log(`✅ One-way unblock: User ${currentUserId} unblocked user ${userId}`);
 
     res.status(200).json({
       success: true,
-      message: "User unblocked successfully. Both users can now contact each other.",
+      message: "User unblocked successfully. You can now contact this user.",
       data: {
         unblockedUserId: userId,
-        isMutual: true,
       },
     });
   } catch (error) {

@@ -186,7 +186,7 @@ const createConsultation = async (req, res, next) => {
       return next(new AppError("Provider not found", 404));
     }
 
-    // CRITICAL: Check if users have blocked each other
+    // CRITICAL: Check if users have blocked each other (one-way check)
     const userId = req.user.id || req.user._id;
     const currentUser = await User.findById(userId);
 
@@ -201,8 +201,12 @@ const createConsultation = async (req, res, next) => {
         (blocked) => blocked.userId.toString() === userId.toString()
       );
 
-      if (userBlockedProvider || providerBlockedUser) {
-        return next(new AppError("Cannot start consultation. User is blocked.", 403));
+      if (userBlockedProvider) {
+        return next(new AppError("You have blocked this provider. Unblock to start consultation.", 403));
+      }
+
+      if (providerBlockedUser) {
+        return next(new AppError("This provider has blocked you. Cannot start consultation.", 403));
       }
     }
 
