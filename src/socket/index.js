@@ -1489,7 +1489,7 @@ const initializeSocket = (io) => {
     // ===== CHAT SYSTEM EVENTS =====
 
     // Join chat room
-    socket.on("chat:join", (data) => {
+    socket.on("chat:join", async (data) => {
       const { chatId, providerId, userId: targetUserId } = data;
       const roomName = `chat:${chatId}`;
 
@@ -1514,6 +1514,53 @@ const initializeSocket = (io) => {
         roomName,
         success: true,
       });
+      
+      // CRITICAL FIX: When user joins chat, mark their unread messages as read
+      // This triggers blue ticks for the sender
+      try {
+        const ChatMessage = require('../models/ChatMessage');
+        const Chat = require('../models/Chat');
+        
+        // Find the chat
+        const chat = await Chat.findById(chatId);
+        if (chat) {
+          // Find unread messages sent TO this user (not sent BY this user)
+          const unreadMessages = await ChatMessage.find({
+            chat: chatId,
+            sender: { $ne: userId },
+            status: { $in: ['sent', 'delivered'] },
+          });
+          
+          if (unreadMessages.length > 0) {
+            console.log(`📖 BACKEND: User ${userId} joined chat, marking ${unreadMessages.length} messages as read`);
+            
+            // Update all unread messages to 'read'
+            await ChatMessage.updateMany(
+              {
+                chat: chatId,
+                sender: { $ne: userId },
+                status: { $in: ['sent', 'delivered'] },
+              },
+              {
+                status: 'read',
+                readAt: new Date(),
+              }
+            );
+            
+            // Emit read status for each message to trigger blue ticks
+            unreadMessages.forEach((msg) => {
+              socket.to(roomName).emit("consultation:messageStatus", {
+                messageId: msg._id,
+                status: "read",
+              });
+            });
+            
+            console.log(`✅ BACKEND: Marked ${unreadMessages.length} messages as read and emitted blue tick updates`);
+          }
+        }
+      } catch (error) {
+        console.error('❌ BACKEND: Error marking messages as read on join:', error);
+      }
     });
 
     // Handle chat message sending
