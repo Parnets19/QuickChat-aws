@@ -1494,13 +1494,25 @@ const initializeSocket = (io) => {
       const roomName = `chat:${chatId}`;
 
       socket.join(roomName);
-      console.log(`👥 User ${userId} joined chat room: ${roomName}`);
+      console.log(`👥 User ${userId} joined chat room: ${roomName}`, {
+        chatId,
+        providerId,
+        targetUserId,
+        socketId: socket.id,
+      });
 
       // Notify other users in the room
       socket.to(roomName).emit("user:joinedChat", {
         userId,
         userName:
           socket.data.user?.fullName || socket.data.user?.name || "User",
+      });
+      
+      // Send confirmation back to the user who joined
+      socket.emit("chat:joined", {
+        chatId,
+        roomName,
+        success: true,
       });
     });
 

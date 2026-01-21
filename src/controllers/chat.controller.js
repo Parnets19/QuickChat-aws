@@ -108,11 +108,22 @@ const sendMessage = async (req, res, next) => {
     // Emit socket event for real-time updates
     const io = req.app.get("io");
     if (io) {
-      const roomName = `chat:${chatId || chat._id}`;
+      // CRITICAL FIX: Use the correct room name format
+      // Mobile app joins with chat:join which creates room `chat:${chatId}`
+      // But we need to use the actual chat._id, not the chatId parameter
+      const roomName = `chat:${chat._id}`;
+
+      console.log(`📨 CHAT CONTROLLER: Emitting message to room: ${roomName}`, {
+        chatId: chat._id,
+        messageId: chatMessage._id,
+        senderId: senderId,
+        senderName: chatMessage.senderName,
+        roomName: roomName,
+      });
 
       // Emit to chat room for real-time message display
       // FIXED: Emit as 'consultation:message' to match mobile app listeners
-      io.to(roomName).emit("consultation:message", {
+      const messagePayload = {
         _id: chatMessage._id,
         sender: senderId, // Send as string for proper comparison
         senderName: chatMessage.senderName,
@@ -120,7 +131,13 @@ const sendMessage = async (req, res, next) => {
         message: message.trim(),
         timestamp: chatMessage.timestamp,
         status: "sent",
-      });
+      };
+      
+      console.log(`📨 CHAT CONTROLLER: Message payload:`, messagePayload);
+      
+      io.to(roomName).emit("consultation:message", messagePayload);
+      
+      console.log(`✅ CHAT CONTROLLER: Message emitted to room ${roomName}`);
 
       // ENHANCED DEBUG: Determine the correct receiver based on chat structure
       // In the chat model: user = client/guest, provider = service provider
