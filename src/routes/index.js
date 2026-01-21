@@ -22,6 +22,7 @@ const checkRoutes = require("./check.routes");
 const analyticsRoutes = require("./analytics.routes");
 const freeMinuteRoutes = require("./freeMinute.routes");
 const freeTrialRoutes = require("./freeTrial.routes");
+const blockRoutes = require("./block.routes");
 
 const router = express.Router();
 
@@ -49,5 +50,6 @@ router.use("/chat", chatRoutes); // Chat system
 router.use("/analytics", analyticsRoutes); // Analytics and reports
 router.use("/free-minute", freeMinuteRoutes); // First Minute Free Trial system (legacy)
 router.use("/free-trial", freeTrialRoutes); // First Time Free Trial system (new)
+router.use("/users", blockRoutes); // Block and Report functionality
 
 module.exports = router;

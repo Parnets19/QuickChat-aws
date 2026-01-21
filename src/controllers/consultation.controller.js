@@ -186,6 +186,26 @@ const createConsultation = async (req, res, next) => {
       return next(new AppError("Provider not found", 404));
     }
 
+    // CRITICAL: Check if users have blocked each other
+    const userId = req.user.id || req.user._id;
+    const user = await User.findById(userId);
+
+    if (user) {
+      // Check if user blocked provider
+      const userBlockedProvider = user.blockedUsers.some(
+        (blocked) => blocked.userId.toString() === providerId
+      );
+
+      // Check if provider blocked user
+      const providerBlockedUser = provider.blockedUsers.some(
+        (blocked) => blocked.userId.toString() === userId.toString()
+      );
+
+      if (userBlockedProvider || providerBlockedUser) {
+        return next(new AppError("Cannot start consultation. User is blocked.", 403));
+      }
+    }
+
     // Check if consultation mode is enabled
     if (!provider.consultationModes?.[type]) {
       return next(

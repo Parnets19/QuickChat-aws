@@ -378,6 +378,46 @@ const UserSchema = new mongoose.Schema(
       ref: "Consultation",
       default: null,
     },
+
+    // Block and Report functionality
+    blockedUsers: [
+      {
+        userId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        blockedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        reason: String,
+      },
+    ],
+    
+    reportedUsers: [
+      {
+        userId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        reportedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        reason: {
+          type: String,
+          required: true,
+        },
+        description: String,
+        status: {
+          type: String,
+          enum: ["pending", "reviewed", "resolved"],
+          default: "pending",
+        },
+      },
+    ],
   },
   {
     timestamps: true,
