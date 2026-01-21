@@ -139,28 +139,41 @@ const sendMessage = async (req, res, next) => {
       
       console.log(`✅ CHAT CONTROLLER: Message emitted to room ${roomName}`);
       
-      // CRITICAL FIX: Update message status to 'delivered' if receiver is online
+      // CRITICAL FIX: Immediate status progression when both users are in chat
       // Check if the receiver is in the chat room (online and viewing chat)
       const receiverRoom = io.sockets.adapter.rooms.get(roomName);
       const receiverInRoom = receiverRoom && receiverRoom.size > 1; // More than just sender
       
       if (receiverInRoom) {
-        console.log(`📨 CHAT CONTROLLER: Receiver is in room, updating status to delivered`);
+        console.log(`📨 CHAT CONTROLLER: Receiver is in room, progressing status: sent → delivered → read`);
         
-        // Update message status in database
+        // Step 1: Update to 'delivered' immediately (double tick)
         chatMessage.status = 'delivered';
         await chatMessage.save();
         
-        // Emit status update to all users in room
         setTimeout(() => {
           io.to(roomName).emit("consultation:messageStatus", {
             messageId: chatMessage._id,
             status: "delivered",
           });
-          console.log(`✅ CHAT CONTROLLER: Message status updated to delivered`);
+          console.log(`✅ CHAT CONTROLLER: Message status updated to delivered (double tick)`);
         }, 100);
+        
+        // Step 2: Update to 'read' after a short delay (blue tick)
+        // Since receiver is actively viewing the chat, mark as read immediately
+        setTimeout(async () => {
+          chatMessage.status = 'read';
+          chatMessage.readAt = new Date();
+          await chatMessage.save();
+          
+          io.to(roomName).emit("consultation:messageStatus", {
+            messageId: chatMessage._id,
+            status: "read",
+          });
+          console.log(`✅ CHAT CONTROLLER: Message status updated to read (blue tick)`);
+        }, 500); // Small delay to show the progression
       } else {
-        console.log(`📨 CHAT CONTROLLER: Receiver not in room, status remains 'sent'`);
+        console.log(`📨 CHAT CONTROLLER: Receiver not in room, status remains 'sent' (single tick)`);
       }
 
       // ENHANCED DEBUG: Determine the correct receiver based on chat structure
