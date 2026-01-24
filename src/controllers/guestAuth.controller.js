@@ -2,7 +2,7 @@ const { Guest } = require('../models');
 const { AppError } = require('../middlewares/errorHandler');
 const { sendOTP, verifyOTP } = require('../utils/otp');
 
-// @desc    Send OTP for guest registration/login
+// @desc    Send OTP for guest login (No registration check - auto-creates on verify)
 // @route   POST /api/guest-auth/send-otp
 // @access  Public
 const sendGuestOTP = async (req, res, next) => {
@@ -13,16 +13,8 @@ const sendGuestOTP = async (req, res, next) => {
       return next(new AppError('Please provide a valid 10-digit mobile number', 400));
     }
 
-    // Check if guest exists
+    // Check if guest exists (for rate limiting only)
     let guest = await Guest.findOne({ mobile });
-    
-    if (purpose === 'registration' && guest) {
-      return next(new AppError('This mobile number is already registered. Please use the "Guest Login" option to access your account.', 400));
-    }
-    
-    if (purpose === 'login' && !guest) {
-      return next(new AppError('No guest account found with this mobile number. Please register first.', 404));
-    }
 
     // Rate limiting: Check if OTP was sent recently
     if (guest && guest.lastOtpSent) {
@@ -39,7 +31,7 @@ const sendGuestOTP = async (req, res, next) => {
       return next(new AppError('Failed to send OTP. Please try again.', 500));
     }
 
-    // Update or create guest record with OTP timestamp
+    // Update guest record with OTP timestamp if exists
     if (guest) {
       guest.lastOtpSent = new Date();
       guest.otpAttempts = 0;
@@ -132,7 +124,7 @@ const registerGuest = async (req, res, next) => {
   }
 };
 
-// @desc    Login existing guest with OTP
+// @desc    Login existing guest with OTP (Auto-creates guest if not exists)
 // @route   POST /api/guest-auth/login
 // @access  Public
 const loginGuest = async (req, res, next) => {
@@ -143,43 +135,47 @@ const loginGuest = async (req, res, next) => {
       return next(new AppError('Mobile number and OTP are required', 400));
     }
 
-    // Find guest
-    const guest = await Guest.findOne({ mobile });
-    if (!guest) {
-      return next(new AppError('No guest account found with this mobile number. Please register first.', 404));
-    }
-
-    // Check if account is active
-    if (guest.status !== 'active') {
-      return next(new AppError('Your account has been suspended. Please contact support.', 403));
-    }
-
-    // Verify OTP
+    // Verify OTP first
     const otpVerification = await verifyOTP(mobile, otp, 'login');
     if (!otpVerification.success) {
-      // Increment failed attempts
-      guest.otpAttempts += 1;
-      await guest.save();
-      
-      if (guest.otpAttempts >= 5) {
-        return next(new AppError('Too many failed attempts. Please try again later.', 429));
-      }
-      
       return next(new AppError('Invalid or expired OTP', 400));
     }
 
-    // Reset OTP attempts and update last active
-    guest.otpAttempts = 0;
-    guest.lastActive = new Date();
-    guest.isOnline = true;
-    await guest.save();
+    // Find or create guest
+    let guest = await Guest.findOne({ mobile });
+    
+    if (!guest) {
+      // Auto-create guest account if doesn't exist
+      console.log(`🔍 Auto-creating guest account for mobile: ${mobile}`);
+      guest = new Guest({
+        name: `Guest ${mobile.slice(-4)}`, // Default name: Guest 1234
+        mobile,
+        description: '',
+        isMobileVerified: true,
+        lastActive: new Date(),
+        isOnline: true
+      });
+      await guest.save();
+      console.log(`✅ Guest account auto-created: ${guest._id}`);
+    } else {
+      // Check if account is active
+      if (guest.status !== 'active') {
+        return next(new AppError('Your account has been suspended. Please contact support.', 403));
+      }
+
+      // Reset OTP attempts and update last active
+      guest.otpAttempts = 0;
+      guest.lastActive = new Date();
+      guest.isOnline = true;
+      await guest.save();
+    }
 
     // Generate auth token
     const token = guest.generateAuthToken();
 
     res.status(200).json({
       success: true,
-      message: 'Login successful',
+      message: guest.name.startsWith('Guest ') ? 'Account created successfully' : 'Login successful',
       data: {
         guest: {
           id: guest._id,
@@ -188,7 +184,8 @@ const loginGuest = async (req, res, next) => {
           description: guest.description,
           wallet: guest.wallet,
           totalSpent: guest.totalSpent,
-          isGuest: true
+          isGuest: true,
+          isNewAccount: guest.name.startsWith('Guest ')
         },
         token
       }
