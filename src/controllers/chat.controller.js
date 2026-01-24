@@ -15,20 +15,37 @@ const sendMessage = async (req, res, next) => {
     }
 
     // CRITICAL: Check if sender has blocked receiver (one-way check)
-    const sender = await User.findById(senderId);
-    const receiver = await User.findById(providerId);
+    // Sender could be User or Guest
+    let sender = null;
+    if (isGuest) {
+      sender = await Guest.findById(senderId);
+    } else {
+      sender = await User.findById(senderId);
+    }
+
+    // Receiver could also be User or Guest - try both
+    let receiver = await User.findById(providerId);
+    let receiverIsGuest = false;
+    
+    if (!receiver) {
+      // Try finding as guest
+      receiver = await Guest.findById(providerId);
+      receiverIsGuest = true;
+      console.log('📨 CHAT: Receiver is a guest user:', providerId);
+    }
 
     if (!receiver) {
+      console.error('❌ CHAT: Receiver not found in User or Guest collections:', providerId);
       return next(new AppError("User not found", 404));
     }
 
-    // Check if sender blocked receiver
-    const senderBlockedReceiver = sender && sender.blockedUsers.some(
+    // Check if sender blocked receiver (only for regular users, guests don't have block feature)
+    const senderBlockedReceiver = sender && !isGuest && sender.blockedUsers && sender.blockedUsers.some(
       (blocked) => blocked.userId.toString() === providerId
     );
 
-    // Check if receiver blocked sender
-    const receiverBlockedSender = receiver.blockedUsers.some(
+    // Check if receiver blocked sender (only if receiver is regular user)
+    const receiverBlockedSender = !receiverIsGuest && receiver.blockedUsers && receiver.blockedUsers.some(
       (blocked) => blocked.userId.toString() === senderId.toString()
     );
 
