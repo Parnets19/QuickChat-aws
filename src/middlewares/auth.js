@@ -60,6 +60,7 @@ const protect = async (req, res, next) => {
           _id: decoded.id,
           id: decoded.id,
           fullName: decoded.name,
+          name: decoded.name, // ✅ Add name field for compatibility
           mobile: decoded.mobile,
           isGuest: true,
           isServiceProvider: false,

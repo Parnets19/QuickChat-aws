@@ -272,7 +272,7 @@ const createConsultation = async (req, res, next) => {
     // Determine initial status based on payment
     let initialStatus = "pending";
     let notificationTitle = "New Consultation Request";
-    let notificationMessage = `New ${type} consultation request from ${user.fullName}`;
+    let notificationMessage = `New ${type} consultation request from ${user.fullName || user.name || 'Guest User'}`;
     let responseMessage = "Consultation request sent successfully";
 
     // If payment is completed (for audio/video), keep status as pending until provider accepts
@@ -281,7 +281,7 @@ const createConsultation = async (req, res, next) => {
       // Keep as pending - provider still needs to accept
       initialStatus = "pending";
       notificationTitle = "New Paid Consultation Request";
-      notificationMessage = `${user.fullName} has paid for a ${type} consultation. Accept to start the session.`;
+      notificationMessage = `${user.fullName || user.name || 'Guest User'} has paid for a ${type} consultation. Accept to start the session.`;
       responseMessage =
         "Payment completed. Consultation request sent to provider.";
     }
@@ -1324,7 +1324,9 @@ const submitRating = async (req, res, next) => {
       user: req.user?.isGuest ? req.user.id : req.user?._id,
       ratedUser: ratedUserId,
       ratedUserType,
-      userName: isAnonymous ? "Anonymous" : req.user?.fullName,
+      userName: isAnonymous 
+        ? "Anonymous" 
+        : (req.user?.fullName || req.user?.name || "Guest User"),
       stars,
       review,
       tags: tags || [],
@@ -1367,7 +1369,7 @@ const submitRating = async (req, res, next) => {
       ratedUser.rating.reviews.unshift({
         consultationId,
         userId: req.user?.isGuest ? req.user.id : req.user?._id,
-        userName: isAnonymous ? "Anonymous" : req.user?.fullName,
+        userName: isAnonymous ? "Anonymous" : (req.user?.fullName || req.user?.name || "Guest User"),
         stars,
         review,
         tags: tags || [],

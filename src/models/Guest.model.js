@@ -128,6 +128,7 @@ GuestSchema.methods.generateAuthToken = function () {
   return jwt.sign(
     {
       id: this._id,
+      name: this.name, // ✅ Include name in JWT payload
       mobile: this.mobile,
       isGuest: true,
     },
