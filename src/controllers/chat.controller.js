@@ -104,6 +104,14 @@ const sendMessage = async (req, res, next) => {
     } catch (error) {
       console.error("Error populating sender info:", error);
     }
+    
+    // CRITICAL FIX: Ensure sender info is properly set
+    if (!senderInfo._id) {
+      senderInfo._id = senderId;
+    }
+    if (!senderInfo.name || senderInfo.name === "Unknown User") {
+      senderInfo.name = isGuest ? "Guest User" : "User";
+    }
 
     // Create message with sender info
     const chatMessage = new ChatMessage({
@@ -144,14 +152,26 @@ const sendMessage = async (req, res, next) => {
         messageId: chatMessage._id,
         senderId: senderId,
         senderName: chatMessage.senderName,
+        senderIsGuest: isGuest,
         roomName: roomName,
       });
+      
+      // CRITICAL DEBUG: Check who is in the room
+      const roomSockets = io.sockets.adapter.rooms.get(roomName);
+      console.log(`📨 CHAT CONTROLLER: Room ${roomName} has ${roomSockets ? roomSockets.size : 0} connected sockets`);
+      if (roomSockets) {
+        console.log(`📨 CHAT CONTROLLER: Socket IDs in room:`, Array.from(roomSockets));
+      }
 
       // Emit to chat room for real-time message display
       // FIXED: Emit as 'consultation:message' to match mobile app listeners
       const messagePayload = {
         _id: chatMessage._id,
-        sender: senderId, // Send as string for proper comparison
+        sender: {
+          _id: senderId.toString(), // Send as object with _id for proper comparison
+          name: chatMessage.senderName,
+          avatar: chatMessage.senderAvatar,
+        },
         senderName: chatMessage.senderName,
         senderAvatar: chatMessage.senderAvatar,
         message: message.trim(),
