@@ -115,13 +115,28 @@ app.use('/uploads', express.static('uploads'));
 // API Routes
 app.use('/api', routes);
 
-// Welcome route (only for root path)
-app.use(express.static(path.join(__dirname, 'build'))); // Change 'build' to your frontend folder if needed
+// Serve static files from build directory
+const buildPath = path.join(__dirname, '..', 'build');
+app.use(express.static(buildPath));
 
-// Redirect all requests to the index.html file
-
+// Catch-all handler: send back React's index.html file for any non-API routes
 app.get("*", (req, res) => {
-  return res.sendFile(path.join(__dirname, 'build', 'index.html'));
+  // Skip API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API route not found' });
+  }
+  
+  const indexPath = path.join(buildPath, 'index.html');
+  
+  // Check if index.html exists
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  } else {
+    return res.status(404).json({ 
+      error: 'Frontend build not found. Please ensure build directory exists with index.html',
+      buildPath: buildPath 
+    });
+  }
 });
 
 // Error handling middleware
