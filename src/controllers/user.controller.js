@@ -940,7 +940,7 @@ const getUserDocuments = async (req, res, next) => {
     const ensureFullUrl = (url) => {
       if (!url) return null;
       if (url.startsWith("http")) return url;
-      const baseUrl = process.env.BASE_URL || "https://skillhub-a00h.onrender.com";
+      const baseUrl = process.env.BASE_URL || "https://quickchatindia.com";
       return url.startsWith("/") ? `${baseUrl}${url}` : `${baseUrl}/${url}`;
     };
 

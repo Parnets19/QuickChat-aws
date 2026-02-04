@@ -20,7 +20,7 @@ const uploadToCloudinary = async (file, folder = 'skillhub') => {
       
       // Return a local file URL for development
       const fileName = getFileName(file);
-      const baseUrl = process.env.BASE_URL || 'https://skillhub-a00h.onrender.com';
+      const baseUrl = process.env.BASE_URL || 'https://quickchatindia.com';
       
       // Clean the file path to avoid double 'uploads/' in URL
       let cleanPath;
@@ -60,7 +60,7 @@ const uploadToCloudinary = async (file, folder = 'skillhub') => {
       return filePath.split(/[/\\]/).pop();
     };
     const fileName = getFileName(file);
-    const baseUrl = process.env.BASE_URL || 'https://skillhub-a00h.onrender.com';
+    const baseUrl = process.env.BASE_URL || 'https://quickchatindia.com';
     
     // Clean the file path to avoid double 'uploads/' in URL
     let cleanPath;

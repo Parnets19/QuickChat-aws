@@ -60,7 +60,7 @@ const corsOptions = {
       process.env.FRONTEND_URL || 'http://localhost:3000',
       process.env.ADMIN_URL || 'http://localhost:3001',
       'https://skill-quick-chats.netlify.app',
-      'https://skillhub-a00h.onrender.com',
+      'https://quickchatindia.com',
     ];
     
     // Allow any origin in development
@@ -116,8 +116,12 @@ app.use('/uploads', express.static('uploads'));
 app.use('/api', routes);
 
 // Welcome route (only for root path)
-app.get('/', (req, res) => {
-  res.status(200).json({message:"Welcome to Quick Chat api"});
+app.use(express.static(path.join(__dirname, 'build'))); // Change 'build' to your frontend folder if needed
+
+// Redirect all requests to the index.html file
+
+app.get("*", (req, res) => {
+  return res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
 // Error handling middleware
