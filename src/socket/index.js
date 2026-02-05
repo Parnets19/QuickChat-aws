@@ -168,8 +168,18 @@ const initializeSocket = (io) => {
         );
         const participantCount = updatedRoom ? updatedRoom.size : 1;
 
-        // Determine user role - handle provider-to-provider consultations
+        // Determine user role - handle provider-to-provider consultations AND guest users
         let isProvider = consultationProviderId === userId;
+
+        // CRITICAL FIX: Handle guest users properly
+        // Guest users are always clients (never providers), so if this is a guest, they're definitely not the provider
+        if (socket.user?.isGuest) {
+          console.log(`🔍 SOCKET DEBUG - Guest user detected: ${userId}, setting as client`);
+          isProvider = false;
+        } else {
+          // For regular users, check if they match the provider ID
+          isProvider = consultationProviderId === userId;
+        }
 
         // For provider-to-provider consultations, use consultation-specific roles
         if (consultation.isProviderToProvider) {
@@ -1080,10 +1090,19 @@ const initializeSocket = (io) => {
           consultationId,
           callType,
           fromName,
+          fromUserId: userId,
+          isGuestUser: socket.user?.isGuest,
+          userType: socket.user?.isGuest ? 'Guest' : 'Regular'
         });
 
         // Find provider's sockets
         const providerSockets = onlineUsers.get(to);
+
+        console.log(`📞 Looking for provider ${to} sockets:`, {
+          providerSockets: providerSockets ? providerSockets.length : 0,
+          allOnlineUsers: Array.from(onlineUsers.keys()),
+          targetProviderId: to
+        });
 
         if (providerSockets && providerSockets.length > 0) {
           // Send call notification to all provider's sockets
@@ -1205,10 +1224,40 @@ const initializeSocket = (io) => {
           callTimeouts.set(consultationId, timeoutId);
           console.log(`⏰ Call timeout set for consultation ${consultationId}`);
         } else {
-          // Provider is offline
+          console.warn(`❌ Provider ${to} not found online. Available users:`, Array.from(onlineUsers.keys()));
+          
+          // FALLBACK: Still broadcast to consultation rooms in case provider is connected but not tracked properly
+          console.log(`📡 Broadcasting call request to consultation rooms as fallback...`);
+          
+          // Send to regular consultation room (mobile app format)
+          io.to(`consultation:${consultationId}`).emit(
+            "consultation:call-request",
+            {
+              consultationId,
+              callType,
+              from: userId,
+              fromName,
+              message,
+              timestamp: new Date().toISOString(),
+            }
+          );
+
+          // Send to billing room (web app format)
+          io.to(`billing:${consultationId}`).emit("consultation:call-request", {
+            consultationId,
+            callType,
+            from: userId,
+            fromName,
+            message,
+            timestamp: new Date().toISOString(),
+          });
+          
+          console.log(`📡 Fallback broadcast completed`);
+          
+          // Still send offline message to caller as backup
           socket.emit("consultation:call-failed", {
             consultationId,
-            message: "Provider is currently offline",
+            message: "Provider may be offline, but call request was broadcasted",
           });
         }
       } catch (error) {

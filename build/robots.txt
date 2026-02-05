@@ -1,0 +1,28 @@
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://quickchatindia.com/sitemap.xml
+
+# Crawl-delay for better server performance
+Crawl-delay: 1
+
+# Disallow admin and private areas
+Disallow: /admin/
+Disallow: /api/
+Disallow: /private/
+Disallow: /*.json$
+Disallow: /*?*
+
+# Allow important pages
+Allow: /
+Allow: /about
+Allow: /services
+Allow: /contact
+Allow: /legal/
+Allow: /help/
+Allow: /faq
+
+# Block specific bots if needed
+# User-agent: BadBot
+# Disallow: /
