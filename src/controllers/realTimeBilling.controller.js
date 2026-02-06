@@ -649,6 +649,36 @@ const acceptCall = async (req, res) => {
 
     await consultation.save();
 
+    // CRITICAL FIX: Emit call acceptance event via socket
+    if (io) {
+      const acceptanceData = {
+        consultationId: consultation._id.toString(),
+        acceptedBy: userId.toString(),
+        acceptedByName: req.user.fullName || req.user.name || "Provider",
+        timestamp: new Date().toISOString(),
+      };
+
+      console.log("📡 Emitting call acceptance via socket:", acceptanceData);
+
+      // Emit to client's user room
+      io.to(`user:${consultation.user}`).emit(
+        "consultation:call-accepted",
+        acceptanceData
+      );
+
+      // Also emit to consultation and billing rooms
+      io.to(`consultation:${consultationId}`).emit(
+        "consultation:call-accepted",
+        acceptanceData
+      );
+      io.to(`billing:${consultationId}`).emit(
+        "consultation:call-accepted",
+        acceptanceData
+      );
+
+      console.log("✅ Call acceptance emitted to client and rooms");
+    }
+
     res.json({
       success: true,
       data: {
