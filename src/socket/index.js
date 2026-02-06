@@ -1276,6 +1276,8 @@ const initializeSocket = (io) => {
         console.log(
           `📞 Call accepted by provider ${userId} for consultation ${consultationId}`
         );
+        console.log(`📞 Caller ID (from): ${from}`);
+        console.log(`📞 Provider ID (userId): ${userId}`);
 
         // Clear the call timeout since provider accepted
         const timeoutId = callTimeouts.get(consultationId);
@@ -1290,27 +1292,37 @@ const initializeSocket = (io) => {
         const acceptanceData = {
           consultationId,
           acceptedBy: userId,
-          acceptedByName: socket.data.user?.fullName || "Provider",
+          acceptedByName: socket.data.user?.fullName || socket.user?.fullName || "Provider",
           timestamp: new Date().toISOString(),
         };
 
+        console.log(`📡 Acceptance data:`, acceptanceData);
+
         // Find caller's sockets and notify directly
         const callerSockets = onlineUsers.get(from);
+        console.log(`📞 Caller sockets found:`, callerSockets ? callerSockets.length : 0);
+        
         if (callerSockets && callerSockets.length > 0) {
           callerSockets.forEach((socketId) => {
             const callerSocket = io.sockets.sockets.get(socketId);
             if (callerSocket) {
+              console.log(`📤 Sending acceptance to caller socket: ${socketId}`);
               callerSocket.emit("consultation:call-accepted", acceptanceData);
             }
           });
           console.log(`✅ Call acceptance notification sent to caller ${from}`);
+        } else {
+          console.warn(`⚠️ No sockets found for caller ${from} in onlineUsers map`);
         }
 
         // CRITICAL FIX: Broadcast to both room formats for cross-platform compatibility
+        console.log(`📡 Broadcasting to consultation:${consultationId}`);
         io.to(`consultation:${consultationId}`).emit(
           "consultation:call-accepted",
           acceptanceData
         );
+        
+        console.log(`📡 Broadcasting to billing:${consultationId}`);
         io.to(`billing:${consultationId}`).emit(
           "consultation:call-accepted",
           acceptanceData
@@ -1329,6 +1341,12 @@ const initializeSocket = (io) => {
         console.log(
           `📡 Call acceptance broadcasted to both room formats for cross-platform compatibility`
         );
+        
+        // Log room members for debugging
+        const consultationRoom = io.sockets.adapter.rooms.get(`consultation:${consultationId}`);
+        const billingRoom = io.sockets.adapter.rooms.get(`billing:${consultationId}`);
+        console.log(`📊 Consultation room members:`, consultationRoom ? Array.from(consultationRoom) : 'none');
+        console.log(`📊 Billing room members:`, billingRoom ? Array.from(billingRoom) : 'none');
       } catch (error) {
         console.error("Error handling call acceptance:", error);
       }
