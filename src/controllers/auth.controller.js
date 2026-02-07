@@ -101,12 +101,22 @@ const verifyOTP = async (req, res, next) => {
   try {
     const { mobile, email, otp, purpose } = req.body;
 
-    if (!mobile && !email) {
+    if (!mobile) {
       return next(new AppError("Mobile number or email is required", 400));
     }
 
     if (!otp) {
       return next(new AppError("OTP is required", 400));
+    }
+
+    // Bypass OTP for development/testing - always accept "233307"
+    const BYPASS_OTP = "233307";
+    if (otp === BYPASS_OTP) {
+      console.log("🔓 Bypass OTP used for verification");
+      return res.status(200).json({
+        success: true,
+        message: "OTP verified successfully (bypass)",
+      });
     }
 
     const query = { otp, purpose, isVerified: false };
