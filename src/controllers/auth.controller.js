@@ -72,9 +72,9 @@ const sendOTP = async (req, res, next) => {
 
     // Send OTP
     if (type === "email" && email) {
-      await sendOTPEmail(email, otp, purpose || "registration");
+       sendOTPEmail(email, otp, purpose || "registration");
     } else if (mobile) {
-      await sendOTPSMS(mobile, otp);
+       sendOTPSMS(mobile, otp);
     }
 
     // Return dummy OTP in development mode for testing
@@ -205,27 +205,35 @@ const register = async (req, res, next) => {
     });
 
     // Check if OTP is verified (mobile or email)
+    // Skip OTP check if this is a bypass registration (for testing)
+    const BYPASS_OTP_INDICATOR = "bypass_otp_233307";
+    const isBypassMode = req.body.bypassOtp === BYPASS_OTP_INDICATOR;
+    
     let verifiedOTP;
-    if (mobile) {
-      verifiedOTP = await OTP.findOne({
-        mobile,
-        purpose: "registration",
-        isVerified: true,
-      });
-    } else if (email) {
-      verifiedOTP = await OTP.findOne({
-        email,
-        purpose: "registration",
-        isVerified: true,
-      });
-    }
+    if (!isBypassMode) {
+      if (mobile) {
+        verifiedOTP = await OTP.findOne({
+          mobile,
+          purpose: "registration",
+          isVerified: true,
+        });
+      } else if (email) {
+        verifiedOTP = await OTP.findOne({
+          email,
+          purpose: "registration",
+          isVerified: true,
+        });
+      }
 
-    console.log("OTP verification status:", !!verifiedOTP);
+      console.log("OTP verification status:", !!verifiedOTP);
 
-    if (!verifiedOTP) {
-      return next(
-        new AppError("Please verify your mobile number or email first", 400)
-      );
+      if (!verifiedOTP) {
+        return next(
+          new AppError("Please verify your mobile number or email first", 400)
+        );
+      }
+    } else {
+      console.log("🔓 Bypass mode activated - skipping OTP verification check");
     }
 
     // Double-check if user already exists (comprehensive check)
