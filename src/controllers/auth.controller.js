@@ -748,6 +748,75 @@ const guestLogin = async (req, res, next) => {
   }
 };
 
+// @desc    Reset password
+// @route   POST /api/auth/reset-password
+// @access  Public (after OTP verification)
+const resetPassword = async (req, res, next) => {
+  try {
+    const { mobile, email, newPassword } = req.body;
+
+    if ((!mobile && !email) || !newPassword) {
+      return next(
+        new AppError("Mobile/email and new password are required", 400)
+      );
+    }
+
+    if (newPassword.length < 6) {
+      return next(
+        new AppError("Password must be at least 6 characters", 400)
+      );
+    }
+
+    // Check if OTP was verified for password reset
+    const query = { purpose: "password-reset", isVerified: true };
+    if (mobile) query.mobile = mobile;
+    if (email) query.email = email;
+
+    const verifiedOTP = await OTP.findOne(query).sort({ createdAt: -1 });
+
+    if (!verifiedOTP) {
+      return next(
+        new AppError(
+          "Please verify your mobile number or email first",
+          400
+        )
+      );
+    }
+
+    // Check if OTP verification is recent (within 10 minutes)
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    if (verifiedOTP.createdAt < tenMinutesAgo) {
+      return next(
+        new AppError("OTP verification expired. Please request a new OTP", 400)
+      );
+    }
+
+    // Find user
+    const userQuery = {};
+    if (mobile) userQuery.mobile = mobile;
+    if (email) userQuery.email = email;
+
+    const user = await User.findOne(userQuery);
+    if (!user) {
+      return next(new AppError("User not found", 404));
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    // Delete used OTP
+    await OTP.deleteOne({ _id: verifiedOTP._id });
+
+    res.status(200).json({
+      success: true,
+      message: "Password reset successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -759,4 +828,5 @@ module.exports = {
   refreshToken,
   updateFCMToken,
   guestLogin,
+  resetPassword,
 };
