@@ -131,9 +131,9 @@ const withdrawFromWallet = async (req, res, next) => {
       return next(new AppError("Minimum withdrawal amount is ₹100", 400));
     }
 
-    if (!bankDetails || !bankDetails.accountNumber || !bankDetails.ifscCode) {
+    if (!bankDetails || !bankDetails.accountNumber) {
       return next(
-        new AppError("Bank details are required for withdrawal", 400)
+        new AppError("Account number is required for withdrawal", 400)
       );
     }
 

@@ -172,8 +172,6 @@ const verifyOTP = async (req, res, next) => {
 // @access  Public
 const register = async (req, res, next) => {
   try {
-    console.log("=== REGISTRATION REQUEST RECEIVED ===");
-    console.log("Request body keys:", Object.keys(req.body));
 
     const {
       fullName,
@@ -203,28 +201,7 @@ const register = async (req, res, next) => {
       isServiceProvider,
     } = req.body;
 
-    console.log("Extracted fields:", {
-      fullName,
-      mobile,
-      email,
-      hasPassword: !!password,
-      dateOfBirth,
-      gender,
-      place,
-      profession,
-      education,
-      hobbiesCount: hobbies?.length,
-      skillsCount: skills?.length,
-      hobbiesSkillsCount: hobbiesSkills?.length,
-      languagesCount: languagesKnown?.length,
-      categoriesCount: serviceCategories?.length,
-      consultationModes,
-      rates,
-      availabilityCount: availability?.length,
-      aadharNumber,
-      bankDetails,
-      isServiceProvider,
-    });
+
 
     // Check if OTP is verified (mobile or email)
     // Skip OTP check if this is a bypass registration (for testing)
@@ -247,7 +224,7 @@ const register = async (req, res, next) => {
         });
       }
 
-      console.log("OTP verification status:", !!verifiedOTP);
+   
 
       if (!verifiedOTP) {
         return next(
@@ -280,9 +257,9 @@ const register = async (req, res, next) => {
     }
 
     // Validate required fields
-    if (!email) {
-      return next(new AppError("Email is required", 400));
-    }
+    // if (!email) {
+    //   return next(new AppError("Email is required", 400));
+    // }
 
     // Prepare user data
     const userData = {
@@ -364,7 +341,7 @@ const register = async (req, res, next) => {
 
     // Send welcome email
     if (email) {
-      await sendWelcomeEmail(email, fullName);
+       sendWelcomeEmail(email, fullName);
     }
 
     // Generate token

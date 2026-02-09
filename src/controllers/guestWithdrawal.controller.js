@@ -25,10 +25,10 @@ const requestWithdrawal = async (req, res) => {
       }
     } else {
       // Bank transfer validation
-      if (!bankDetails || !bankDetails.accountNumber || !bankDetails.ifscCode || !bankDetails.accountHolderName) {
+      if (!bankDetails || !bankDetails.accountNumber || !bankDetails.accountHolderName) {
         return res.status(400).json({
           success: false,
-          message: 'Complete bank details are required for bank transfer'
+          message: 'Account number and account holder name are required for bank transfer'
         });
       }
     }

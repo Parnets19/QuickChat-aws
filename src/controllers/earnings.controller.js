@@ -734,13 +734,12 @@ const requestWithdrawal = async (req, res) => {
       // Use provided bank details
       if (
         !bankDetails.accountNumber ||
-        !bankDetails.ifscCode ||
         !bankDetails.accountHolderName
       ) {
         return res.status(400).json({
           success: false,
           message:
-            "Complete bank details are required (account number, IFSC code, account holder name)",
+            "Complete bank details are required (account number, account holder name)",
         });
       }
       finalBankDetails = bankDetails;

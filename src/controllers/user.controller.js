@@ -761,8 +761,8 @@ const updateBankDetails = async (req, res, next) => {
   try {
     const { accountNumber, ifscCode, accountHolderName, bankName } = req.body;
 
-    if (!accountNumber || !ifscCode || !accountHolderName || !bankName) {
-      return next(new AppError("All bank details are required", 400));
+    if (!accountNumber || !accountHolderName || !bankName) {
+      return next(new AppError("Account number, account holder name, and bank name are required", 400));
     }
 
     const user = await User.findByIdAndUpdate(
