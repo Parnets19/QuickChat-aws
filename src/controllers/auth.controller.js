@@ -113,6 +113,28 @@ const verifyOTP = async (req, res, next) => {
     const BYPASS_OTP = "233307";
     if (otp === BYPASS_OTP) {
       console.log("🔓 Bypass OTP used for verification");
+      
+      // Create or update a verified OTP record for bypass mode
+      // This ensures registration can find a verified OTP
+      const existingOTP = await OTP.findOne({ mobile, email, purpose });
+      if (existingOTP) {
+        existingOTP.isVerified = true;
+        await existingOTP.save();
+        console.log("✅ Updated existing OTP to verified for bypass");
+      } else {
+        // Create a new verified OTP record
+        await OTP.create({
+          mobile,
+          email,
+          otp: BYPASS_OTP,
+          type: email ? "email" : "mobile",
+          purpose: purpose || "registration",
+          isVerified: true,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        });
+        console.log("✅ Created new verified OTP record for bypass");
+      }
+      
       return res.status(200).json({
         success: true,
         message: "OTP verified successfully (bypass)",
