@@ -274,10 +274,18 @@ const updateGuestProfile = async (req, res, next) => {
 // @access  Private (Guest)
 const logoutGuest = async (req, res, next) => {
   try {
+    const { fcmToken } = req.body;
+    
     const guest = await Guest.findById(req.user.id);
     if (guest) {
       guest.isOnline = false;
       guest.lastActive = new Date();
+      
+      // Remove FCM token if provided
+      if (fcmToken && guest.fcmTokens) {
+        guest.fcmTokens = guest.fcmTokens.filter(token => token !== fcmToken);
+      }
+      
       await guest.save();
     }
 
@@ -290,11 +298,47 @@ const logoutGuest = async (req, res, next) => {
   }
 };
 
+// @desc    Update FCM token for guest
+// @route   POST /api/guest-auth/fcm-token
+// @access  Private (Guest)
+const updateGuestFCMToken = async (req, res, next) => {
+  try {
+    const { fcmToken } = req.body;
+
+    if (!fcmToken) {
+      return next(new AppError('FCM token is required', 400));
+    }
+
+    const guest = await Guest.findById(req.user.id);
+    if (!guest) {
+      return next(new AppError('Guest not found', 404));
+    }
+
+    // Add FCM token if not already present
+    if (!guest.fcmTokens) {
+      guest.fcmTokens = [];
+    }
+
+    if (!guest.fcmTokens.includes(fcmToken)) {
+      guest.fcmTokens.push(fcmToken);
+      await guest.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'FCM token updated successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendGuestOTP,
   registerGuest,
   loginGuest,
   getGuestProfile,
   updateGuestProfile,
-  logoutGuest
+  logoutGuest,
+  updateGuestFCMToken
 };

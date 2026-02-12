@@ -63,6 +63,11 @@ const AdminSchema = new mongoose.Schema(
     },
     lockUntil: {
       type: Date
+    },
+    fcmTokens: [String],
+    lastActive: {
+      type: Date,
+      default: Date.now
     }
   },
   {

@@ -1,10 +1,11 @@
-const { Notification } = require('../models');
-const { sendPushNotification } = require('./firebase');
+const { Notification, User, Guest, Admin } = require('../models');
+const { sendPushNotification, sendMulticastNotification } = require('./firebase');
 
 /**
- * Create and send a notification to a user
+ * Create and send a notification to a user, guest, or admin
  * @param {Object} options - Notification options
- * @param {string} options.userId - User ID to send notification to
+ * @param {string} options.userId - User/Guest/Admin ID to send notification to
+ * @param {string} options.userType - Type of user: 'user', 'guest', or 'admin' (default: 'user')
  * @param {string} options.title - Notification title
  * @param {string} options.message - Notification message
  * @param {string} options.type - Notification type (consultation, wallet, subscription, admin, system)
@@ -16,6 +17,7 @@ const createNotification = async (options) => {
   try {
     const {
       userId,
+      userType = 'user',
       title,
       message,
       type = 'system',
@@ -24,28 +26,31 @@ const createNotification = async (options) => {
       io
     } = options;
 
-    // Create notification in database
-    const notification = new Notification({
-      user: userId,
-      title,
-      message,
-      type,
-      data,
-      isRead: false
-    });
-
-    await notification.save();
+    // Create notification in database (only for users, not guests/admins for now)
+    let notification;
+    if (userType === 'user') {
+      notification = new Notification({
+        user: userId,
+        title,
+        message,
+        type,
+        data,
+        isRead: false
+      });
+      await notification.save();
+    }
 
     // Send real-time notification via socket if io instance is provided
     if (io) {
-      io.to(`user:${userId}`).emit('notification:new', {
-        _id: notification._id,
-        title: notification.title,
-        message: notification.message,
-        type: notification.type,
-        data: notification.data,
-        isRead: notification.isRead,
-        createdAt: notification.createdAt
+      const socketRoom = `${userType}:${userId}`;
+      io.to(socketRoom).emit('notification:new', {
+        _id: notification?._id,
+        title,
+        message,
+        type,
+        data,
+        isRead: false,
+        createdAt: new Date()
       });
     }
 
@@ -55,21 +60,51 @@ const createNotification = async (options) => {
         const { firebaseInitialized } = require('./firebase');
         
         if (firebaseInitialized) {
-          // Get user's FCM tokens (you'll need to implement this based on your User model)
-          const User = require('../models/User.model');
-          const user = await User.findById(userId).select('fcmTokens');
+          let targetUser;
           
-          if (user && user.fcmTokens && user.fcmTokens.length > 0) {
-            await sendPushNotification({
-              title,
-              body: message,
-              token: user.fcmTokens[0], // Send to first token, you can loop through all
-              data: {
-                type,
-                notificationId: notification._id.toString(),
-                ...data
-              }
-            });
+          // Get FCM tokens based on user type
+          switch (userType) {
+            case 'user':
+              targetUser = await User.findById(userId).select('fcmTokens');
+              break;
+            case 'guest':
+              targetUser = await Guest.findById(userId).select('fcmTokens');
+              break;
+            case 'admin':
+              targetUser = await Admin.findById(userId).select('fcmTokens');
+              break;
+            default:
+              console.warn(`Unknown user type: ${userType}`);
+              return notification;
+          }
+          
+          if (targetUser && targetUser.fcmTokens && targetUser.fcmTokens.length > 0) {
+            // Send to all registered devices
+            if (targetUser.fcmTokens.length === 1) {
+              await sendPushNotification({
+                title,
+                body: message,
+                token: targetUser.fcmTokens[0],
+                data: {
+                  type,
+                  userType,
+                  notificationId: notification?._id?.toString() || '',
+                  ...data
+                }
+              });
+            } else {
+              await sendMulticastNotification({
+                title,
+                body: message,
+                token: targetUser.fcmTokens,
+                data: {
+                  type,
+                  userType,
+                  notificationId: notification?._id?.toString() || '',
+                  ...data
+                }
+              });
+            }
           }
         } else {
           console.log('Firebase not initialized. Skipping push notification.');

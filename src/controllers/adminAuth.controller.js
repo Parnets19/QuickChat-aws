@@ -78,8 +78,17 @@ const adminLogin = async (req, res, next) => {
 // @access  Private (Admin)
 const adminLogout = async (req, res, next) => {
   try {
-    // In a production app, you might want to blacklist the token
-    // For now, we'll just send a success response
+    const { fcmToken } = req.body;
+    
+    // Remove FCM token if provided
+    if (fcmToken && req.user && req.user.id) {
+      const admin = await Admin.findById(req.user.id);
+      if (admin && admin.fcmTokens) {
+        admin.fcmTokens = admin.fcmTokens.filter(token => token !== fcmToken);
+        await admin.save();
+      }
+    }
+    
     res.status(200).json({
       success: true,
       message: 'Admin logout successful'
@@ -222,11 +231,47 @@ const checkAdminSetup = async (req, res, next) => {
   }
 };
 
+// @desc    Update FCM token for admin
+// @route   POST /api/admin-auth/fcm-token
+// @access  Private (Admin)
+const updateAdminFCMToken = async (req, res, next) => {
+  try {
+    const { fcmToken } = req.body;
+
+    if (!fcmToken) {
+      return next(new AppError('FCM token is required', 400));
+    }
+
+    const admin = await Admin.findById(req.user.id);
+    if (!admin) {
+      return next(new AppError('Admin not found', 404));
+    }
+
+    // Add FCM token if not already present
+    if (!admin.fcmTokens) {
+      admin.fcmTokens = [];
+    }
+
+    if (!admin.fcmTokens.includes(fcmToken)) {
+      admin.fcmTokens.push(fcmToken);
+      await admin.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'FCM token updated successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   adminLogin,
   adminLogout,
   refreshAdminToken,
   getAdminProfile,
   setupAdmin,
-  checkAdminSetup
+  checkAdminSetup,
+  updateAdminFCMToken
 };

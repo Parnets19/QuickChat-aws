@@ -5,7 +5,8 @@ const {
   loginGuest,
   getGuestProfile,
   updateGuestProfile,
-  logoutGuest
+  logoutGuest,
+  updateGuestFCMToken
 } = require('../controllers/guestAuth.controller');
 const { guestAuth } = require('../middlewares/auth');
 
@@ -22,5 +23,6 @@ router.use(guestAuth); // Apply guest auth middleware to all routes below
 router.get('/profile', getGuestProfile);
 router.put('/profile', updateGuestProfile);
 router.post('/logout', logoutGuest);
+router.post('/fcm-token', updateGuestFCMToken);
 
 module.exports = router;

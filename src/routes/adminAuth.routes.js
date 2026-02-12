@@ -13,4 +13,7 @@ router.get('/me', protect, adminAuthController.getAdminProfile);
 router.post('/setup', adminAuthController.setupAdmin);
 router.get('/check-setup', adminAuthController.checkAdminSetup);
 
+// FCM token management
+router.post('/fcm-token', protect, adminAuthController.updateAdminFCMToken);
+
 module.exports = router;

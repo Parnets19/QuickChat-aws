@@ -410,6 +410,10 @@ const initializeSocket = (io) => {
             ? consultationProviderId
             : consultationUserId;
 
+        // Check if other user is online
+        const otherUserSockets = onlineUsers.get(otherUserId);
+        const isOtherUserOnline = otherUserSockets && otherUserSockets.length > 0;
+
         // Update unread count for the other user
         const unreadCountUpdate = {
           consultationId: data.consultationId,
@@ -443,6 +447,42 @@ const initializeSocket = (io) => {
           "chat:notification",
           notificationData
         );
+
+        // 🔔 SEND PUSH NOTIFICATION IF USER IS OFFLINE
+        if (!isOtherUserOnline) {
+          console.log(`📱 User ${otherUserId} is offline, sending push notification for chat message`);
+          try {
+            const notificationTemplates = require('../utils/notificationTemplates');
+            
+            // Determine user type
+            let userType = 'user';
+            const Guest = require('../models/Guest.model');
+            const isGuest = await Guest.findById(otherUserId);
+            if (isGuest) {
+              userType = 'guest';
+            }
+            
+            // Send custom notification for chat message
+            await notificationTemplates.custom(
+              otherUserId,
+              userType,
+              `New message from ${senderName}`,
+              data.message.length > 50 ? data.message.substring(0, 50) + '...' : data.message,
+              'consultation',
+              {
+                consultationId: data.consultationId,
+                senderId: userId,
+                senderName: senderName,
+                messageType: data.type || 'text',
+                action: 'new_message'
+              },
+              io
+            );
+            console.log(`✅ Push notification sent to offline user ${otherUserId}`);
+          } catch (notifError) {
+            console.error('❌ Failed to send chat push notification:', notifError);
+          }
+        }
 
         logger.info(
           `Message sent in consultation ${data.consultationId} - Type: ${
@@ -1104,7 +1144,10 @@ const initializeSocket = (io) => {
           targetProviderId: to
         });
 
-        if (providerSockets && providerSockets.length > 0) {
+        // Check if provider is online
+        const isProviderOnline = providerSockets && providerSockets.length > 0;
+
+        if (isProviderOnline) {
           // Send call notification to all provider's sockets
           providerSockets.forEach((socketId) => {
             const providerSocket = io.sockets.sockets.get(socketId);
@@ -1224,7 +1267,23 @@ const initializeSocket = (io) => {
           callTimeouts.set(consultationId, timeoutId);
           console.log(`⏰ Call timeout set for consultation ${consultationId}`);
         } else {
-          console.warn(`❌ Provider ${to} not found online. Available users:`, Array.from(onlineUsers.keys()));
+          console.warn(`❌ Provider ${to} not found online. Sending push notification...`);
+          
+          // 🔔 SEND PUSH NOTIFICATION TO OFFLINE PROVIDER
+          try {
+            const notificationTemplates = require('../utils/notificationTemplates');
+            await notificationTemplates.incomingCall(
+              to,
+              'user', // Provider is a user
+              consultationId,
+              fromName || 'A user',
+              callType || 'video',
+              io
+            );
+            console.log(`✅ Push notification sent to offline provider ${to}`);
+          } catch (notifError) {
+            console.error('❌ Failed to send push notification:', notifError);
+          }
           
           // FALLBACK: Still broadcast to consultation rooms in case provider is connected but not tracked properly
           console.log(`📡 Broadcasting call request to consultation rooms as fallback...`);
@@ -1257,7 +1316,7 @@ const initializeSocket = (io) => {
           // Still send offline message to caller as backup
           socket.emit("consultation:call-failed", {
             consultationId,
-            message: "Provider may be offline, but call request was broadcasted",
+            message: "Provider is offline. Notification sent.",
           });
         }
       } catch (error) {
