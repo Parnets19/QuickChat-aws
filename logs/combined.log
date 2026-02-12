@@ -791,3 +791,9 @@
 {"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2026-02-12 11:19:14"}
 {"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2026-02-12 11:19:16"}
 {"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2026-02-12 11:19:16"}
+{"level":"warn","message":"Twilio credentials not found. SMS functionality will be disabled.","service":"skillhub-api","timestamp":"2026-02-12 14:39:59"}
+{"level":"info","message":"Firebase initialized using service_account.json file","service":"skillhub-api","timestamp":"2026-02-12 14:39:59"}
+{"level":"info","message":"Firebase Admin initialized successfully","service":"skillhub-api","timestamp":"2026-02-12 14:39:59"}
+{"level":"info","message":"✅ Uploads directory exists","service":"skillhub-api","timestamp":"2026-02-12 14:39:59"}
+{"level":"info","message":"MongoDB Connected: ac-ergukgm-shard-00-02.grb5bho.mongodb.net","service":"skillhub-api","timestamp":"2026-02-12 14:40:00"}
+{"level":"info","message":"Server running in development mode on port 5001","service":"skillhub-api","timestamp":"2026-02-12 14:40:00"}

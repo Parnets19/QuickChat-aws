@@ -7,10 +7,9 @@ const {
   getUnreadCount,
 } = require('../controllers/notification.controller');
 const {
-  testFirebaseSetup,
-  sendTestNotification,
-  sendTemplateNotification,
-  getNotificationTemplates
+  testSendNotification,
+  checkFCMTokens,
+  checkFirebaseStatus
 } = require('../controllers/notification.test.controller');
 const { protect } = require('../middlewares/auth');
 
@@ -19,10 +18,9 @@ const router = express.Router();
 router.use(protect);
 
 // Test endpoints
-router.get('/test-firebase', testFirebaseSetup);
-router.post('/test-send', sendTestNotification);
-router.get('/templates', getNotificationTemplates);
-router.post('/send-template', sendTemplateNotification);
+router.get('/test-firebase', checkFirebaseStatus);
+router.post('/test-send', testSendNotification);
+router.get('/check-fcm-tokens/:userId', checkFCMTokens);
 
 // Regular notification endpoints
 router.get('/', getNotifications);

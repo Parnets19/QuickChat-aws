@@ -6,6 +6,7 @@ const paymentRoutes = require("./payment.routes");
 const subscriptionRoutes = require("./subscription.routes");
 const reviewRoutes = require("./review.routes");
 const notificationRoutes = require("./notification.routes");
+const notificationTestRoutes = require("./notification.test.routes");
 const categoryRoutes = require("./category.routes");
 const adminRoutes = require("./admin.routes");
 const adminAuthRoutes = require("./adminAuth.routes");
@@ -36,6 +37,7 @@ router.use("/payment", paymentRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/reviews", reviewRoutes);
 router.use("/notifications", notificationRoutes);
+router.use("/test", notificationTestRoutes); // Test endpoints for notifications
 router.use("/categories", categoryRoutes);
 router.use("/admin", adminRoutes);
 router.use("/admin-auth", adminAuthRoutes);

@@ -5,6 +5,7 @@ const { logger } = require("../utils/logger");
 const onlineUsers = new Map(); // userId -> socketIds[]
 const callTimeouts = new Map(); // consultationId -> timeoutId
 const offlineTimeouts = new Map(); // userId -> timeoutId (for debouncing offline status)
+const activeChatRooms = new Map(); // userId -> consultationId (tracks which chat room user is actively viewing)
 
 const initializeSocket = (io) => {
   // Authentication middleware
@@ -410,14 +411,20 @@ const initializeSocket = (io) => {
             ? consultationProviderId
             : consultationUserId;
 
-        // Check if other user is online
+        // Check if other user is online AND in this specific chat room
         const otherUserSockets = onlineUsers.get(otherUserId);
         const isOtherUserOnline = otherUserSockets && otherUserSockets.length > 0;
+        const otherUserActiveRoom = activeChatRooms.get(otherUserId);
+        const isOtherUserInThisChat = otherUserActiveRoom === data.consultationId;
 
-        console.log(`🔍 Checking if user ${otherUserId} is online:`, {
+        console.log(`🔍 Checking if user ${otherUserId} needs push notification:`, {
           hasSocketsInMap: !!otherUserSockets,
           socketCount: otherUserSockets ? otherUserSockets.length : 0,
           isOnline: isOtherUserOnline,
+          activeRoom: otherUserActiveRoom,
+          thisConsultationId: data.consultationId,
+          isInThisChat: isOtherUserInThisChat,
+          shouldSendPush: !isOtherUserOnline || !isOtherUserInThisChat,
           allOnlineUsers: Array.from(onlineUsers.keys())
         });
 
@@ -455,9 +462,10 @@ const initializeSocket = (io) => {
           notificationData
         );
 
-        // 🔔 SEND PUSH NOTIFICATION IF USER IS OFFLINE
-        if (!isOtherUserOnline) {
-          console.log(`📱 User ${otherUserId} is OFFLINE, sending push notification for chat message`);
+        // 🔔 SEND PUSH NOTIFICATION IF USER IS OFFLINE OR NOT IN THIS CHAT
+        if (!isOtherUserOnline || !isOtherUserInThisChat) {
+          const reason = !isOtherUserOnline ? 'OFFLINE' : 'ON DIFFERENT SCREEN';
+          console.log(`📱 User ${otherUserId} is ${reason}, sending push notification for chat message`);
           try {
             const notificationTemplates = require('../utils/notificationTemplates');
             
@@ -475,7 +483,8 @@ const initializeSocket = (io) => {
             console.log(`📤 Sending notification to ${userType}:`, {
               userId: otherUserId,
               title: `New message from ${senderName}`,
-              message: data.message.substring(0, 50)
+              message: data.message.substring(0, 50),
+              reason
             });
             
             // Send custom notification for chat message
@@ -494,13 +503,13 @@ const initializeSocket = (io) => {
               },
               io
             );
-            console.log(`✅ Push notification sent to offline user ${otherUserId}`);
+            console.log(`✅ Push notification sent to user ${otherUserId} (${reason})`);
           } catch (notifError) {
             console.error('❌ Failed to send chat push notification:', notifError);
             console.error('❌ Error details:', notifError.stack);
           }
         } else {
-          console.log(`✅ User ${otherUserId} is ONLINE, skipping push notification`);
+          console.log(`✅ User ${otherUserId} is ONLINE and IN THIS CHAT, skipping push notification`);
         }
 
         logger.info(
@@ -1286,81 +1295,115 @@ const initializeSocket = (io) => {
           callTimeouts.set(consultationId, timeoutId);
           console.log(`⏰ Call timeout set for consultation ${consultationId}`);
         } else {
-          console.warn(`❌ Provider ${to} NOT FOUND ONLINE`);
-          console.log(`🔍 Provider online check:`, {
-            providerId: to,
-            hasSocketsInMap: !!providerSockets,
-            socketCount: providerSockets ? providerSockets.length : 0,
-            allOnlineUsers: Array.from(onlineUsers.keys())
-          });
-          
-          console.log(`📱 Sending push notification to OFFLINE provider...`);
-          
-          // 🔔 SEND PUSH NOTIFICATION TO OFFLINE PROVIDER
+          // 🔔 PROVIDER IS OFFLINE - SEND PUSH NOTIFICATION WITH CALL RINGTONE
+          console.log(`📱 Provider ${to} is OFFLINE, sending push notification for incoming call`);
           try {
             const notificationTemplates = require('../utils/notificationTemplates');
             
-            console.log(`📤 Calling notificationTemplates.incomingCall with:`, {
+            // Determine user type
+            let userType = 'user';
+            const Guest = require('../models/Guest.model');
+            const isGuest = await Guest.findById(to);
+            if (isGuest) {
+              userType = 'guest';
+              console.log(`👤 Provider ${to} is a GUEST`);
+            } else {
+              console.log(`👤 Provider ${to} is a REGULAR USER`);
+            }
+            
+            console.log(`📤 Sending call notification to ${userType}:`, {
               userId: to,
-              userType: 'user',
-              consultationId,
-              callerName: fromName || 'A user',
-              callType: callType || 'video'
+              title: `Incoming ${callType} call`,
+              from: fromName,
+              consultationId
             });
             
+            // Send incoming call notification
             await notificationTemplates.incomingCall(
               to,
-              'user', // Provider is a user
+              userType,
+              fromName || 'User',
+              callType,
               consultationId,
-              fromName || 'A user',
-              callType || 'video',
               io
             );
             console.log(`✅ Push notification sent to offline provider ${to}`);
           } catch (notifError) {
-            console.error('❌ Failed to send push notification:', notifError);
+            console.error('❌ Failed to send call push notification:', notifError);
             console.error('❌ Error details:', notifError.stack);
           }
           
-          // FALLBACK: Still broadcast to consultation rooms in case provider is connected but not tracked properly
-          console.log(`📡 Broadcasting call request to consultation rooms as fallback...`);
-          
-          // Send to regular consultation room (mobile app format)
-          io.to(`consultation:${consultationId}`).emit(
-            "consultation:call-request",
-            {
-              consultationId,
-              callType,
-              from: userId,
-              fromName,
-              message,
-              timestamp: new Date().toISOString(),
-            }
-          );
+          // Set timeout for call (60 seconds) - same as online case
+          const timeoutId = setTimeout(async () => {
+            try {
+              const Consultation = require("../models/Consultation.model");
+              const consultation = await Consultation.findById(consultationId);
 
-          // Send to billing room (web app format)
-          io.to(`billing:${consultationId}`).emit("consultation:call-request", {
-            consultationId,
-            callType,
-            from: userId,
-            fromName,
-            message,
-            timestamp: new Date().toISOString(),
-          });
-          
-          console.log(`📡 Fallback broadcast completed`);
-          
-          // Still send offline message to caller as backup
-          socket.emit("consultation:call-failed", {
-            consultationId,
-            message: "Provider is offline. Notification sent.",
-          });
+              if (consultation && consultation.status === "pending") {
+                console.log(
+                  `⏰ Auto-rejecting call ${consultationId} - provider didn't answer within 1 minute`
+                );
+
+                consultation.status = "rejected";
+                consultation.endTime = new Date();
+                consultation.endReason = "timeout_no_answer";
+                consultation.duration = 0;
+                consultation.totalAmount = 0;
+                await consultation.save();
+
+                console.log(
+                  `✅ Consultation ${consultationId} status updated to 'rejected' due to timeout`
+                );
+              }
+            } catch (dbError) {
+              console.error(
+                `❌ Error updating consultation status for timeout ${consultationId}:`,
+                dbError
+              );
+            }
+
+            socket.emit("consultation:call-timeout", {
+              consultationId,
+              message: "Provider did not answer the call",
+              status: "rejected",
+              reason: "timeout_no_answer",
+            });
+
+            io.to(`consultation:${consultationId}`).emit(
+              "consultation:call-timeout",
+              {
+                consultationId,
+                message: "Provider did not answer the call",
+                status: "rejected",
+                reason: "timeout_no_answer",
+                timestamp: new Date().toISOString(),
+              }
+            );
+
+            io.to(`billing:${consultationId}`).emit(
+              "consultation:call-timeout",
+              {
+                consultationId,
+                message: "Provider did not answer the call",
+                status: "rejected",
+                reason: "timeout_no_answer",
+                timestamp: new Date().toISOString(),
+              }
+            );
+
+            console.log(
+              `⏰ Call timeout sent for consultation ${consultationId} - status set to rejected`
+            );
+
+            callTimeouts.delete(consultationId);
+          }, 60000);
+
+          callTimeouts.set(consultationId, timeoutId);
+          console.log(`⏰ Call timeout set for consultation ${consultationId}`);
         }
       } catch (error) {
-        console.error("Error handling call request:", error);
-        socket.emit("consultation:call-failed", {
-          message: "Failed to send call request",
-        });
+        console.error("❌ Error handling call request:", error);
+        socket.emit("error", { message: "Failed to send call request" });
       }
     });
 
@@ -1892,6 +1935,36 @@ const initializeSocket = (io) => {
 
     // ===== END CHAT SYSTEM EVENTS =====
 
+    // ===== ACTIVE CHAT ROOM TRACKING =====
+    // Track when user enters a specific chat screen (actively viewing)
+    socket.on("consultation:room-focus", (data) => {
+      const { consultationId } = data;
+      
+      // Mark user as actively viewing this consultation
+      activeChatRooms.set(userId, consultationId);
+      
+      console.log(`👁️ User ${userId} is now ACTIVELY VIEWING consultation ${consultationId}`);
+      console.log(`📊 Active chat rooms:`, Array.from(activeChatRooms.entries()));
+    });
+
+    // Track when user exits a specific chat screen (no longer viewing)
+    socket.on("consultation:room-blur", (data) => {
+      const { consultationId } = data;
+      
+      // Remove user from active chat room tracking
+      const currentActiveRoom = activeChatRooms.get(userId);
+      
+      if (currentActiveRoom === consultationId) {
+        activeChatRooms.delete(userId);
+        console.log(`👁️ User ${userId} is NO LONGER viewing consultation ${consultationId}`);
+      } else {
+        console.log(`⚠️ User ${userId} blur event for ${consultationId} but was viewing ${currentActiveRoom}`);
+      }
+      
+      console.log(`📊 Active chat rooms:`, Array.from(activeChatRooms.entries()));
+    });
+    // ===== END ACTIVE CHAT ROOM TRACKING =====
+
     // Handle disconnect
     socket.on("disconnect", () => {
       logger.info(`User disconnected: ${userId}`);
@@ -1907,6 +1980,13 @@ const initializeSocket = (io) => {
         // If no more sockets for this user, set a debounced offline timeout
         if (userSockets.length === 0) {
           onlineUsers.delete(userId);
+          
+          // Clean up active chat room tracking
+          if (activeChatRooms.has(userId)) {
+            const activeRoom = activeChatRooms.get(userId);
+            activeChatRooms.delete(userId);
+            console.log(`🧹 Cleaned up active chat room tracking for user ${userId} (was viewing ${activeRoom})`);
+          }
 
           // Set a 3-second delay before marking user as offline
           // This prevents rapid online/offline flashing due to brief disconnections

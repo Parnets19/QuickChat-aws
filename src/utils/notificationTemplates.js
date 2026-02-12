@@ -29,7 +29,7 @@ const notificationTemplates = {
     });
   },
 
-  incomingCall: async (userId, userType, consultationId, callerName, callType, io) => {
+  incomingCall: async (userId, userType, callerName, callType, consultationId, io) => {
     console.log(`📞 notificationTemplates.incomingCall called:`, {
       userId,
       userType,
@@ -44,7 +44,18 @@ const notificationTemplates = {
       title: `Incoming ${callType} Call`,
       message: `${callerName} is calling you`,
       type: 'consultation',
-      data: { consultationId, callerName, callType, action: 'incoming_call' },
+      data: { 
+        consultationId, 
+        callerName, 
+        callType, 
+        action: 'incoming_call',
+        fromName: callerName,
+        // Add extra data for notification tap handling
+        from: userId,
+        sound: 'default', // Use default ringtone
+        priority: 'high',
+        channelId: 'incoming_calls'
+      },
       io
     });
     

@@ -72,6 +72,32 @@ const sendPushNotification = async (notification) => {
       token: Array.isArray(notification.token) ? notification.token[0] : notification.token,
     };
 
+    // Add Android-specific configuration for incoming calls
+    if (notification.data?.action === 'incoming_call') {
+      message.android = {
+        priority: 'high',
+        notification: {
+          channelId: 'incoming_calls',
+          sound: 'default',
+          priority: 'high',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          tag: notification.data.consultationId, // Group notifications by consultation
+        },
+      };
+      
+      // Add APNS configuration for iOS
+      message.apns = {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            'content-available': 1,
+          },
+        },
+      };
+    }
+
     await admin.messaging().send(message);
     logger.info('Push notification sent successfully');
     return true;
@@ -101,7 +127,33 @@ const sendMulticastNotification = async (notification) => {
       tokens: notification.token,
     };
 
-    const response = await admin.messaging().sendMulticast(message);
+    // Add Android-specific configuration for incoming calls
+    if (notification.data?.action === 'incoming_call') {
+      message.android = {
+        priority: 'high',
+        notification: {
+          channelId: 'incoming_calls',
+          sound: 'default',
+          priority: 'high',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          tag: notification.data.consultationId, // Group notifications by consultation
+        },
+      };
+      
+      // Add APNS configuration for iOS
+      message.apns = {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            'content-available': 1,
+          },
+        },
+      };
+    }
+
+    const response = await admin.messaging().sendEachForMulticast(message);
     logger.info(`Push notifications sent: ${response.successCount} success, ${response.failureCount} failed`);
     return true;
   } catch (error) {
