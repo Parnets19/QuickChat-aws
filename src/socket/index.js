@@ -414,6 +414,13 @@ const initializeSocket = (io) => {
         const otherUserSockets = onlineUsers.get(otherUserId);
         const isOtherUserOnline = otherUserSockets && otherUserSockets.length > 0;
 
+        console.log(`🔍 Checking if user ${otherUserId} is online:`, {
+          hasSocketsInMap: !!otherUserSockets,
+          socketCount: otherUserSockets ? otherUserSockets.length : 0,
+          isOnline: isOtherUserOnline,
+          allOnlineUsers: Array.from(onlineUsers.keys())
+        });
+
         // Update unread count for the other user
         const unreadCountUpdate = {
           consultationId: data.consultationId,
@@ -450,7 +457,7 @@ const initializeSocket = (io) => {
 
         // 🔔 SEND PUSH NOTIFICATION IF USER IS OFFLINE
         if (!isOtherUserOnline) {
-          console.log(`📱 User ${otherUserId} is offline, sending push notification for chat message`);
+          console.log(`📱 User ${otherUserId} is OFFLINE, sending push notification for chat message`);
           try {
             const notificationTemplates = require('../utils/notificationTemplates');
             
@@ -460,7 +467,16 @@ const initializeSocket = (io) => {
             const isGuest = await Guest.findById(otherUserId);
             if (isGuest) {
               userType = 'guest';
+              console.log(`👤 User ${otherUserId} is a GUEST`);
+            } else {
+              console.log(`👤 User ${otherUserId} is a REGULAR USER`);
             }
+            
+            console.log(`📤 Sending notification to ${userType}:`, {
+              userId: otherUserId,
+              title: `New message from ${senderName}`,
+              message: data.message.substring(0, 50)
+            });
             
             // Send custom notification for chat message
             await notificationTemplates.custom(
@@ -481,7 +497,10 @@ const initializeSocket = (io) => {
             console.log(`✅ Push notification sent to offline user ${otherUserId}`);
           } catch (notifError) {
             console.error('❌ Failed to send chat push notification:', notifError);
+            console.error('❌ Error details:', notifError.stack);
           }
+        } else {
+          console.log(`✅ User ${otherUserId} is ONLINE, skipping push notification`);
         }
 
         logger.info(
@@ -1267,11 +1286,28 @@ const initializeSocket = (io) => {
           callTimeouts.set(consultationId, timeoutId);
           console.log(`⏰ Call timeout set for consultation ${consultationId}`);
         } else {
-          console.warn(`❌ Provider ${to} not found online. Sending push notification...`);
+          console.warn(`❌ Provider ${to} NOT FOUND ONLINE`);
+          console.log(`🔍 Provider online check:`, {
+            providerId: to,
+            hasSocketsInMap: !!providerSockets,
+            socketCount: providerSockets ? providerSockets.length : 0,
+            allOnlineUsers: Array.from(onlineUsers.keys())
+          });
+          
+          console.log(`📱 Sending push notification to OFFLINE provider...`);
           
           // 🔔 SEND PUSH NOTIFICATION TO OFFLINE PROVIDER
           try {
             const notificationTemplates = require('../utils/notificationTemplates');
+            
+            console.log(`📤 Calling notificationTemplates.incomingCall with:`, {
+              userId: to,
+              userType: 'user',
+              consultationId,
+              callerName: fromName || 'A user',
+              callType: callType || 'video'
+            });
+            
             await notificationTemplates.incomingCall(
               to,
               'user', // Provider is a user
@@ -1283,6 +1319,7 @@ const initializeSocket = (io) => {
             console.log(`✅ Push notification sent to offline provider ${to}`);
           } catch (notifError) {
             console.error('❌ Failed to send push notification:', notifError);
+            console.error('❌ Error details:', notifError.stack);
           }
           
           // FALLBACK: Still broadcast to consultation rooms in case provider is connected but not tracked properly

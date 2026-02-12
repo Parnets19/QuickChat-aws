@@ -26,6 +26,15 @@ const createNotification = async (options) => {
       io
     } = options;
 
+    console.log(`🔔 createNotification called:`, {
+      userId,
+      userType,
+      title,
+      message: message.substring(0, 50),
+      type,
+      sendPush
+    });
+
     // Create notification in database (only for users, not guests/admins for now)
     let notification;
     if (userType === 'user') {
@@ -38,6 +47,7 @@ const createNotification = async (options) => {
         isRead: false
       });
       await notification.save();
+      console.log(`💾 Notification saved to database:`, notification._id);
     }
 
     // Send real-time notification via socket if io instance is provided
@@ -52,6 +62,7 @@ const createNotification = async (options) => {
         isRead: false,
         createdAt: new Date()
       });
+      console.log(`📡 Real-time notification sent to socket room: ${socketRoom}`);
     }
 
     // Send push notification if enabled
@@ -59,10 +70,13 @@ const createNotification = async (options) => {
       try {
         const { firebaseInitialized } = require('./firebase');
         
+        console.log(`🔥 Firebase initialized:`, firebaseInitialized);
+        
         if (firebaseInitialized) {
           let targetUser;
           
           // Get FCM tokens based on user type
+          console.log(`🔍 Looking up ${userType} with ID: ${userId}`);
           switch (userType) {
             case 'user':
               targetUser = await User.findById(userId).select('fcmTokens');
@@ -74,14 +88,24 @@ const createNotification = async (options) => {
               targetUser = await Admin.findById(userId).select('fcmTokens');
               break;
             default:
-              console.warn(`Unknown user type: ${userType}`);
+              console.warn(`❌ Unknown user type: ${userType}`);
               return notification;
           }
           
+          console.log(`👤 Target user found:`, {
+            userId,
+            userType,
+            hasFcmTokens: !!targetUser?.fcmTokens,
+            tokenCount: targetUser?.fcmTokens?.length || 0,
+            tokens: targetUser?.fcmTokens
+          });
+          
           if (targetUser && targetUser.fcmTokens && targetUser.fcmTokens.length > 0) {
+            console.log(`📤 Sending push notification to ${targetUser.fcmTokens.length} device(s)`);
+            
             // Send to all registered devices
             if (targetUser.fcmTokens.length === 1) {
-              await sendPushNotification({
+              const result = await sendPushNotification({
                 title,
                 body: message,
                 token: targetUser.fcmTokens[0],
@@ -92,8 +116,9 @@ const createNotification = async (options) => {
                   ...data
                 }
               });
+              console.log(`✅ Single push notification sent:`, result);
             } else {
-              await sendMulticastNotification({
+              const result = await sendMulticastNotification({
                 title,
                 body: message,
                 token: targetUser.fcmTokens,

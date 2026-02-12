@@ -30,7 +30,15 @@ const notificationTemplates = {
   },
 
   incomingCall: async (userId, userType, consultationId, callerName, callType, io) => {
-    return await createNotification({
+    console.log(`📞 notificationTemplates.incomingCall called:`, {
+      userId,
+      userType,
+      consultationId,
+      callerName,
+      callType
+    });
+    
+    const result = await createNotification({
       userId,
       userType,
       title: `Incoming ${callType} Call`,
@@ -39,6 +47,9 @@ const notificationTemplates = {
       data: { consultationId, callerName, callType, action: 'incoming_call' },
       io
     });
+    
+    console.log(`📞 notificationTemplates.incomingCall result:`, result ? 'Success' : 'Failed');
+    return result;
   },
 
   callMissed: async (userId, userType, consultationId, callerName, io) => {
