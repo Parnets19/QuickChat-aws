@@ -58,11 +58,19 @@ if (!admin.apps.length) {
 
 const sendPushNotification = async (notification) => {
   if (!firebaseInitialized) {
-    logger.warn('Firebase not initialized. Skipping push notification.');
-    return false;
+    console.warn('⚠️ Firebase not initialized. Skipping push notification.');
+    return { success: false, error: 'Firebase not initialized' };
   }
 
   try {
+    console.log('📤 Preparing to send push notification:', {
+      title: notification.title,
+      body: notification.body?.substring(0, 50),
+      hasToken: !!notification.token,
+      tokenPreview: notification.token ? notification.token.substring(0, 20) + '...' : 'none',
+      dataKeys: Object.keys(notification.data || {})
+    });
+
     const message = {
       notification: {
         title: notification.title,
@@ -96,27 +104,45 @@ const sendPushNotification = async (notification) => {
           },
         },
       };
+      
+      console.log('📞 Incoming call notification configured with high priority');
     }
 
-    await admin.messaging().send(message);
-    logger.info('Push notification sent successfully');
-    return true;
+    const response = await admin.messaging().send(message);
+    console.log('✅ Push notification sent successfully:', response);
+    return { success: true, messageId: response };
   } catch (error) {
-    logger.error('Push notification error:', error);
-    return false;
+    console.error('❌ Push notification error:', error);
+    console.error('❌ Error code:', error.code);
+    console.error('❌ Error message:', error.message);
+    
+    // Log specific error types
+    if (error.code === 'messaging/invalid-registration-token' || 
+        error.code === 'messaging/registration-token-not-registered') {
+      console.error('❌ Invalid or expired FCM token - user needs to re-register');
+    }
+    
+    return { success: false, error: error.message };
   }
 };
 
 const sendMulticastNotification = async (notification) => {
   if (!firebaseInitialized) {
-    logger.warn('Firebase not initialized. Skipping multicast notification.');
-    return false;
+    console.warn('⚠️ Firebase not initialized. Skipping multicast notification.');
+    return { success: false, error: 'Firebase not initialized' };
   }
 
   try {
     if (!Array.isArray(notification.token)) {
       notification.token = [notification.token];
     }
+
+    console.log('📤 Preparing to send multicast notification:', {
+      title: notification.title,
+      body: notification.body?.substring(0, 50),
+      tokenCount: notification.token.length,
+      dataKeys: Object.keys(notification.data || {})
+    });
 
     const message = {
       notification: {
@@ -151,14 +177,31 @@ const sendMulticastNotification = async (notification) => {
           },
         },
       };
+      
+      console.log('📞 Multicast incoming call notification configured with high priority');
     }
 
     const response = await admin.messaging().sendEachForMulticast(message);
-    logger.info(`Push notifications sent: ${response.successCount} success, ${response.failureCount} failed`);
-    return true;
+    console.log(`✅ Multicast notifications sent: ${response.successCount} success, ${response.failureCount} failed`);
+    
+    if (response.failureCount > 0) {
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          console.error(`❌ Failed to send to token ${idx}:`, resp.error?.message);
+        }
+      });
+    }
+    
+    return { 
+      success: true, 
+      successCount: response.successCount, 
+      failureCount: response.failureCount 
+    };
   } catch (error) {
-    logger.error('Multicast notification error:', error);
-    return false;
+    console.error('❌ Multicast notification error:', error);
+    console.error('❌ Error code:', error.code);
+    console.error('❌ Error message:', error.message);
+    return { success: false, error: error.message };
   }
 };
 

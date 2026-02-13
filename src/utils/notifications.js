@@ -72,6 +72,12 @@ const createNotification = async (options) => {
         
         console.log(`🔥 Firebase initialized:`, firebaseInitialized);
         
+        if (!firebaseInitialized) {
+          console.error('❌ Firebase not initialized - cannot send push notifications');
+          console.error('❌ Check service_account.json or Firebase environment variables');
+          return notification;
+        }
+        
         if (firebaseInitialized) {
           let targetUser;
           
@@ -92,6 +98,11 @@ const createNotification = async (options) => {
               return notification;
           }
           
+          if (!targetUser) {
+            console.error(`❌ Target user not found: ${userId} (${userType})`);
+            return notification;
+          }
+          
           console.log(`👤 Target user found:`, {
             userId,
             userType,
@@ -100,44 +111,61 @@ const createNotification = async (options) => {
             tokens: targetUser?.fcmTokens
           });
           
+          if (!targetUser.fcmTokens || targetUser.fcmTokens.length === 0) {
+            console.warn(`⚠️ No FCM tokens found for user ${userId} (${userType})`);
+            console.warn(`⚠️ User needs to login and register FCM token`);
+            return notification;
+          }
+          
           if (targetUser && targetUser.fcmTokens && targetUser.fcmTokens.length > 0) {
             console.log(`📤 Sending push notification to ${targetUser.fcmTokens.length} device(s)`);
             
             // Send to all registered devices
             if (targetUser.fcmTokens.length === 1) {
-              const result = await sendPushNotification({
-                title,
-                body: message,
-                token: targetUser.fcmTokens[0],
-                data: {
-                  type,
-                  userType,
-                  notificationId: notification?._id?.toString() || '',
-                  ...data
-                }
-              });
-              console.log(`✅ Single push notification sent:`, result);
+              try {
+                const result = await sendPushNotification({
+                  title,
+                  body: message,
+                  token: targetUser.fcmTokens[0],
+                  data: {
+                    type,
+                    userType,
+                    notificationId: notification?._id?.toString() || '',
+                    ...data
+                  }
+                });
+                console.log(`✅ Single push notification sent successfully:`, result);
+              } catch (pushError) {
+                console.error(`❌ Failed to send push notification:`, pushError);
+                console.error(`❌ Token might be invalid:`, targetUser.fcmTokens[0].substring(0, 20) + '...');
+              }
             } else {
-              const result = await sendMulticastNotification({
-                title,
-                body: message,
-                token: targetUser.fcmTokens,
-                data: {
-                  type,
-                  userType,
-                  notificationId: notification?._id?.toString() || '',
-                  ...data
-                }
-              });
+              try {
+                const result = await sendMulticastNotification({
+                  title,
+                  body: message,
+                  token: targetUser.fcmTokens,
+                  data: {
+                    type,
+                    userType,
+                    notificationId: notification?._id?.toString() || '',
+                    ...data
+                  }
+                });
+                console.log(`✅ Multicast push notification sent:`, result);
+              } catch (pushError) {
+                console.error(`❌ Failed to send multicast notification:`, pushError);
+              }
             }
           }
-        } else {
-          console.log('Firebase not initialized. Skipping push notification.');
         }
       } catch (pushError) {
-        console.error('Error sending push notification:', pushError);
+        console.error('❌ Error in push notification block:', pushError);
+        console.error('❌ Stack trace:', pushError.stack);
         // Don't throw error for push notification failures
       }
+    } else {
+      console.log('⏭️  Push notification disabled (sendPush=false)');
     }
 
     return notification;

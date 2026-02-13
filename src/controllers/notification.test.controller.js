@@ -151,8 +151,90 @@ const checkFirebaseStatus = async (req, res) => {
   }
 };
 
+/**
+ * Test endpoint for incoming call notification
+ * POST /api/test/test-call-notification
+ * Body: { userId, userType, callerName, callType }
+ */
+const testCallNotification = async (req, res) => {
+  try {
+    const { userId, userType = 'user', callerName = 'Test Caller', callType = 'video' } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
+      });
+    }
+
+    console.log('🧪 TEST: Sending call notification:', { userId, userType, callerName, callType });
+
+    // Check if user exists and has FCM tokens
+    let targetUser;
+    if (userType === 'user') {
+      targetUser = await User.findById(userId).select('fcmTokens fullName');
+    } else if (userType === 'guest') {
+      targetUser = await Guest.findById(userId).select('fcmTokens name');
+    }
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        error: `${userType} not found`
+      });
+    }
+
+    console.log('🧪 TEST: User found:', {
+      userId,
+      name: targetUser.fullName || targetUser.name,
+      hasFcmTokens: !!targetUser.fcmTokens,
+      tokenCount: targetUser.fcmTokens?.length || 0
+    });
+
+    if (!targetUser.fcmTokens || targetUser.fcmTokens.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'User has no FCM tokens registered',
+        hint: 'User needs to login on mobile/web to register FCM token'
+      });
+    }
+
+    // Send incoming call notification
+    const notificationTemplates = require('../utils/notificationTemplates');
+    const notification = await notificationTemplates.incomingCall(
+      userId,
+      userType,
+      callerName,
+      callType,
+      'test-consultation-id',
+      req.app.get('io')
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Test call notification sent',
+      data: {
+        notificationId: notification?._id,
+        userId,
+        userType,
+        callerName,
+        callType,
+        fcmTokenCount: targetUser.fcmTokens.length
+      }
+    });
+  } catch (error) {
+    console.error('🧪 TEST: Error sending call notification:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+};
+
 module.exports = {
   testSendNotification,
   checkFCMTokens,
-  checkFirebaseStatus
+  checkFirebaseStatus,
+  testCallNotification
 };

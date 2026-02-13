@@ -3,11 +3,13 @@ const router = express.Router();
 const {
   testSendNotification,
   checkFCMTokens,
-  checkFirebaseStatus
+  checkFirebaseStatus,
+  testCallNotification
 } = require('../controllers/notification.test.controller');
 
 // Test endpoints (should be protected in production)
 router.post('/send-notification', testSendNotification);
+router.post('/test-call-notification', testCallNotification);
 router.get('/check-fcm-tokens/:userId', checkFCMTokens);
 router.get('/firebase-status', checkFirebaseStatus);
 
