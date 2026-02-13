@@ -71,27 +71,36 @@ const sendPushNotification = async (notification) => {
       dataKeys: Object.keys(notification.data || {})
     });
 
+    // CRITICAL FIX: Send data-only message for better foreground handling
+    // Include title and body in data payload so app can display custom notification
     const message = {
-      notification: {
+      data: {
         title: notification.title,
         body: notification.body,
+        ...(notification.data || {}),
       },
-      data: notification.data || {},
       token: Array.isArray(notification.token) ? notification.token[0] : notification.token,
     };
 
-    // Add Android-specific configuration for incoming calls
+    // Add Android-specific configuration
+    message.android = {
+      priority: 'high',
+    };
+
+    // For incoming calls, add notification payload for background/killed app state
     if (notification.data?.action === 'incoming_call') {
-      message.android = {
+      message.notification = {
+        title: notification.title,
+        body: notification.body,
+      };
+      
+      message.android.notification = {
+        channelId: 'incoming_calls',
+        sound: 'default',
         priority: 'high',
-        notification: {
-          channelId: 'incoming_calls',
-          sound: 'default',
-          priority: 'high',
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          tag: notification.data.consultationId, // Group notifications by consultation
-        },
+        defaultSound: true,
+        defaultVibrateTimings: true,
+        tag: notification.data.consultationId,
       };
       
       // Add APNS configuration for iOS
@@ -106,6 +115,12 @@ const sendPushNotification = async (notification) => {
       };
       
       console.log('📞 Incoming call notification configured with high priority');
+    } else {
+      // For other notifications, add notification payload for background
+      message.notification = {
+        title: notification.title,
+        body: notification.body,
+      };
     }
 
     const response = await admin.messaging().send(message);
