@@ -317,6 +317,21 @@ const initializeSocket = (io) => {
           console.log("📨 BACKEND: File details:", data.file);
         }
 
+        // ✅ CHECK IF SENDER IS ACTIVE/ONLINE
+        const senderSockets = onlineUsers.get(userId);
+        const isSenderOnline = senderSockets && senderSockets.length > 0;
+        
+        if (!isSenderOnline) {
+          console.log(`❌ BACKEND: User ${userId} is not active/online, cannot send message`);
+          socket.emit("error", { 
+            message: "You must be online to send messages",
+            code: "USER_OFFLINE"
+          });
+          return;
+        }
+        
+        console.log(`✅ BACKEND: Sender ${userId} is active with ${senderSockets.length} socket(s)`);
+
         const consultation = await Consultation.findById(data.consultationId);
 
         if (!consultation) {
@@ -462,54 +477,53 @@ const initializeSocket = (io) => {
           notificationData
         );
 
-        // 🔔 SEND PUSH NOTIFICATION IF USER IS OFFLINE OR NOT IN THIS CHAT
-        if (!isOtherUserOnline || !isOtherUserInThisChat) {
-          const reason = !isOtherUserOnline ? 'OFFLINE' : 'ON DIFFERENT SCREEN';
-          console.log(`📱 User ${otherUserId} is ${reason}, sending push notification for chat message`);
-          try {
-            const notificationTemplates = require('../utils/notificationTemplates');
-            
-            // Determine user type
-            let userType = 'user';
-            const Guest = require('../models/Guest.model');
-            const isGuest = await Guest.findById(otherUserId);
-            if (isGuest) {
-              userType = 'guest';
-              console.log(`👤 User ${otherUserId} is a GUEST`);
-            } else {
-              console.log(`👤 User ${otherUserId} is a REGULAR USER`);
-            }
-            
-            console.log(`📤 Sending notification to ${userType}:`, {
-              userId: otherUserId,
-              title: `New message from ${senderName}`,
-              message: data.message.substring(0, 50),
-              reason
-            });
-            
-            // Send custom notification for chat message
-            await notificationTemplates.custom(
-              otherUserId,
-              userType,
-              `New message from ${senderName}`,
-              data.message.length > 50 ? data.message.substring(0, 50) + '...' : data.message,
-              'consultation',
-              {
-                consultationId: data.consultationId,
-                senderId: userId,
-                senderName: senderName,
-                messageType: data.type || 'text',
-                action: 'new_message'
-              },
-              io
-            );
-            console.log(`✅ Push notification sent to user ${otherUserId} (${reason})`);
-          } catch (notifError) {
-            console.error('❌ Failed to send chat push notification:', notifError);
-            console.error('❌ Error details:', notifError.stack);
+        // 🔔 ALWAYS SEND PUSH NOTIFICATION FOR CHAT MESSAGES
+        // Let the mobile app decide whether to show it based on foreground state
+        // This ensures notifications work even if app is in background or device is locked
+        console.log(`📱 Sending push notification for chat message to user ${otherUserId}`);
+        console.log(`📊 User status: online=${isOtherUserOnline}, inThisChat=${isOtherUserInThisChat}`);
+        
+        try {
+          const notificationTemplates = require('../utils/notificationTemplates');
+          
+          // Determine user type
+          let userType = 'user';
+          const Guest = require('../models/Guest.model');
+          const isGuest = await Guest.findById(otherUserId);
+          if (isGuest) {
+            userType = 'guest';
+            console.log(`👤 User ${otherUserId} is a GUEST`);
+          } else {
+            console.log(`👤 User ${otherUserId} is a REGULAR USER`);
           }
-        } else {
-          console.log(`✅ User ${otherUserId} is ONLINE and IN THIS CHAT, skipping push notification`);
+          
+          console.log(`📤 Sending notification to ${userType}:`, {
+            userId: otherUserId,
+            title: `New message from ${senderName}`,
+            message: data.message.substring(0, 50),
+            consultationId: data.consultationId
+          });
+          
+          // Send custom notification for chat message
+          await notificationTemplates.custom(
+            otherUserId,
+            userType,
+            `New message from ${senderName}`,
+            data.message.length > 50 ? data.message.substring(0, 50) + '...' : data.message,
+            'consultation',
+            {
+              consultationId: data.consultationId,
+              senderId: userId,
+              senderName: senderName,
+              messageType: data.type || 'text',
+              action: 'new_message'
+            },
+            io
+          );
+          console.log(`✅ Push notification sent to user ${otherUserId}`);
+        } catch (notifError) {
+          console.error('❌ Failed to send chat push notification:', notifError);
+          console.error('❌ Error details:', notifError.stack);
         }
 
         logger.info(
@@ -1192,6 +1206,45 @@ const initializeSocket = (io) => {
           });
 
           console.log(`✅ Call notification sent to provider ${to}`);
+
+          // 🔔 ALWAYS SEND PUSH NOTIFICATION FOR INCOMING CALLS
+          // Even if provider is online, they might have app in background
+          console.log(`📱 Sending push notification to provider ${to} (online but may be in background)`);
+          try {
+            const notificationTemplates = require('../utils/notificationTemplates');
+            
+            // Determine user type
+            let userType = 'user';
+            const Guest = require('../models/Guest.model');
+            const isGuest = await Guest.findById(to);
+            if (isGuest) {
+              userType = 'guest';
+              console.log(`👤 Provider ${to} is a GUEST`);
+            } else {
+              console.log(`👤 Provider ${to} is a REGULAR USER`);
+            }
+            
+            console.log(`📤 Sending call notification to ${userType}:`, {
+              userId: to,
+              title: `Incoming ${callType} call`,
+              from: fromName,
+              consultationId
+            });
+            
+            // Send incoming call notification
+            await notificationTemplates.incomingCall(
+              to,
+              userType,
+              fromName || 'User',
+              callType,
+              consultationId,
+              io
+            );
+            console.log(`✅ Push notification sent to provider ${to} (online)`);
+          } catch (notifError) {
+            console.error('❌ Failed to send call push notification:', notifError);
+            console.error('❌ Error details:', notifError.stack);
+          }
 
           // CROSS-PLATFORM FIX: Also broadcast to both room types
           // This ensures calls work regardless of which room format is used

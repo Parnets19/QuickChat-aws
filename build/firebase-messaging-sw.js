@@ -24,11 +24,13 @@ messaging.onBackgroundMessage((payload) => {
   const notificationTitle = payload.notification?.title || 'QuickChat';
   const notificationOptions = {
     body: payload.notification?.body || 'New notification',
-    icon: '/logo192.png',
-    badge: '/logo192.png',
+    icon: '/android-chrome-192x192.png',
+    badge: '/favicon-32x32.png',
     data: payload.data,
     tag: payload.data?.consultationId || 'default',
     requireInteraction: payload.data?.type === 'consultation' && payload.data?.action === 'incoming_call',
+    vibrate: [200, 100, 200],
+    silent: false,
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);
