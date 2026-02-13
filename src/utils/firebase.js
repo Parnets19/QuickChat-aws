@@ -71,9 +71,14 @@ const sendPushNotification = async (notification) => {
       dataKeys: Object.keys(notification.data || {})
     });
 
-    // CRITICAL FIX: Send data-only message for better foreground handling
-    // Include title and body in data payload so app can display custom notification
+    // CRITICAL: Send BOTH notification and data payloads for maximum compatibility
+    // - notification: Shows system notification in background/killed state
+    // - data: Allows custom handling in foreground
     const message = {
+      notification: {
+        title: notification.title,
+        body: notification.body,
+      },
       data: {
         title: notification.title,
         body: notification.body,
@@ -87,13 +92,8 @@ const sendPushNotification = async (notification) => {
       priority: 'high',
     };
 
-    // For incoming calls, add notification payload for background/killed app state
+    // For incoming calls, add special configuration
     if (notification.data?.action === 'incoming_call') {
-      message.notification = {
-        title: notification.title,
-        body: notification.body,
-      };
-      
       message.android.notification = {
         channelId: 'incoming_calls',
         sound: 'default',
@@ -115,11 +115,20 @@ const sendPushNotification = async (notification) => {
       };
       
       console.log('📞 Incoming call notification configured with high priority');
+    } else if (notification.data?.action === 'new_message') {
+      // For chat messages, use default channel
+      message.android.notification = {
+        channelId: 'default',
+        sound: 'default',
+        priority: 'high',
+      };
+      
+      console.log('💬 Chat message notification configured');
     } else {
-      // For other notifications, add notification payload for background
-      message.notification = {
-        title: notification.title,
-        body: notification.body,
+      // For other notifications
+      message.android.notification = {
+        channelId: 'default',
+        sound: 'default',
       };
     }
 
@@ -164,7 +173,11 @@ const sendMulticastNotification = async (notification) => {
         title: notification.title,
         body: notification.body,
       },
-      data: notification.data || {},
+      data: {
+        title: notification.title,
+        body: notification.body,
+        ...(notification.data || {}),
+      },
       tokens: notification.token,
     };
 
@@ -194,6 +207,18 @@ const sendMulticastNotification = async (notification) => {
       };
       
       console.log('📞 Multicast incoming call notification configured with high priority');
+    } else if (notification.data?.action === 'new_message') {
+      // For chat messages
+      message.android = {
+        priority: 'high',
+        notification: {
+          channelId: 'default',
+          sound: 'default',
+          priority: 'high',
+        },
+      };
+      
+      console.log('💬 Multicast chat message notification configured');
     }
 
     const response = await admin.messaging().sendEachForMulticast(message);

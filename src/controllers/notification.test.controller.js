@@ -232,9 +232,99 @@ const testCallNotification = async (req, res) => {
   }
 };
 
+/**
+ * Test endpoint for chat message notification
+ * POST /api/test/test-chat-notification
+ * Body: { userId, userType, senderName, message }
+ */
+const testChatNotification = async (req, res) => {
+  try {
+    const { userId, userType = 'user', senderName = 'Test User', message = 'This is a test message' } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
+      });
+    }
+
+    console.log('🧪 TEST: Sending chat notification:', { userId, userType, senderName, message });
+
+    // Check if user exists and has FCM tokens
+    let targetUser;
+    if (userType === 'user') {
+      targetUser = await User.findById(userId).select('fcmTokens fullName');
+    } else if (userType === 'guest') {
+      targetUser = await Guest.findById(userId).select('fcmTokens name');
+    }
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        error: `${userType} not found`
+      });
+    }
+
+    console.log('🧪 TEST: User found:', {
+      userId,
+      name: targetUser.fullName || targetUser.name,
+      hasFcmTokens: !!targetUser.fcmTokens,
+      tokenCount: targetUser.fcmTokens?.length || 0
+    });
+
+    if (!targetUser.fcmTokens || targetUser.fcmTokens.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'User has no FCM tokens registered',
+        hint: 'User needs to login on mobile/web to register FCM token'
+      });
+    }
+
+    // Send chat message notification
+    const notificationTemplates = require('../utils/notificationTemplates');
+    const notification = await notificationTemplates.custom(
+      userId,
+      userType,
+      `New message from ${senderName}`,
+      message,
+      'consultation',
+      {
+        chatId: 'test-chat-id',
+        consultationId: 'test-consultation-id',
+        senderId: 'test-sender-id',
+        senderName: senderName,
+        messageType: 'text',
+        action: 'new_message'
+      },
+      req.app.get('io')
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Test chat notification sent',
+      data: {
+        notificationId: notification?._id,
+        userId,
+        userType,
+        senderName,
+        messagePreview: message.substring(0, 50),
+        fcmTokenCount: targetUser.fcmTokens.length
+      }
+    });
+  } catch (error) {
+    console.error('🧪 TEST: Error sending chat notification:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+};
+
 module.exports = {
   testSendNotification,
   checkFCMTokens,
   checkFirebaseStatus,
-  testCallNotification
+  testCallNotification,
+  testChatNotification
 };
