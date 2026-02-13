@@ -333,6 +333,54 @@ const sendMessage = async (req, res, next) => {
         });
 
         console.log("🔔 Targeted notification sent to receiver:", receiverId);
+        
+        // 🔔 SEND FIREBASE PUSH NOTIFICATION
+        // Convert receiverId to string to ensure compatibility
+        const receiverIdString = receiverId.toString();
+        console.log(`📱 Sending Firebase push notification to user ${receiverIdString}`);
+        try {
+          const notificationTemplates = require('../utils/notificationTemplates');
+          
+          // Determine receiver type
+          let receiverType = 'user';
+          const Guest = require('../models/Guest.model');
+          const isReceiverGuest = await Guest.findById(receiverIdString);
+          if (isReceiverGuest) {
+            receiverType = 'guest';
+            console.log(`👤 Receiver ${receiverIdString} is a GUEST`);
+          } else {
+            console.log(`👤 Receiver ${receiverIdString} is a REGULAR USER`);
+          }
+          
+          console.log(`📤 Sending push notification to ${receiverType}:`, {
+            userId: receiverIdString,
+            title: `New message from ${chatMessage.senderName}`,
+            message: message.trim().substring(0, 50),
+            chatId: chat._id
+          });
+          
+          // Send custom notification for chat message
+          await notificationTemplates.custom(
+            receiverIdString,
+            receiverType,
+            `New message from ${chatMessage.senderName}`,
+            message.trim().length > 50 ? message.trim().substring(0, 50) + '...' : message.trim(),
+            'consultation',
+            {
+              chatId: chat._id.toString(),
+              consultationId: chat._id.toString(),
+              senderId: senderId.toString(),
+              senderName: chatMessage.senderName,
+              messageType: 'text',
+              action: 'new_message'
+            },
+            io
+          );
+          console.log(`✅ Firebase push notification sent to user ${receiverIdString}`);
+        } catch (notifError) {
+          console.error('❌ Failed to send Firebase push notification:', notifError);
+          console.error('❌ Error details:', notifError.stack);
+        }
       } else {
         console.log(
           "🔔 Skipping notification - sender and receiver are the same"
