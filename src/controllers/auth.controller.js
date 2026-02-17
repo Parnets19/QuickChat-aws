@@ -197,6 +197,7 @@ const register = async (req, res, next) => {
       profilePhoto,
       aadharDocuments,
       portfolioMedia,
+      portfolioLinks,
       bankDetails,
       isServiceProvider,
     } = req.body;
@@ -294,6 +295,8 @@ const register = async (req, res, next) => {
     if (aadharDocuments) userData.aadharDocuments = aadharDocuments;
     if (portfolioMedia && portfolioMedia.length > 0)
       userData.portfolioMedia = portfolioMedia;
+    if (portfolioLinks && portfolioLinks.length > 0)
+      userData.portfolioLinks = portfolioLinks;
     if (serviceCategories && serviceCategories.length > 0) {
       // Handle both ObjectId references and plain strings
       userData.serviceCategories = serviceCategories.map((cat) => {

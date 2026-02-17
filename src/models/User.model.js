@@ -65,6 +65,12 @@ const UserSchema = new mongoose.Schema(
         url: String,
       },
     ],
+    portfolioLinks: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     serviceCategories: [
       {
         type: mongoose.Schema.Types.Mixed, // Accepts both ObjectId and String

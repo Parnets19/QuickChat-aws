@@ -929,7 +929,7 @@ const searchProviders = async (req, res, next) => {
 const getUserDocuments = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id).select(
-      "profilePhoto aadharDocuments portfolioMedia aadharNumber isAadharVerified"
+      "profilePhoto aadharDocuments portfolioMedia portfolioLinks aadharNumber isAadharVerified"
     );
 
     if (!user) {
@@ -1073,6 +1073,7 @@ const getUserDocuments = async (req, res, next) => {
       success: true,
       data: {
         documents,
+        portfolioLinks: user.portfolioLinks || [],
         summary: {
           total: documents.length,
           verified: documents.filter((d) => d.status === "verified").length,
