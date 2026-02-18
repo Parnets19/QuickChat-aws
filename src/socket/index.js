@@ -1136,10 +1136,21 @@ const initializeSocket = (io) => {
           `📹 User ${userId} requesting video upgrade for consultation ${data.consultationId}`
         );
 
-        // Get sender information
-        const senderUser = await User.findById(userId).select('fullName name profilePhoto');
-        const senderName = senderUser?.fullName || senderUser?.name || 'User';
-        const senderPhoto = senderUser?.profilePhoto || null;
+        // Get sender information - check if user is a guest
+        let senderUser, senderName, senderPhoto;
+        
+        // Try to find as regular user first
+        senderUser = await User.findById(userId).select('fullName name profilePhoto');
+        
+        // If not found, try as guest
+        if (!senderUser) {
+          senderUser = await Guest.findById(userId).select('name profilePhoto');
+        }
+        
+        senderName = senderUser?.fullName || senderUser?.name || 'User';
+        senderPhoto = senderUser?.profilePhoto || null;
+        
+        console.log(`📹 Sender info: ${senderName} (${userId})`);
 
         // Broadcast upgrade request to other participants
         socket
