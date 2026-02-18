@@ -68,4 +68,8 @@ router.post('/bulk-verify-providers', adminController.bulkVerifyExistingProvider
 // Utility routes
 router.post('/fix-user-roles', adminController.fixUserRoles);
 
+// Reports and Blocks management routes
+router.get('/reports-blocks', adminController.getReportsAndBlocks);
+router.put('/reports/:userId/:reportId/status', adminController.updateReportStatus);
+
 module.exports = router;

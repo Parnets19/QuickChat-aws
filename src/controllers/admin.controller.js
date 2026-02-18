@@ -917,6 +917,161 @@ const fixUserRoles = async (req, res) => {
   }
 };
 
+// Get all reports and blocks
+const getReportsAndBlocks = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      type = 'all', // 'reports', 'blocks', or 'all'
+      status = 'all', // 'pending', 'reviewed', 'resolved', or 'all'
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Get all users with reports or blocks
+    const users = await User.find({
+      $or: [
+        { 'reportedUsers.0': { $exists: true } },
+        { 'blockedUsers.0': { $exists: true } }
+      ]
+    })
+    .select('fullName email mobile reportedUsers blockedUsers')
+    .populate('reportedUsers.userId', 'fullName email mobile profilePhoto')
+    .populate('blockedUsers.userId', 'fullName email mobile profilePhoto')
+    .lean();
+
+    // Flatten and format the data
+    let allItems = [];
+
+    users.forEach(user => {
+      // Add reports
+      if (type === 'all' || type === 'reports') {
+        user.reportedUsers?.forEach(report => {
+          if (status === 'all' || report.status === status) {
+            allItems.push({
+              type: 'report',
+              id: report._id,
+              reporter: {
+                id: user._id,
+                name: user.fullName,
+                email: user.email,
+                mobile: user.mobile
+              },
+              reported: report.userId,
+              reason: report.reason,
+              description: report.description,
+              status: report.status,
+              date: report.reportedAt,
+              createdAt: report.reportedAt
+            });
+          }
+        });
+      }
+
+      // Add blocks
+      if (type === 'all' || type === 'blocks') {
+        user.blockedUsers?.forEach(block => {
+          allItems.push({
+            type: 'block',
+            id: block._id,
+            blocker: {
+              id: user._id,
+              name: user.fullName,
+              email: user.email,
+              mobile: user.mobile
+            },
+            blocked: block.userId,
+            reason: block.reason,
+            date: block.blockedAt,
+            createdAt: block.blockedAt
+          });
+        });
+      }
+    });
+
+    // Sort
+    allItems.sort((a, b) => {
+      const aVal = a[sortBy] || a.date;
+      const bVal = b[sortBy] || b.date;
+      return sortOrder === 'desc' 
+        ? new Date(bVal) - new Date(aVal)
+        : new Date(aVal) - new Date(bVal);
+    });
+
+    // Paginate
+    const skip = (page - 1) * limit;
+    const paginatedItems = allItems.slice(skip, skip + parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        items: paginatedItems,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(allItems.length / limit),
+          totalItems: allItems.length,
+          itemsPerPage: parseInt(limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching reports and blocks:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch reports and blocks',
+      error: error.message
+    });
+  }
+};
+
+// Update report status
+const updateReportStatus = async (req, res) => {
+  try {
+    const { userId, reportId } = req.params;
+    const { status } = req.body;
+
+    if (!['pending', 'reviewed', 'resolved'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be pending, reviewed, or resolved'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const report = user.reportedUsers.id(reportId);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+
+    report.status = status;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Report status updated successfully',
+      data: report
+    });
+  } catch (error) {
+    console.error('Error updating report status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update report status',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllProviders,
   getProviderById,
@@ -930,5 +1085,7 @@ module.exports = {
   getKycRequestById,
   verifyKycRequest,
   bulkVerifyExistingProviders,
-  fixUserRoles
+  fixUserRoles,
+  getReportsAndBlocks,
+  updateReportStatus
 };
