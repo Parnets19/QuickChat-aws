@@ -1129,6 +1129,85 @@ const initializeSocket = (io) => {
       }
     });
 
+    // Handle video upgrade request (new flow with acceptance)
+    socket.on("consultation:video-upgrade-request", async (data) => {
+      try {
+        console.log(
+          `📹 User ${userId} requesting video upgrade for consultation ${data.consultationId}`
+        );
+
+        // Get sender information
+        const senderUser = await User.findById(userId).select('fullName name profilePhoto');
+        const senderName = senderUser?.fullName || senderUser?.name || 'User';
+        const senderPhoto = senderUser?.profilePhoto || null;
+
+        // Broadcast upgrade request to other participants
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("consultation:video-upgrade-request", {
+            from: userId,
+            fromName: senderName,
+            fromPhoto: senderPhoto,
+            consultationId: data.consultationId,
+          });
+
+        logger.info(
+          `Video upgrade request sent by user ${userId} in consultation ${data.consultationId}`
+        );
+      } catch (error) {
+        console.error("Error handling video upgrade request:", error);
+        socket.emit("error", { message: "Failed to process video upgrade request" });
+      }
+    });
+
+    // Handle video upgrade acceptance
+    socket.on("consultation:video-upgrade-accepted", async (data) => {
+      try {
+        console.log(
+          `📹 User ${userId} accepted video upgrade for consultation ${data.consultationId}`
+        );
+
+        // Broadcast acceptance to other participants
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("consultation:video-upgrade-accepted", {
+            from: userId,
+            consultationId: data.consultationId,
+          });
+
+        logger.info(
+          `Video upgrade accepted by user ${userId} in consultation ${data.consultationId}`
+        );
+      } catch (error) {
+        console.error("Error handling video upgrade acceptance:", error);
+        socket.emit("error", { message: "Failed to process video upgrade acceptance" });
+      }
+    });
+
+    // Handle video upgrade rejection
+    socket.on("consultation:video-upgrade-rejected", async (data) => {
+      try {
+        console.log(
+          `📹 User ${userId} rejected video upgrade for consultation ${data.consultationId}`
+        );
+
+        // Broadcast rejection to other participants
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("consultation:video-upgrade-rejected", {
+            from: userId,
+            consultationId: data.consultationId,
+          });
+
+        logger.info(
+          `Video upgrade rejected by user ${userId} in consultation ${data.consultationId}`
+        );
+      } catch (error) {
+        console.error("Error handling video upgrade rejection:", error);
+        socket.emit("error", { message: "Failed to process video upgrade rejection" });
+      }
+    });
+
     // Handle incoming call notification
     socket.on("consultation:incoming-call", (data) => {
       try {
