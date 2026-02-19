@@ -1133,8 +1133,9 @@ const initializeSocket = (io) => {
     socket.on("consultation:video-upgrade-request", async (data) => {
       try {
         console.log(
-          `📹 User ${userId} requesting video upgrade for consultation ${data.consultationId}`
+          `📹 BACKEND: User ${userId} requesting video upgrade for consultation ${data.consultationId}`
         );
+        console.log(`📹 BACKEND: Request data:`, JSON.stringify(data, null, 2));
 
         // Get sender information - check if user is a guest
         let senderUser, senderName, senderPhoto;
@@ -1150,23 +1151,41 @@ const initializeSocket = (io) => {
         senderName = senderUser?.fullName || senderUser?.name || 'User';
         senderPhoto = senderUser?.profilePhoto || null;
         
-        console.log(`📹 Sender info: ${senderName} (${userId})`);
+        console.log(`📹 BACKEND: Sender info: ${senderName} (${userId})`);
+
+        // Check who is in the consultation room
+        const room = io.sockets.adapter.rooms.get(`consultation:${data.consultationId}`);
+        const participantCount = room ? room.size : 0;
+        const roomMembers = room ? Array.from(room) : [];
+        
+        console.log(`📹 BACKEND: Room info:`, {
+          consultationId: data.consultationId,
+          participantCount,
+          roomMembers,
+          currentSocketId: socket.id,
+        });
+
+        const broadcastData = {
+          from: userId,
+          fromName: senderName,
+          fromPhoto: senderPhoto,
+          consultationId: data.consultationId,
+        };
+        
+        console.log(`📹 BACKEND: Broadcasting to room with data:`, JSON.stringify(broadcastData, null, 2));
 
         // Broadcast upgrade request to other participants
         socket
           .to(`consultation:${data.consultationId}`)
-          .emit("consultation:video-upgrade-request", {
-            from: userId,
-            fromName: senderName,
-            fromPhoto: senderPhoto,
-            consultationId: data.consultationId,
-          });
+          .emit("consultation:video-upgrade-request", broadcastData);
+
+        console.log(`✅ BACKEND: Video upgrade request broadcasted successfully`);
 
         logger.info(
           `Video upgrade request sent by user ${userId} in consultation ${data.consultationId}`
         );
       } catch (error) {
-        console.error("Error handling video upgrade request:", error);
+        console.error("❌ BACKEND: Error handling video upgrade request:", error);
         socket.emit("error", { message: "Failed to process video upgrade request" });
       }
     });
