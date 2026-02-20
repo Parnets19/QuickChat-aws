@@ -390,7 +390,7 @@ const initializeSocket = (io) => {
           message: data.message,
           timestamp: new Date(),
           type: data.type || "text",
-          file: data.file || null,
+          file: data.file || null,  
           status: "delivered",
           readBy: [], // Track who has read this message
         };
@@ -1235,6 +1235,61 @@ const initializeSocket = (io) => {
       } catch (error) {
         console.error("Error handling video upgrade rejection:", error);
         socket.emit("error", { message: "Failed to process video upgrade rejection" });
+      }
+    });
+
+    // Handle video upgrade offer (receiver sends offer with video tracks to initiator)
+    socket.on("webrtc:video-upgrade-offer", async (data) => {
+      try {
+        console.log(
+          `📹 BACKEND: User ${userId} sending video upgrade offer for consultation ${data.consultationId}`
+        );
+        console.log(`📹 BACKEND: Offer data:`, JSON.stringify(data, null, 2));
+
+        // Forward the offer to other participants
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("webrtc:video-upgrade-offer", {
+            consultationId: data.consultationId,
+            offer: data.offer,
+            from: userId,
+          });
+
+        console.log(`✅ BACKEND: Video upgrade offer forwarded successfully`);
+
+        logger.info(
+          `Video upgrade offer sent by user ${userId} in consultation ${data.consultationId}`
+        );
+      } catch (error) {
+        console.error("❌ BACKEND: Error handling video upgrade offer:", error);
+        socket.emit("error", { message: "Failed to process video upgrade offer" });
+      }
+    });
+
+    // Handle video upgrade answer (initiator responds to receiver's offer)
+    socket.on("webrtc:video-upgrade-answer", async (data) => {
+      try {
+        console.log(
+          `📹 BACKEND: User ${userId} sending video upgrade answer for consultation ${data.consultationId}`
+        );
+
+        // Forward the answer to other participants
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("webrtc:video-upgrade-answer", {
+            consultationId: data.consultationId,
+            answer: data.answer,
+            from: userId,
+          });
+
+        console.log(`✅ BACKEND: Video upgrade answer forwarded successfully`);
+
+        logger.info(
+          `Video upgrade answer sent by user ${userId} in consultation ${data.consultationId}`
+        );
+      } catch (error) {
+        console.error("❌ BACKEND: Error handling video upgrade answer:", error);
+        socket.emit("error", { message: "Failed to process video upgrade answer" });
       }
     });
 
