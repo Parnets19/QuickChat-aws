@@ -1242,9 +1242,13 @@ const initializeSocket = (io) => {
     socket.on("webrtc:video-upgrade-offer", async (data) => {
       try {
         console.log(
-          `📹 BACKEND: User ${userId} sending video upgrade offer for consultation ${data.consultationId}`
+          `�🚨🚨 BACKEND: VIDEO UPGRADE OFFER RECEIVED 🚨🚨🚨`
         );
-        console.log(`📹 BACKEND: Offer data:`, JSON.stringify(data, null, 2));
+        console.log(
+          `�📹 BACKEND: User ${userId} sending video upgrade offer for consultation ${data.consultationId}`
+        );
+        console.log(`📹 BACKEND: Socket ID: ${socket.id}`);
+        console.log(`📹 BACKEND: Room: consultation:${data.consultationId}`);
 
         // Forward the offer to other participants
         socket
@@ -1255,7 +1259,7 @@ const initializeSocket = (io) => {
             from: userId,
           });
 
-        console.log(`✅ BACKEND: Video upgrade offer forwarded successfully`);
+        console.log(`✅ BACKEND: Video upgrade offer forwarded to room: consultation:${data.consultationId}`);
 
         logger.info(
           `Video upgrade offer sent by user ${userId} in consultation ${data.consultationId}`
@@ -1270,8 +1274,13 @@ const initializeSocket = (io) => {
     socket.on("webrtc:video-upgrade-answer", async (data) => {
       try {
         console.log(
-          `📹 BACKEND: User ${userId} sending video upgrade answer for consultation ${data.consultationId}`
+          `�🚨🚨 BACKEND: VIDEO UPGRADE ANSWER RECEIVED 🚨🚨🚨`
         );
+        console.log(
+          `�📹 BACKEND: User ${userId} sending video upgrade answer for consultation ${data.consultationId}`
+        );
+        console.log(`📹 BACKEND: Socket ID: ${socket.id}`);
+        console.log(`📹 BACKEND: Room: consultation:${data.consultationId}`);
 
         // Forward the answer to other participants
         socket
