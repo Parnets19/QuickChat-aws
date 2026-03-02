@@ -10,7 +10,8 @@ const {
   updateWalletBalance,
   checkConsultationAffordability,
   debugWalletCalculations,
-  getWithdrawalLimits
+  getWithdrawalLimits,
+  phonePeCallback
 } = require('../controllers/earnings.controller');
 const { protect, authorize } = require('../middlewares/auth');
 
@@ -131,6 +132,9 @@ router.post('/fix-wallet', fixUserWallet);
 
 // POST /api/earnings/add-money - Add money to wallet (recharge)
 router.post('/add-money', addMoneyToWallet);
+
+// POST /api/earnings/phonepe-callback - PhonePe payment callback
+router.post('/phonepe-callback', phonePeCallback);
 
 // POST /api/earnings/check-affordability - Check if user can afford consultation
 router.post('/check-affordability', checkConsultationAffordability);

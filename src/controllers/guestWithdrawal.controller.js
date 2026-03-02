@@ -8,10 +8,10 @@ const requestWithdrawal = async (req, res) => {
     const { amount, bankDetails, paymentMethod = 'bank_transfer' } = req.body;
 
     // Validate input
-    if (!amount || amount < 100) {
+    if (!amount || amount < 1) {
       return res.status(400).json({
         success: false,
-        message: 'Minimum withdrawal amount is ₹100'
+        message: 'Minimum withdrawal amount is ₹1'
       });
     }
 

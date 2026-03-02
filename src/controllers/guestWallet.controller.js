@@ -127,8 +127,8 @@ const withdrawFromWallet = async (req, res, next) => {
       return next(new AppError("Please provide a valid amount", 400));
     }
 
-    if (amount < 100) {
-      return next(new AppError("Minimum withdrawal amount is ₹100", 400));
+    if (amount < 1) {
+      return next(new AppError("Minimum withdrawal amount is ₹1", 400));
     }
 
     if (!bankDetails || !bankDetails.accountNumber) {

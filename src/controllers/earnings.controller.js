@@ -8,6 +8,8 @@ const {
   Withdrawal,
 } = require("../models");
 const { logger } = require("../utils/logger");
+const axios = require("axios");
+const crypto = require("crypto");
 
 // Get earnings overview
 const getEarningsOverview = async (req, res) => {
@@ -652,11 +654,11 @@ const requestWithdrawal = async (req, res) => {
       hasBankDetails: !!bankDetails,
     });
 
-    // Validate amount
-    if (!amount || amount < 100) {
+    // Validate amount - minimum ₹1
+    if (!amount || amount < 1) {
       return res.status(400).json({
         success: false,
-        message: "Minimum withdrawal amount is ₹100",
+        message: "Minimum withdrawal amount is ₹1",
       });
     }
 
@@ -1179,31 +1181,32 @@ const updateWalletBalance = async (req, res) => {
   }
 };
 
-// Add money to wallet (recharge)
+// Add money to wallet (recharge) - PhonePe Integration
 const addMoneyToWallet = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const { amount, description = "Wallet Recharge" } = req.body;
+    const { amount, description = "Wallet Recharge", paymentMethod = "phonepe" } = req.body;
 
     console.log("💳 WALLET RECHARGE REQUEST:", {
       userId,
       amount,
       description,
+      paymentMethod,
       userType: req.user.isGuest ? "Guest" : "User",
     });
 
-    // Validate amount
-    if (!amount || isNaN(amount) || amount <= 0) {
+    // Validate amount - minimum ₹1
+    if (!amount || isNaN(amount) || amount < 1) {
       console.log("❌ Invalid amount:", amount);
       return res.status(400).json({
         success: false,
-        message: "Invalid amount. Amount must be a positive number.",
+        message: "Invalid amount. Minimum amount is ₹1.",
       });
     }
 
     // Convert amount to number to ensure it's numeric
     const numericAmount = parseFloat(amount);
-    if (numericAmount <= 0 || numericAmount > 100000) {
+    if (numericAmount < 1 || numericAmount > 100000) {
       console.log("❌ Amount out of range:", numericAmount);
       return res.status(400).json({
         success: false,
@@ -1225,9 +1228,122 @@ const addMoneyToWallet = async (req, res) => {
       id: user._id,
       name: user.fullName,
       currentWallet: user.wallet,
+      mobile: user.mobile,
     });
 
-    // Store previous balance
+    // If PhonePe payment method, initiate PhonePe payment
+    if (paymentMethod === "phonepe") {
+      try {
+        const phonePeTransactionModel = require("../models/phonepe.model");
+        
+        const MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID || "M2352B2GR2M1V";
+        const SECRET_KEY = process.env.PHONEPE_SECRET_KEY || "a0755144-e7c6-4e0d-a71f-42681b4faf0b";
+        const CALLBACK_URL = process.env.PHONEPE_CALLBACK_URL || "http://localhost:3000";
+        
+        // Ensure mobile number is a number
+        const mobileNumber = user.mobile ? parseInt(user.mobile.toString().replace(/\D/g, '')) : 9999999999;
+        
+        // Create PhonePe transaction record
+        const phonepeData = await phonePeTransactionModel.create({
+          userId: userId.toString(),
+          username: user.fullName || "User",
+          Mobile: mobileNumber,
+          orderId: `WALLET_${Date.now()}`,
+          amount: numericAmount,
+          config: JSON.stringify({
+            method: 'post',
+            url: `${process.env.BACKEND_URL || 'http://localhost:5001'}/api/earnings/phonepe-callback`,
+            data: {
+              userId: userId.toString(),
+              amount: numericAmount,
+              description
+            }
+          })
+        });
+        
+        if (!phonepeData) {
+          return res.status(400).json({ 
+            success: false,
+            error: "Failed to create PhonePe transaction" 
+          });
+        }
+
+        // Generate signature
+        function generateSignature(payload, saltKey, saltIndex) {
+          const encodedPayload = Buffer.from(payload).toString("base64");
+          const concatenatedString = encodedPayload + "/pg/v1/pay" + saltKey;
+          const hashedValue = crypto
+            .createHash("sha256")
+            .update(concatenatedString)
+            .digest("hex");
+          return hashedValue + "###" + saltIndex;
+        }
+
+        const paymentDetails = {
+          merchantId: MERCHANT_ID,
+          merchantTransactionId: phonepeData._id.toString(),
+          merchantUserId: userId.toString(),
+          amount: numericAmount * 100, // Convert to paise
+          redirectUrl: `${CALLBACK_URL}/provider/earnings?transactionId=${phonepeData._id}&userID=${userId}`,
+          redirectMode: "POST",
+          callbackUrl: `${process.env.BACKEND_URL || 'http://localhost:5001'}/api/phonepe/payment-callback`,
+          mobileNumber: mobileNumber.toString(),
+          paymentInstrument: {
+            type: "PAY_PAGE",
+          },
+        };
+
+        const payload = JSON.stringify(paymentDetails);
+        const objJsonB64 = Buffer.from(payload).toString("base64");
+        const saltKey = SECRET_KEY;
+        const saltIndex = 1;
+        const signature = generateSignature(payload, saltKey, saltIndex);
+
+        console.log("📞 Calling PhonePe API with payload:", {
+          merchantId: MERCHANT_ID,
+          transactionId: phonepeData._id.toString(),
+          amount: numericAmount * 100,
+          apiUrl: 'https://api.phonepe.com/apis/hermes/pg/v1/pay'
+        });
+
+        // Production URL - Merchant is activated for production
+        const phonePeApiUrl = 'https://api.phonepe.com/apis/hermes/pg/v1/pay';
+
+        // Call PhonePe API
+        const response = await axios.post(
+          phonePeApiUrl,
+          { request: objJsonB64 },
+          { 
+            headers: { "X-VERIFY": signature },
+            timeout: 30000 // 30 second timeout
+          }
+        );
+
+        console.log("✅ PhonePe payment initiated:", response.data);
+        
+        return res.status(200).json({
+          success: true,
+          message: "PhonePe payment initiated",
+          data: {
+            paymentUrl: response.data?.data?.instrumentResponse?.redirectInfo?.url,
+            transactionId: phonepeData._id,
+            amount: numericAmount,
+            paymentMethod: "phonepe"
+          }
+        });
+        
+      } catch (phonepeError) {
+        console.error("❌ PhonePe integration error:", phonepeError);
+        console.error("❌ Error details:", phonepeError.response?.data || phonepeError.message);
+        return res.status(500).json({
+          success: false,
+          message: "PhonePe payment initiation failed",
+          error: phonepeError.response?.data?.message || phonepeError.message
+        });
+      }
+    }
+
+    // Manual/demo payment (fallback)
     const previousBalance = user.wallet || 0;
 
     // Add money to wallet
@@ -1240,7 +1356,7 @@ const addMoneyToWallet = async (req, res) => {
       newBalance: user.wallet,
     });
 
-    // Create transaction record using the correct Transaction model
+    // Create transaction record
     const transaction = new Transaction({
       user: userId,
       userType: "User",
@@ -1250,13 +1366,13 @@ const addMoneyToWallet = async (req, res) => {
       balance: user.wallet,
       description,
       status: "completed",
-      paymentMethod: "wallet", // Use 'wallet' instead of 'manual'
-      paymentGateway: "manual", // Gateway can be 'manual'
+      paymentMethod: paymentMethod || "manual",
+      paymentGateway: "manual",
       transactionId: `WALLET_${Date.now()}_${Math.random()
         .toString(36)
-        .substr(2, 9)}`, // Generate unique ID
+        .substr(2, 9)}`,
       metadata: {
-        rechargeMethod: "manual",
+        rechargeMethod: paymentMethod || "manual",
         previousBalance,
         newBalance: user.wallet,
         addedBy: "user",
@@ -1582,4 +1698,121 @@ module.exports = {
   checkConsultationAffordability,
   debugWalletCalculations,
   getWithdrawalLimits,
+};
+
+
+// PhonePe payment callback handler for wallet recharge
+const phonePeCallback = async (req, res) => {
+  try {
+    const { userId, amount, description } = req.body;
+
+    console.log("📞 PHONEPE CALLBACK RECEIVED:", {
+      userId,
+      amount,
+      description,
+      body: req.body
+    });
+
+    if (!userId || !amount) {
+      console.log("❌ Missing required fields in callback");
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields"
+      });
+    }
+
+    // Get user
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log("❌ User not found:", userId);
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const previousBalance = user.wallet || 0;
+    const numericAmount = parseFloat(amount);
+
+    // Add money to wallet
+    user.wallet = previousBalance + numericAmount;
+    await user.save();
+
+    console.log("💰 Wallet updated via PhonePe:", {
+      previousBalance,
+      addedAmount: numericAmount,
+      newBalance: user.wallet,
+    });
+
+    // Create transaction record
+    const transaction = new Transaction({
+      user: userId,
+      userType: "User",
+      type: "deposit",
+      category: "deposit",
+      amount: numericAmount,
+      balance: user.wallet,
+      description: description || "Wallet Recharge via PhonePe",
+      status: "completed",
+      paymentMethod: "phonepe",
+      paymentGateway: "phonepe",
+      transactionId: `PHONEPE_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`,
+      metadata: {
+        rechargeMethod: "phonepe",
+        previousBalance,
+        newBalance: user.wallet,
+        addedBy: "user",
+        paymentGateway: "phonepe"
+      },
+    });
+
+    await transaction.save();
+
+    console.log("✅ PHONEPE WALLET RECHARGE COMPLETED:", {
+      userId,
+      amount: numericAmount,
+      previousBalance,
+      newBalance: user.wallet,
+      transactionId: transaction._id,
+    });
+
+    res.json({
+      success: true,
+      message: "Payment successful, wallet recharged",
+      data: {
+        amount: numericAmount,
+        previousBalance,
+        newBalance: user.wallet,
+        transactionId: transaction._id,
+      },
+    });
+  } catch (error) {
+    console.error("❌ PHONEPE CALLBACK ERROR:", error);
+    logger.error("PhonePe callback error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error processing payment",
+      error: error.message
+    });
+  }
+};
+
+module.exports = {
+  getEarningsOverview,
+  getTransactionHistory,
+  getWithdrawalHistory,
+  requestWithdrawal,
+  addEarnings,
+  getEarningsChart,
+  debugUserEarnings,
+  addTestEarnings,
+  fixUserWallet,
+  addMoneyToWallet,
+  updateWalletBalance,
+  checkConsultationAffordability,
+  debugWalletCalculations,
+  getWithdrawalLimits,
+  phonePeCallback,
 };

@@ -22,7 +22,7 @@ const WithdrawalSchema = new mongoose.Schema(
     amount: {
       type: Number,
       required: true,
-      min: 100, // Minimum withdrawal amount
+      min: 1, // Minimum withdrawal amount changed to ₹1
     },
     processingFee: {
       type: Number,

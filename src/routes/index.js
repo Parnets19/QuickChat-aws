@@ -24,6 +24,7 @@ const analyticsRoutes = require("./analytics.routes");
 const freeMinuteRoutes = require("./freeMinute.routes");
 const freeTrialRoutes = require("./freeTrial.routes");
 const blockRoutes = require("./block.routes");
+const phonePeRoutes = require("./phonepe.routes");
 
 const router = express.Router();
 
@@ -53,5 +54,6 @@ router.use("/analytics", analyticsRoutes); // Analytics and reports
 router.use("/free-minute", freeMinuteRoutes); // First Minute Free Trial system (legacy)
 router.use("/free-trial", freeTrialRoutes); // First Time Free Trial system (new)
 router.use("/users", blockRoutes); // Block and Report functionality
+router.use("/phonepe", phonePeRoutes); // PhonePe payment integration
 
 module.exports = router;
