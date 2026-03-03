@@ -298,10 +298,17 @@ async function getToken() {
 
   console.log("🔑 Fetching PhonePe OAuth token...");
 
-  // Auth uses GET-style query params sent as POST with x-www-form-urlencoded
-  const { data } = await axios.post(AUTH_URL, null, {
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  });
+  const body = new URLSearchParams();
+  body.append("client_id",      CLIENT_ID);
+  body.append("client_secret",  CLIENT_SECRET);
+  body.append("client_version", String(CLIENT_VER));
+  body.append("grant_type",     "client_credentials");
+
+  const { data } = await axios.post(
+    "https://api.phonepe.com/apis/identity-manager/v1/oauth/token",
+    body,
+    { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+  );
 
   _token     = data.access_token;
   _expiresAt = Date.now() + (data.expires_in || 3600) * 1000;
