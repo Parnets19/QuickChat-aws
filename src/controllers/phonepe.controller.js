@@ -140,24 +140,39 @@ class PhonePeController {
   // ── Payment Callback (webhook) ───────────────────────────────────────────────
   async paymentcallback(req, res) {
     try {
-      console.log("📩 PhonePe callback received:", JSON.stringify(req.body));
+      console.log("📩 PhonePe callback received:");
+      console.log("Headers:", JSON.stringify(req.headers));
+      console.log("Body:", JSON.stringify(req.body));
 
-      let txnId, state;
+      let txnId, state, phonePeTransactionId;
 
-      if (req.body.response) {
-        // Old-style base64
+      // PhonePe v2 API sends direct JSON in body
+      if (req.body.merchantOrderId) {
+        // New v2 format
+        txnId = req.body.merchantOrderId;
+        phonePeTransactionId = req.body.transactionId;
+        
+        // Map PhonePe status codes to our status
+        if (req.body.code === "PAYMENT_SUCCESS") {
+          state = "COMPLETED";
+        } else if (req.body.code === "PAYMENT_PENDING") {
+          state = "PENDING";
+        } else {
+          state = "FAILED";
+        }
+      } else if (req.body.response) {
+        // Old-style base64 (fallback)
         const decoded = Buffer.from(req.body.response, "base64").toString("utf-8");
         const parsed  = JSON.parse(decoded);
         txnId = parsed?.data?.merchantTransactionId || parsed?.data?.merchantOrderId;
+        phonePeTransactionId = parsed?.data?.transactionId;
         state = parsed?.data?.state;
       } else {
-        // New-style direct JSON
-        txnId = req.body.merchantOrderId || req.body.merchantTransactionId;
-        state = req.body.state
-          || (req.body.code === "PAYMENT_SUCCESS" ? "COMPLETED" : "FAILED");
+        console.error("❌ Unknown callback format:", req.body);
+        return res.status(200).send("OK");
       }
 
-      console.log(`📋 Callback → txn=${txnId}, state=${state}`);
+      console.log(`📋 Callback → txn=${txnId}, phonePeTxn=${phonePeTransactionId}, state=${state}`);
 
       const txn = await phonePeTransactionModel.findById(txnId);
       if (!txn) {
@@ -167,6 +182,9 @@ class PhonePeController {
 
       // Update transaction status
       txn.status = state;
+      if (phonePeTransactionId) {
+        txn.phonePeTransactionId = phonePeTransactionId;
+      }
       await txn.save();
       console.log(`✅ Transaction ${txnId} saved as ${state}`);
 
@@ -179,6 +197,18 @@ class PhonePeController {
           const user = await User.findById(txn.userId);
           if (!user) {
             console.error(`❌ User not found: ${txn.userId}`);
+            return res.status(200).send("OK");
+          }
+
+          // Check if already credited (prevent double credit)
+          const existingCredit = await Transaction.findOne({
+            'metadata.phonePeTransactionId': txnId,
+            type: 'deposit',
+            status: 'completed'
+          });
+
+          if (existingCredit) {
+            console.log(`⚠️ Wallet already credited for transaction ${txnId}`);
             return res.status(200).send("OK");
           }
 
@@ -203,6 +233,7 @@ class PhonePeController {
             paymentGateway: "phonepe",
             metadata: {
               phonePeTransactionId: txnId,
+              phonePeReferenceId: phonePeTransactionId,
               merchantOrderId: txnId,
               previousBalance: previousBalance,
               creditedAmount: txn.amount
@@ -222,7 +253,7 @@ class PhonePeController {
           }
 
         } catch (walletError) {
-          console.error("❌ Wallet credit error:", walletError.message);
+          console.error("❌ Wallet credit error:", walletError.message, walletError.stack);
         }
       }
 
