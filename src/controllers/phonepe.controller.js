@@ -364,13 +364,14 @@ class PhonePeController {
       console.log("📤 PhonePe payload →", JSON.stringify(payload, null, 2));
 
       // 4. Call PhonePe Pay API
-      const { data: ppResp } = await axios.post(PAY_URL, payload, {
-        headers: {
-          "Content-Type"  : "application/json",
-          "accept"        : "application/json",
-          "Authorization" : `O-Bearer ${token}`,
-        },
-      });
+     const { data: ppResp } = await axios.post(PAY_URL, payload, {
+  headers: {
+    "Content-Type"  : "application/json",
+    "accept"        : "application/json",
+    "Authorization" : `O-Bearer ${token}`,
+    "X-Merchant-Id" : process.env.PHONEPE_MERCHANT_ID || "M2352B2GR2M1V",
+  },
+});
 
       console.log("✅ PhonePe Pay response →", ppResp);
 
