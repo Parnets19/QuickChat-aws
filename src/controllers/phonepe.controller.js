@@ -140,7 +140,7 @@ class PhonePeController {
   // ── Payment Callback (webhook) ───────────────────────────────────────────────
   async paymentcallback(req, res) {
     try {
-      console.log("📩 PhonePe callback:", JSON.stringify(req.body));
+      console.log("📩 PhonePe callback received:", JSON.stringify(req.body));
 
       let txnId, state;
 
@@ -160,25 +160,75 @@ class PhonePeController {
       console.log(`📋 Callback → txn=${txnId}, state=${state}`);
 
       const txn = await phonePeTransactionModel.findById(txnId);
-      if (txn) {
-        txn.status = state;
-        if (state === "COMPLETED" && txn.config) {
-          try {
-            await axios(JSON.parse(txn.config));
-            console.log("✅ Wallet credited via config callback");
-          } catch (e) {
-            console.error("❌ Config callback error:", e.message);
-          }
-        }
-        await txn.save();
-        console.log(`✅ Transaction ${txnId} saved as ${state}`);
-      } else {
+      if (!txn) {
         console.warn(`⚠️ Transaction not found: ${txnId}`);
+        return res.status(200).send("OK");
+      }
+
+      // Update transaction status
+      txn.status = state;
+      await txn.save();
+      console.log(`✅ Transaction ${txnId} saved as ${state}`);
+
+      // Credit wallet if payment successful
+      if (state === "COMPLETED") {
+        try {
+          const User = require("../models/user.model");
+          const Transaction = require("../models/transaction.model");
+          
+          const user = await User.findById(txn.userId);
+          if (!user) {
+            console.error(`❌ User not found: ${txn.userId}`);
+            return res.status(200).send("OK");
+          }
+
+          // Credit wallet
+          const previousBalance = user.wallet || 0;
+          user.wallet = previousBalance + txn.amount;
+          await user.save();
+
+          console.log(`💰 Wallet credited: User ${txn.userId}, Amount: ₹${txn.amount}, New Balance: ₹${user.wallet}`);
+
+          // Create transaction record
+          await Transaction.create({
+            user: txn.userId,
+            userType: "User",
+            type: "deposit",
+            category: "wallet_credit",
+            amount: txn.amount,
+            balance: user.wallet,
+            description: `Wallet Recharge via PhonePe - ${txnId}`,
+            status: "completed",
+            paymentMethod: "phonepe",
+            paymentGateway: "phonepe",
+            metadata: {
+              phonePeTransactionId: txnId,
+              merchantOrderId: txnId,
+              previousBalance: previousBalance,
+              creditedAmount: txn.amount
+            }
+          });
+
+          console.log(`✅ Transaction record created for wallet credit`);
+
+          // Execute config callback if exists
+          if (txn.config) {
+            try {
+              await axios(JSON.parse(txn.config));
+              console.log("✅ Config callback executed");
+            } catch (e) {
+              console.error("❌ Config callback error:", e.message);
+            }
+          }
+
+        } catch (walletError) {
+          console.error("❌ Wallet credit error:", walletError.message);
+        }
       }
 
       return res.status(200).send("OK"); // Always 200 to PhonePe
     } catch (err) {
-      console.error("❌ Callback error:", err.message);
+      console.error("❌ Callback error:", err.message, err.stack);
       return res.status(200).send("OK");
     }
   }
