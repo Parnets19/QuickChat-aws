@@ -26,9 +26,12 @@ const PAY_URL = IS_PROD
   : "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay";
 
 console.log("🔧 PhonePe Config →", {
-  env     : PHONEPE_ENV,
-  clientId: CLIENT_ID,
-  payUrl  : PAY_URL,
+  env        : PHONEPE_ENV,
+  isProd     : IS_PROD,
+  clientId   : CLIENT_ID,
+  payUrl     : PAY_URL,
+  callbackUrl: `${BACKEND_URL}/api/phonepe/payment-callback`,
+  backendUrl : BACKEND_URL,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,6 +44,11 @@ async function getToken() {
   if (_token && Date.now() < _expiresAt - 60_000) return _token;
 
   console.log("🔑 Fetching PhonePe OAuth token...");
+  console.log("🔧 Auth URL:", IS_PROD ? "Production" : "Sandbox");
+
+  const authUrl = IS_PROD
+    ? "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
+    : "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token";
 
   const body = new URLSearchParams();
   body.append("client_id",      CLIENT_ID);
@@ -48,11 +56,11 @@ async function getToken() {
   body.append("client_version", String(CLIENT_VER));
   body.append("grant_type",     "client_credentials");
 
-  const { data } = await axios.post(
-    "https://api.phonepe.com/apis/identity-manager/v1/oauth/token",
-    body,
-    { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-  );
+  console.log("📤 Token request:", { clientId: CLIENT_ID, url: authUrl });
+
+  const { data } = await axios.post(authUrl, body, {
+    headers: { "Content-Type": "application/x-www-form-urlencoded" }
+  });
 
   _token     = data.access_token;
   _expiresAt = Date.now() + (data.expires_in || 3600) * 1000;
@@ -140,9 +148,13 @@ class PhonePeController {
   // ── Payment Callback (webhook) ───────────────────────────────────────────────
   async paymentcallback(req, res) {
     try {
-      console.log("📩 PhonePe callback received:");
-      console.log("Headers:", JSON.stringify(req.headers));
-      console.log("Body:", JSON.stringify(req.body));
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.log("📩 PhonePe CALLBACK RECEIVED at", new Date().toISOString());
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.log("📋 Headers:", JSON.stringify(req.headers, null, 2));
+      console.log("📦 Body:", JSON.stringify(req.body, null, 2));
+      console.log("🔗 URL:", req.url);
+      console.log("🔗 Method:", req.method);
 
       let txnId, state, phonePeTransactionId;
 
@@ -191,8 +203,8 @@ class PhonePeController {
       // Credit wallet if payment successful
       if (state === "COMPLETED") {
         try {
-          const User = require("../models/user.model");
-          const Transaction = require("../models/transaction.model");
+          const User = require("../models/User.model");
+          const Transaction = require("../models/Transaction.model");
           
           const user = await User.findById(txn.userId);
           if (!user) {
@@ -270,7 +282,21 @@ class PhonePeController {
       const { id, userId } = req.params;
       const txn = await phonePeTransactionModel.findOne({ _id: id, userId });
       if (!txn) return res.status(400).json({ error: "Payment not found" });
-      return res.status(200).json({ success: txn });
+      
+      // Return detailed status
+      return res.status(200).json({ 
+        success: true,
+        transaction: {
+          id: txn._id,
+          status: txn.status,
+          amount: txn.amount,
+          userId: txn.userId,
+          username: txn.username,
+          phonePeTransactionId: txn.phonePeTransactionId,
+          createdAt: txn.createdAt,
+          updatedAt: txn.updatedAt
+        }
+      });
     } catch (err) {
       return res.status(400).json({ error: err.message });
     }
@@ -331,6 +357,36 @@ class PhonePeController {
     } catch (err) {
       console.error("makepayment error:", err.response?.data || err.message);
       return res.status(500).json({ error: err.response?.data || err.message });
+    }
+  }
+
+  // ── Test Callback (for debugging) ──────────────────────────────────────────────
+  async testCallback(req, res) {
+    try {
+      const { transactionId } = req.body;
+      
+      if (!transactionId) {
+        return res.status(400).json({ error: "transactionId required" });
+      }
+
+      // Simulate PhonePe v2 callback
+      const mockCallback = {
+        merchantOrderId: transactionId,
+        transactionId: `PP${Date.now()}`,
+        code: "PAYMENT_SUCCESS",
+        message: "Payment successful",
+        amount: 100
+      };
+
+      console.log("🧪 Testing callback with mock data:", mockCallback);
+
+      // Call the actual callback handler
+      req.body = mockCallback;
+      await this.paymentcallback(req, res);
+
+    } catch (err) {
+      console.error("❌ Test callback error:", err.message);
+      return res.status(500).json({ error: err.message });
     }
   }
 }

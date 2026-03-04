@@ -7,5 +7,6 @@ router.post("/makepayment",phonePeController.makepayment);
 router.put("/updateStatuspayment/:id",phonePeController.updateStatuspayment);
 router.get("/getallpayment",phonePeController.getallpayment);
 router.post("/payment-callback",phonePeController.paymentcallback);
+router.post("/test-callback",phonePeController.testCallback); // Test endpoint
 router.get("/checkPayment/:id/:userId",phonePeController.checkPayment);
 module.exports=router;
