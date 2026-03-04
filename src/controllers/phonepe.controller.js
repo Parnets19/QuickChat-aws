@@ -369,23 +369,105 @@ class PhonePeController {
         return res.status(400).json({ error: "transactionId required" });
       }
 
+      console.log("🧪 Testing callback for transaction:", transactionId);
+
+      // Find the transaction
+      const txn = await phonePeTransactionModel.findById(transactionId);
+      if (!txn) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+
+      console.log("📋 Transaction found:", {
+        id: txn._id,
+        userId: txn.userId,
+        amount: txn.amount,
+        currentStatus: txn.status
+      });
+
       // Simulate PhonePe v2 callback
       const mockCallback = {
         merchantOrderId: transactionId,
-        transactionId: `PP${Date.now()}`,
+        transactionId: `PP_TEST_${Date.now()}`,
         code: "PAYMENT_SUCCESS",
-        message: "Payment successful",
-        amount: 100
+        message: "Payment successful (TEST)",
+        amount: txn.amount * 100
       };
 
-      console.log("🧪 Testing callback with mock data:", mockCallback);
+      console.log("🧪 Simulating callback with:", mockCallback);
 
-      // Call the actual callback handler
-      req.body = mockCallback;
-      await this.paymentcallback(req, res);
+      // Process the callback directly
+      const User = require("../models/User.model");
+      const Transaction = require("../models/Transaction.model");
+
+      // Update transaction status
+      txn.status = "COMPLETED";
+      txn.phonePeTransactionId = mockCallback.transactionId;
+      await txn.save();
+      console.log(`✅ Transaction ${transactionId} updated to COMPLETED`);
+
+      // Credit wallet
+      const user = await User.findById(txn.userId);
+      if (!user) {
+        return res.status(404).json({ error: `User not found: ${txn.userId}` });
+      }
+
+      // Check if already credited
+      const existingCredit = await Transaction.findOne({
+        'metadata.phonePeTransactionId': transactionId,
+        type: 'deposit',
+        status: 'completed'
+      });
+
+      if (existingCredit) {
+        console.log(`⚠️ Wallet already credited for transaction ${transactionId}`);
+        return res.status(200).json({ 
+          success: true, 
+          message: "Already credited",
+          transaction: txn
+        });
+      }
+
+      // Credit wallet
+      const previousBalance = user.wallet || 0;
+      user.wallet = previousBalance + txn.amount;
+      await user.save();
+
+      console.log(`💰 Wallet credited: User ${txn.userId}, Amount: ₹${txn.amount}, New Balance: ₹${user.wallet}`);
+
+      // Create transaction record
+      await Transaction.create({
+        user: txn.userId,
+        userType: "User",
+        type: "deposit",
+        category: "wallet_credit",
+        amount: txn.amount,
+        balance: user.wallet,
+        description: `Wallet Recharge via PhonePe (TEST) - ${transactionId}`,
+        status: "completed",
+        paymentMethod: "phonepe",
+        paymentGateway: "phonepe",
+        metadata: {
+          phonePeTransactionId: transactionId,
+          phonePeReferenceId: mockCallback.transactionId,
+          merchantOrderId: transactionId,
+          previousBalance: previousBalance,
+          creditedAmount: txn.amount,
+          testMode: true
+        }
+      });
+
+      console.log(`✅ Transaction record created`);
+
+      return res.status(200).json({ 
+        success: true, 
+        message: "Wallet credited successfully",
+        transaction: txn,
+        walletBalance: user.wallet,
+        credited: txn.amount
+      });
 
     } catch (err) {
-      console.error("❌ Test callback error:", err.message);
+      console.error("❌ Test callback error:", err.message, err.stack);
       return res.status(500).json({ error: err.message });
     }
   }
