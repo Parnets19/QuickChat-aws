@@ -1185,223 +1185,26 @@ const updateWalletBalance = async (req, res) => {
 const addMoneyToWallet = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const { amount, description = "Wallet Recharge", paymentMethod = "phonepe" } = req.body;
+    const { amount, description = "Wallet Recharge via PhonePe" } = req.body;
 
-    console.log("💳 WALLET RECHARGE REQUEST:", {
-      userId,
-      amount,
-      description,
-      paymentMethod,
-      userType: req.user.isGuest ? "Guest" : "User",
-    });
+    console.log("💳 WALLET RECHARGE REQUEST:", { userId, amount, description });
 
-    // Validate amount - minimum ₹1
-    if (!amount || isNaN(amount) || amount < 1) {
-      console.log("❌ Invalid amount:", amount);
-      return res.status(400).json({
-        success: false,
-        message: "Invalid amount. Minimum amount is ₹1.",
-      });
-    }
-
-    // Convert amount to number to ensure it's numeric
     const numericAmount = parseFloat(amount);
-    if (numericAmount < 1 || numericAmount > 100000) {
-      console.log("❌ Amount out of range:", numericAmount);
-      return res.status(400).json({
-        success: false,
-        message: "Amount must be between ₹1 and ₹1,00,000.",
-      });
+    if (!numericAmount || numericAmount < 1) {
+      return res.status(400).json({ success: false, message: "Invalid amount. Minimum is ₹1." });
     }
-    
-    console.log("✅ Amount validated:", numericAmount);
 
-    // Get user
     const user = await User.findById(userId);
     if (!user) {
-      console.log("❌ User not found:", userId);
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    console.log("👤 User found:", {
-      id: user._id,
-      name: user.fullName,
-      currentWallet: user.wallet,
-      mobile: user.mobile,
-    });
-
-    // If PhonePe payment method, initiate PhonePe payment
-    if (paymentMethod === "phonepe") {
-      try {
-        const axios = require("axios");
-        const crypto = require("crypto");
-        const phonePeTransactionModel = require("../models/phonepe.model");
-        
-        const MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID || "M2352B2GR2M1V";
-        // Use base64 encoded secret key directly (as shown in PhonePe dashboard)
-        const SECRET_KEY_BASE64 = process.env.PHONEPE_SECRET_KEY || "MjA2NmQ0ZTMtNGZiNC00YjEyLTllZTAtY2JkODE1YWI4YWQ4";
-        // Decode it for use in signature
-        const SECRET_KEY = Buffer.from(SECRET_KEY_BASE64, 'base64').toString('utf-8');
-        const CALLBACK_URL = process.env.PHONEPE_CALLBACK_URL || "http://localhost:3000";
-        
-        console.log("📞 Initializing PhonePe payment with:", {
-          merchantId: MERCHANT_ID,
-          secretKey: SECRET_KEY.substring(0, 8) + "...",
-          amount: numericAmount
-        });
-        
-        // Ensure mobile number is a number
-        let mobileNumber = user.mobile ? user.mobile.toString().replace(/\D/g, '') : '9999999999';
-        // Ensure it's 10 digits
-        if (mobileNumber.length < 10) {
-          mobileNumber = '9999999999';
-        }
-        console.log("📱 Mobile number for PhonePe:", mobileNumber);
-        
-        // Create PhonePe transaction record
-        const phonepeData = await phonePeTransactionModel.create({
-          userId: userId.toString(),
-          username: user.fullName || "User",
-          Mobile: mobileNumber,
-          orderId: `WALLET_${Date.now()}`,
-          amount: numericAmount,
-          config: JSON.stringify({
-            method: 'post',
-            url: `${process.env.BACKEND_URL || 'http://localhost:5001'}/api/earnings/phonepe-callback`,
-            data: {
-              userId: userId.toString(),
-              amount: numericAmount,
-              description
-            }
-          })
-        });
-        
-        console.log("✅ PhonePe transaction created:", phonepeData._id);
-        
-        if (!phonepeData) {
-          return res.status(400).json({ 
-            success: false,
-            error: "Failed to create PhonePe transaction" 
-          });
-        }
-
-        const merchantTransactionId = phonepeData._id.toString();
-        const redirectUrl = `${CALLBACK_URL}/provider/earnings?transactionId=${phonepeData._id}&userID=${userId}`;
-        const callbackUrl = `${process.env.BACKEND_URL || 'http://localhost:5001'}/api/phonepe/payment-callback`;
-        
-        // Generate signature (same as phonepe.controller.js)
-        function generateSignature(payload, saltKey, saltIndex) {
-          const encodedPayload = Buffer.from(payload).toString("base64");
-          const concatenatedString = encodedPayload + "/pg/v1/pay" + saltKey;
-          const hashedValue = crypto
-            .createHash("sha256")
-            .update(concatenatedString)
-            .digest("hex");
-          const signature = hashedValue + "###" + saltIndex;
-          return signature;
-        }
-        
-        // Build payment request
-        const paymentDetails = {
-          merchantId: MERCHANT_ID,
-          merchantTransactionId: merchantTransactionId,
-          merchantUserId: userId.toString(),
-          amount: numericAmount * 100, // Convert to paise
-          redirectUrl: redirectUrl,
-          redirectMode: "POST",
-          callbackUrl: callbackUrl,
-          mobileNumber: mobileNumber,
-          paymentInstrument: {
-            type: "PAY_PAGE",
-          },
-        };
-
-        const payload = JSON.stringify(paymentDetails);
-        const objJsonB64 = Buffer.from(payload).toString("base64");
-        const saltKey = SECRET_KEY;
-        const saltIndex = 1;
-        const signature = generateSignature(payload, saltKey, saltIndex);
-        
-        console.log("💳 Payment request built:", {
-          merchantTransactionId,
-          amount: numericAmount * 100,
-          redirectUrl
-        });
-        
-        // For test mode, use UAT endpoint; for production, use production endpoint
-        const phonePeApiUrl = "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/pay";
-        
-        console.log("🌐 Using PhonePe API:", phonePeApiUrl, "(TEST MODE)");
-        
-        // Send payment request to PhonePe
-        const response = await axios.post(
-          phonePeApiUrl,
-          {
-            request: objJsonB64,
-          },
-          {
-            headers: {
-              "X-VERIFY": signature,
-              "Content-Type": "application/json"
-            },
-          }
-        );
-        
-        console.log("✅ PhonePe payment initiated:", response.data);
-        
-        const checkoutUrl = response.data?.data?.instrumentResponse?.redirectInfo?.url;
-        
-        if (!checkoutUrl) {
-          console.error("❌ Invalid PhonePe response:", response.data);
-          return res.status(500).json({ 
-            success: false,
-            error: "PhonePe did not return a payment URL" 
-          });
-        }
-        
-        return res.status(200).json({
-          success: true,
-          message: "PhonePe payment initiated",
-          data: {
-            paymentUrl: checkoutUrl,
-            transactionId: phonepeData._id,
-            amount: numericAmount,
-            paymentMethod: "phonepe"
-          }
-        });
-        
-      } catch (phonepeError) {
-        console.error("❌ PhonePe integration error:", phonepeError);
-        console.error("❌ Error details:", phonepeError.response?.data || phonepeError.message);
-        console.error("❌ Full error:", JSON.stringify(phonepeError.response?.data, null, 2));
-        
-        // Return detailed error for debugging
-        return res.status(500).json({
-          success: false,
-          message: "PhonePe payment initiation failed",
-          error: phonepeError.response?.data?.message || phonepeError.message,
-          details: phonepeError.response?.data || { message: phonepeError.message }
-        });
-      }
-    }
-
-    // Manual/demo payment (fallback)
     const previousBalance = user.wallet || 0;
-
-    // Add money to wallet
     user.wallet = previousBalance + numericAmount;
     await user.save();
 
-    console.log("💰 Wallet updated:", {
-      previousBalance,
-      addedAmount: numericAmount,
-      newBalance: user.wallet,
-    });
+    console.log("💰 Wallet credited:", { userId, amount: numericAmount, previousBalance, newBalance: user.wallet });
 
-    // Create transaction record
     const transaction = new Transaction({
       user: userId,
       userType: "User",
@@ -1411,58 +1214,24 @@ const addMoneyToWallet = async (req, res) => {
       balance: user.wallet,
       description,
       status: "completed",
-      paymentMethod: paymentMethod || "manual",
-      paymentGateway: "manual",
-      transactionId: `WALLET_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}`,
-      metadata: {
-        rechargeMethod: paymentMethod || "manual",
-        previousBalance,
-        newBalance: user.wallet,
-        addedBy: "user",
-      },
+      paymentMethod: "upi",
+      paymentGateway: "phonepe",
+      transactionId: `PHONEPE_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      metadata: { previousBalance, newBalance: user.wallet, addedBy: "phonepe" },
     });
-
     await transaction.save();
 
-    console.log("✅ WALLET RECHARGED SUCCESSFULLY:", {
-      userId,
-      amount: numericAmount,
-      previousBalance,
-      newBalance: user.wallet,
-      transactionId: transaction._id,
-    });
+    console.log("✅ WALLET RECHARGED:", { userId, amount: numericAmount, newBalance: user.wallet });
 
-    res.json({
+    return res.json({
       success: true,
       message: "Money added to wallet successfully",
-      data: {
-        amount: numericAmount,
-        previousBalance,
-        newBalance: user.wallet,
-        transactionId: transaction._id,
-        description,
-      },
+      data: { amount: numericAmount, previousBalance, newBalance: user.wallet }
     });
+   
   } catch (error) {
-    console.error("❌ ERROR adding money to wallet:", {
-      error: error.message,
-      stack: error.stack,
-      userId: req.user?.id || req.user?._id,
-      requestBody: req.body,
-    });
-
-    logger.error("Error adding money to wallet:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Server error while adding money to wallet",
-      error:
-        process.env.NODE_ENV === "development"
-          ? error.message
-          : "Internal server error",
-    });
+    console.error("❌ ERROR adding money to wallet:", error.message);
+    return res.status(500).json({ success: false, message: "Server error while adding money to wallet" });
   }
 };
 
