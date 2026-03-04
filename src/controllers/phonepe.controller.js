@@ -24,8 +24,8 @@ const AUTH_ENDPOINT = IS_PROD
   : "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token";
 
 const ORDER_STATUS_URL = IS_PROD
-  ? "https://api.phonepe.com/apis/pg/orders"
-  : "https://api-preprod.phonepe.com/apis/pg-sandbox/orders";
+  ? "https://api.phonepe.com/apis/pg/checkout/v2/order"
+  : "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/order";
 
 console.log("🔧 PhonePe Config →", {
   PHONEPE_ENV, IS_PROD, CLIENT_ID, MERCHANT_ID,
