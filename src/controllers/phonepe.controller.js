@@ -229,7 +229,7 @@ class PhonePeController {
       // Query PhonePe directly for real status
       try {
         const token = await getToken();
-        const { data: statusResp } = await axios.get(`${ORDER_STATUS_URL}/${id}`, {
+        const { data: statusResp } = await axios.get(`${ORDER_STATUS_URL}/${id}/status`, {
           headers: {
             "Authorization" : `O-Bearer ${token}`,
             "X-Merchant-Id" : MERCHANT_ID,
