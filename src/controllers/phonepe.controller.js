@@ -88,13 +88,13 @@ class PhonePeController {
   // ── Initiate Payment ──────────────────────────────────────────────────────
   async addPaymentPhone(req, res) {
     try {
-      const { userId, username, Mobile, orderId, amount, config } = req.body;
+      const { userId, username, Mobile, orderId, amount, config, platform } = req.body;
 
       const txn = await phonePeTransactionModel.create({
         userId, username, Mobile, orderId, amount, config,
       });
 
-      console.log("💳 Transaction created:", { id: txn._id, amount, userId });
+      console.log("💳 Transaction created:", { id: txn._id, amount, userId, platform });
 
       let token;
       try {
@@ -103,6 +103,16 @@ class PhonePeController {
         console.error("❌ PhonePe auth failed:", e.response?.data || e.message);
         return res.status(500).json({ error: "PhonePe auth failed", details: e.response?.data });
       }
+
+      // Detect if request is from mobile app
+      const isMobile = platform === 'mobile' || req.headers['x-platform'] === 'mobile';
+      
+      // Use deep link for mobile, web URL for web
+      const redirectUrl = isMobile
+        ? `quickchat://payment-success?transactionId=${txn._id}&userID=${userId}`
+        : `${CALLBACK_URL}/provider/earnings?transactionId=${txn._id}&userID=${userId}`;
+
+      console.log("🔗 Redirect URL:", redirectUrl, "(mobile:", isMobile, ")");
 
       const payload = {
         merchantOrderId : txn._id.toString(),
@@ -113,7 +123,7 @@ class PhonePeController {
           type    : "PG_CHECKOUT",
           message : "Wallet Recharge",
           merchantUrls: {
-            redirectUrl : `${CALLBACK_URL}/provider/earnings?transactionId=${txn._id}&userID=${userId}`,
+            redirectUrl : redirectUrl,
             callbackUrl : `${BACKEND_URL}/api/phonepe/payment-callback`,
           },
         },
