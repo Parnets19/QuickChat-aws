@@ -108,9 +108,10 @@ class PhonePeController {
       const isMobile = platform === 'mobile' || req.headers['x-platform'] === 'mobile';
       
       // Use appropriate redirect URL based on platform
-      // For mobile: Use web URL that WebView can detect + deep link as fallback
+      // For mobile: Use deep link that will open the app after payment
+      // For web: Use web URL
       const redirectUrl = isMobile
-        ? `${CALLBACK_URL}/payment-success?transactionId=${txn._id}&userID=${userId}`
+        ? `quickchat://payment-success?transactionId=${txn._id}&userID=${userId}`
         : `${CALLBACK_URL}/provider/earnings?transactionId=${txn._id}&userID=${userId}`;
 
       console.log("🔗 Redirect URL:", redirectUrl, "(mobile:", isMobile, ")");
