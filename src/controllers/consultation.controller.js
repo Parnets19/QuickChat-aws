@@ -1025,15 +1025,17 @@ const endConsultation = async (req, res, next) => {
 
     await consultation.save();
 
-    // 🆓 MARK FREE MINUTE AS USED - Fix for free minute system
-    // If this was a first-time consultation with this provider, mark free minute as used
-    if (consultation.isFirstMinuteFree && consultation.rate > 0) {
+    // 🆓 MARK FREE MINUTE AS USED - Fix for per-provider free minute system
+    // Mark free minute as used for this provider when consultation completes
+    // This ensures mobile app correctly shows that free minute has been used
+    if (consultation.rate > 0 && consultation.duration > 0) {
       try {
-        console.log("🆓 MARKING FREE MINUTE AS USED:", {
+        console.log("🆓 CHECKING IF FREE MINUTE SHOULD BE MARKED AS USED:", {
           consultationId: consultation._id,
           userId: consultationUserId,
           providerId: consultation.provider,
-          isFirstMinuteFree: consultation.isFirstMinuteFree,
+          rate: consultation.rate,
+          duration: consultation.duration,
         });
 
         // Determine if user is guest or regular user
@@ -1052,13 +1054,14 @@ const endConsultation = async (req, res, next) => {
             userModel.freeMinutesUsed = [];
           }
 
-          // Check if not already marked as used
+          // Check if not already marked as used for this provider
           const alreadyMarked = userModel.freeMinutesUsed.some(
             (entry) =>
               entry.providerId.toString() === consultation.provider.toString()
           );
 
           if (!alreadyMarked) {
+            // Mark as used - this is the first completed consultation with this provider
             userModel.freeMinutesUsed.push({
               providerId: consultation.provider,
               consultationId: consultation._id,
@@ -1070,10 +1073,11 @@ const endConsultation = async (req, res, next) => {
             consultation.freeMinuteUsed = true;
             await consultation.save();
 
-            console.log("✅ FREE MINUTE MARKED AS USED:", {
+            console.log("✅ FREE MINUTE MARKED AS USED FOR THIS PROVIDER:", {
               userId: consultationUserId,
               providerId: consultation.provider,
               userType: isGuestUser ? "guest" : "regular",
+              consultationId: consultation._id,
             });
           } else {
             console.log(

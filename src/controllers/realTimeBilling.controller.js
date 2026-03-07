@@ -863,6 +863,76 @@ const processRealTimeBilling = async (req, res) => {
       consultation.endReason = "wallet_exhausted";
       await consultation.save();
 
+      // 🆓 MARK FREE MINUTE AS USED - Fix for per-provider free minute system
+      // Mark free minute as used for this provider when consultation completes
+      if (consultation.rate > 0 && finalMinutes > 0) {
+        try {
+          console.log("🆓 CHECKING IF FREE MINUTE SHOULD BE MARKED AS USED (WALLET EXHAUSTED):", {
+            consultationId: consultation._id,
+            userId: consultation.user,
+            providerId: consultation.provider,
+            rate: consultation.rate,
+            duration: finalMinutes,
+          });
+
+          // Determine if user is guest or regular user
+          const consultationUserId = consultation.user;
+          let userModel;
+
+          if (isGuest) {
+            userModel = await Guest.findById(consultationUserId);
+          } else {
+            userModel = await User.findById(consultationUserId);
+          }
+
+          if (userModel) {
+            // Initialize freeMinutesUsed if it doesn't exist
+            if (!userModel.freeMinutesUsed) {
+              userModel.freeMinutesUsed = [];
+            }
+
+            // Check if not already marked as used for this provider
+            const alreadyMarked = userModel.freeMinutesUsed.some(
+              (entry) =>
+                entry.providerId.toString() === consultation.provider.toString()
+            );
+
+            if (!alreadyMarked) {
+              // Mark as used - this is the first completed consultation with this provider
+              userModel.freeMinutesUsed.push({
+                providerId: consultation.provider,
+                consultationId: consultation._id,
+                usedAt: new Date(),
+              });
+              await userModel.save();
+
+              // Also update the consultation to reflect that free minute was used
+              consultation.freeMinuteUsed = true;
+              await consultation.save();
+
+              console.log("✅ FREE MINUTE MARKED AS USED FOR THIS PROVIDER (WALLET EXHAUSTED):", {
+                userId: consultationUserId,
+                providerId: consultation.provider,
+                userType: isGuest ? "guest" : "regular",
+                consultationId: consultation._id,
+              });
+            } else {
+              console.log(
+                "ℹ️ Free minute already marked as used for this provider"
+              );
+            }
+          } else {
+            console.error(
+              "❌ User not found for free minute marking:",
+              consultationUserId
+            );
+          }
+        } catch (freeMinuteError) {
+          console.error("❌ Error marking free minute as used:", freeMinuteError);
+          // Don't fail the consultation completion if free minute marking fails
+        }
+      }
+
       // Add earnings to provider with PRECISE calculations
       const provider = await User.findById(consultation.provider);
       if (provider) {
@@ -923,11 +993,86 @@ const processRealTimeBilling = async (req, res) => {
     if (currentWallet < ratePerMinute) {
       console.log("🚨 INSUFFICIENT FUNDS FOR CURRENT MINUTE");
 
+      // Calculate duration up to this point
+      const durationInSeconds = Math.floor((currentTime - consultation.startTime) / 1000);
+      const durationMinutes = Math.floor(durationInSeconds / 60);
+
       // End consultation immediately
       consultation.status = "completed";
       consultation.endTime = currentTime;
+      consultation.duration = durationMinutes;
       consultation.endReason = "insufficient_funds";
       await consultation.save();
+
+      // 🆓 MARK FREE MINUTE AS USED - Fix for per-provider free minute system
+      // Mark free minute as used for this provider when consultation completes
+      if (consultation.rate > 0 && durationMinutes > 0) {
+        try {
+          console.log("🆓 CHECKING IF FREE MINUTE SHOULD BE MARKED AS USED (INSUFFICIENT FUNDS):", {
+            consultationId: consultation._id,
+            userId: consultation.user,
+            providerId: consultation.provider,
+            rate: consultation.rate,
+            duration: durationMinutes,
+          });
+
+          // Determine if user is guest or regular user
+          const consultationUserId = consultation.user;
+          let userModel;
+
+          if (isGuest) {
+            userModel = await Guest.findById(consultationUserId);
+          } else {
+            userModel = await User.findById(consultationUserId);
+          }
+
+          if (userModel) {
+            // Initialize freeMinutesUsed if it doesn't exist
+            if (!userModel.freeMinutesUsed) {
+              userModel.freeMinutesUsed = [];
+            }
+
+            // Check if not already marked as used for this provider
+            const alreadyMarked = userModel.freeMinutesUsed.some(
+              (entry) =>
+                entry.providerId.toString() === consultation.provider.toString()
+            );
+
+            if (!alreadyMarked) {
+              // Mark as used - this is the first completed consultation with this provider
+              userModel.freeMinutesUsed.push({
+                providerId: consultation.provider,
+                consultationId: consultation._id,
+                usedAt: new Date(),
+              });
+              await userModel.save();
+
+              // Also update the consultation to reflect that free minute was used
+              consultation.freeMinuteUsed = true;
+              await consultation.save();
+
+              console.log("✅ FREE MINUTE MARKED AS USED FOR THIS PROVIDER (INSUFFICIENT FUNDS):", {
+                userId: consultationUserId,
+                providerId: consultation.provider,
+                userType: isGuest ? "guest" : "regular",
+                consultationId: consultation._id,
+              });
+            } else {
+              console.log(
+                "ℹ️ Free minute already marked as used for this provider"
+              );
+            }
+          } else {
+            console.error(
+              "❌ User not found for free minute marking:",
+              consultationUserId
+            );
+          }
+        } catch (freeMinuteError) {
+          console.error("❌ Error marking free minute as used:", freeMinuteError);
+          // Don't fail the consultation completion if free minute marking fails
+        }
+      }
 
       // CRITICAL FIX 8: Emit to CLIENT (not provider)
       if (io) {
@@ -1486,6 +1631,78 @@ const endConsultation = async (req, res) => {
     }
 
     await consultation.save();
+
+    // 🆓 MARK FREE MINUTE AS USED - Fix for per-provider free minute system
+    // Mark free minute as used for this provider when consultation completes
+    // This ensures mobile app correctly shows that free minute has been used
+    if (consultation.rate > 0 && consultation.duration > 0) {
+      try {
+        console.log("🆓 CHECKING IF FREE MINUTE SHOULD BE MARKED AS USED:", {
+          consultationId: consultation._id,
+          userId: consultation.user,
+          providerId: consultation.provider,
+          rate: consultation.rate,
+          duration: consultation.duration,
+        });
+
+        // Determine if user is guest or regular user
+        const isGuestUser = consultation.userType === "Guest";
+        const consultationUserId = consultation.user;
+        let userModel;
+
+        if (isGuestUser) {
+          userModel = await Guest.findById(consultationUserId);
+        } else {
+          userModel = await User.findById(consultationUserId);
+        }
+
+        if (userModel) {
+          // Initialize freeMinutesUsed if it doesn't exist
+          if (!userModel.freeMinutesUsed) {
+            userModel.freeMinutesUsed = [];
+          }
+
+          // Check if not already marked as used for this provider
+          const alreadyMarked = userModel.freeMinutesUsed.some(
+            (entry) =>
+              entry.providerId.toString() === consultation.provider.toString()
+          );
+
+          if (!alreadyMarked) {
+            // Mark as used - this is the first completed consultation with this provider
+            userModel.freeMinutesUsed.push({
+              providerId: consultation.provider,
+              consultationId: consultation._id,
+              usedAt: new Date(),
+            });
+            await userModel.save();
+
+            // Also update the consultation to reflect that free minute was used
+            consultation.freeMinuteUsed = true;
+            await consultation.save();
+
+            console.log("✅ FREE MINUTE MARKED AS USED FOR THIS PROVIDER:", {
+              userId: consultationUserId,
+              providerId: consultation.provider,
+              userType: isGuestUser ? "guest" : "regular",
+              consultationId: consultation._id,
+            });
+          } else {
+            console.log(
+              "ℹ️ Free minute already marked as used for this provider"
+            );
+          }
+        } else {
+          console.error(
+            "❌ User not found for free minute marking:",
+            consultationUserId
+          );
+        }
+      } catch (freeMinuteError) {
+        console.error("❌ Error marking free minute as used:", freeMinuteError);
+        // Don't fail the consultation completion if free minute marking fails
+      }
+    }
 
     console.log("✅ CONSULTATION ENDED:", {
       consultationId,
