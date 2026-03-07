@@ -1706,7 +1706,9 @@ const endConsultation = async (req, res) => {
     // 🆓 MARK FREE MINUTE AS USED - Fix for per-provider free minute system
     // Mark free minute as used for this provider when consultation completes
     // This ensures mobile app correctly shows that free minute has been used
-    if (consultation.rate > 0 && consultation.duration > 0) {
+    // CRITICAL FIX: Mark as used if consultation actually started (bothSidesAcceptedAt exists)
+    // regardless of final duration, to prevent showing "first call free" after completing a call
+    if (consultation.bothSidesAcceptedAt && consultation.rate > 0) {
       try {
         console.log("🆓 CHECKING IF FREE MINUTE SHOULD BE MARKED AS USED:", {
           consultationId: consultation._id,
@@ -1714,6 +1716,8 @@ const endConsultation = async (req, res) => {
           providerId: consultation.provider,
           rate: consultation.rate,
           duration: consultation.duration,
+          bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+          note: "Marking based on call actually starting, not final duration",
         });
 
         // Determine if user is guest or regular user
@@ -1757,6 +1761,7 @@ const endConsultation = async (req, res) => {
               providerId: consultation.provider,
               userType: isGuestUser ? "guest" : "regular",
               consultationId: consultation._id,
+              duration: consultation.duration,
             });
           } else {
             console.log(
@@ -1773,6 +1778,12 @@ const endConsultation = async (req, res) => {
         console.error("❌ Error marking free minute as used:", freeMinuteError);
         // Don't fail the consultation completion if free minute marking fails
       }
+    } else {
+      console.log("🆓 FREE MINUTE NOT MARKED - Consultation did not fully start:", {
+        bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+        rate: consultation.rate,
+        status: consultation.status,
+      });
     }
 
     console.log("✅ CONSULTATION ENDED:", {
