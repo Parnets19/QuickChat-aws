@@ -10,8 +10,8 @@ const { User, Guest, Consultation } = require('../src/models');
 
 async function checkFreeMinuteStatus(userId, providerId) {
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log('✅ Connected to MongoDB');
+    // await mongoose.connect(process.env.MONGODB_URI);
+    // console.log('✅ Connected to MongoDB');
 
     // Check if user is regular or guest
     let user = await User.findById(userId);

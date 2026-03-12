@@ -33,18 +33,18 @@ const protect = async (req, res, next) => {
         }
 
         if (!admin.isActive) {
-          console.log(
-            "🔐 AUTH DEBUG - Admin account deactivated:",
-            admin.email
-          );
+          // console.log(
+          //   "🔐 AUTH DEBUG - Admin account deactivated:",
+          //   admin.email
+          // );
           return next(new AppError("Admin account is deactivated", 403));
         }
 
-        console.log("🔐 AUTH DEBUG - Admin authenticated:", {
-          email: admin.email,
-          id: admin._id,
-          role: admin.role,
-        });
+        // console.log("🔐 AUTH DEBUG - Admin authenticated:", {
+        //   email: admin.email,
+        //   id: admin._id,
+        //   role: admin.role,
+        // });
         req.user = {
           ...admin.toObject(),
           isAdmin: true,
@@ -70,26 +70,26 @@ const protect = async (req, res, next) => {
       }
 
       // Get regular user from token
-      console.log("🔐 AUTH DEBUG - Looking up user:", decoded.id);
+      // console.log("🔐 AUTH DEBUG - Looking up user:", decoded.id);
       const user = await User.findById(decoded.id);
 
       if (!user) {
-        console.log("🔐 AUTH DEBUG - User not found:", decoded.id);
+        // console.log("🔐 AUTH DEBUG - User not found:", decoded.id);
         return next(new AppError("User not found", 404));
       }
 
-      console.log("🔐 AUTH DEBUG - User found:", {
-        id: user._id,
-        name: user.fullName,
-        status: user.status,
-      });
+      // console.log("🔐 AUTH DEBUG - User found:", {
+      //   id: user._id,
+      //   name: user.fullName,
+      //   status: user.status,
+      // });
 
       if (user.status !== "active") {
-        console.log("🔐 AUTH DEBUG - User account suspended:", user.status);
+        // console.log("🔐 AUTH DEBUG - User account suspended:", user.status);
         return next(new AppError("Your account has been suspended", 403));
       }
 
-      console.log("🔐 AUTH DEBUG - User authenticated successfully");
+      // console.log("🔐 AUTH DEBUG - User authenticated successfully");
       req.user = user;
       next();
     } catch (err) {

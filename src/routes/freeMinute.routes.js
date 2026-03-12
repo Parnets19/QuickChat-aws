@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { User, Guest } = require("../models");
+const { User, Guest, Consultation } = require("../models");
 const { protect } = require("../middlewares/auth");
 
 // Check if user has used free minute with a specific provider
@@ -8,10 +8,6 @@ router.get("/check/:providerId", protect, async (req, res) => {
   try {
     const { providerId } = req.params;
     const userId = req.user.id;
-
-    console.log(
-      `🔍 Checking free minute status for user ${userId} with provider ${providerId}`
-    );
 
     // Handle guest users
     if (req.user.isGuest) {
@@ -23,17 +19,35 @@ router.get("/check/:providerId", protect, async (req, res) => {
         });
       }
 
-      // Check if guest has used free minute with this provider
+      // Check if guest has used free minute with this provider (in freeMinutesUsed array)
       const hasUsedFreeMinute = guest.freeMinutesUsed?.some(
         (entry) => entry.providerId.toString() === providerId
       );
 
+      // CRITICAL FIX: Also check if they have ANY completed consultations with this provider
+      // If they do, they should NOT see "first time free" even if freeMinutesUsed is empty
+      const completedConsultations = await Consultation.countDocuments({
+        user: userId,
+        provider: providerId,
+        status: "completed",
+        $or: [
+          { bothSidesAcceptedAt: { $exists: true } },
+          { duration: { $gt: 0 } },
+          { startTime: { $exists: true } }
+        ]
+      });
+
+      const isFirstTime = !hasUsedFreeMinute && completedConsultations === 0;
+
+    
+
       return res.json({
         success: true,
         data: {
-          hasUsedFreeMinute: hasUsedFreeMinute || false,
-          isFirstTime: !hasUsedFreeMinute,
+          hasUsedFreeMinute: hasUsedFreeMinute || completedConsultations > 0,
+          isFirstTime: isFirstTime,
           userType: "guest",
+          completedConsultations,
         },
       });
     }
@@ -47,21 +61,37 @@ router.get("/check/:providerId", protect, async (req, res) => {
       });
     }
 
-    // Check if user has used free minute with this provider
+    // Check if user has used free minute with this provider (in freeMinutesUsed array)
     const hasUsedFreeMinute = user.freeMinutesUsed?.some(
       (entry) => entry.providerId.toString() === providerId
     );
 
+    // CRITICAL FIX: Also check if they have ANY completed consultations with this provider
+    // If they do, they should NOT see "first time free" even if freeMinutesUsed is empty
+    const completedConsultations = await Consultation.countDocuments({
+      user: userId,
+      provider: providerId,
+      status: "completed",
+      $or: [
+        { bothSidesAcceptedAt: { $exists: true } },
+        { duration: { $gt: 0 } },
+        { startTime: { $exists: true } }
+      ]
+    });
+
+    const isFirstTime = !hasUsedFreeMinute && completedConsultations === 0;
+
     console.log(
-      `📊 Free minute check result: hasUsed=${hasUsedFreeMinute}, isFirstTime=${!hasUsedFreeMinute}`
+      `📊 Free minute check result: hasUsed=${hasUsedFreeMinute}, completedCalls=${completedConsultations}, isFirstTime=${isFirstTime}`
     );
 
     res.json({
       success: true,
       data: {
-        hasUsedFreeMinute: hasUsedFreeMinute || false,
-        isFirstTime: !hasUsedFreeMinute,
+        hasUsedFreeMinute: hasUsedFreeMinute || completedConsultations > 0,
+        isFirstTime: isFirstTime,
         userType: "regular",
+        completedConsultations,
       },
     });
   } catch (error) {

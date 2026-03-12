@@ -2,7 +2,7 @@ User-agent: *
 Allow: /
 
 # Sitemap
-Sitemap: https://quickchatindia.com/sitemap.xml
+Sitemap: http://192.168.1.25:5001/sitemap.xml
 
 # Crawl-delay for better server performance
 Crawl-delay: 1

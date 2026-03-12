@@ -1030,7 +1030,8 @@ const endConsultation = async (req, res, next) => {
     // This ensures mobile app correctly shows that free minute has been used
     // CRITICAL FIX: Mark as used if consultation actually started (bothSidesAcceptedAt exists)
     // regardless of final duration, to prevent showing "first call free" after completing a call
-    if (consultation.bothSidesAcceptedAt && consultation.rate > 0) {
+    // UPDATED FIX: Also mark if consultation has any duration > 0, even if bothSidesAcceptedAt is missing
+    if ((consultation.bothSidesAcceptedAt || consultation.duration > 0 || consultation.startTime) && consultation.rate > 0) {
       try {
         console.log("🆓 CHECKING IF FREE MINUTE SHOULD BE MARKED AS USED:", {
           consultationId: consultation._id,
@@ -1039,6 +1040,8 @@ const endConsultation = async (req, res, next) => {
           rate: consultation.rate,
           duration: consultation.duration,
           bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+          startTime: consultation.startTime,
+          conditionMet: !!(consultation.bothSidesAcceptedAt || consultation.duration > 0 || consultation.startTime),
           note: "Marking based on call actually starting, not final duration",
         });
 
@@ -1102,8 +1105,12 @@ const endConsultation = async (req, res, next) => {
     } else {
       console.log("🆓 FREE MINUTE NOT MARKED - Consultation did not fully start:", {
         bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+        duration: consultation.duration,
+        startTime: consultation.startTime,
         rate: consultation.rate,
         status: consultation.status,
+        conditionMet: !!(consultation.bothSidesAcceptedAt || consultation.duration > 0 || consultation.startTime),
+        rateCheck: consultation.rate > 0,
       });
     }
 
