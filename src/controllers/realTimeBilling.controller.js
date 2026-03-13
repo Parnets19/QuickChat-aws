@@ -1156,6 +1156,77 @@ const processRealTimeBilling = async (req, res) => {
       consultation.lastBillingTime = currentTime;
       await consultation.save();
 
+      // 🆓 MARK FREE MINUTE AS USED - After first minute is billed
+      // This ensures the free minute is marked immediately when billing happens
+      if (billableMinutesRoundedUp >= 1 && ratePerMinute > 0 && !consultation.freeMinuteUsed) {
+        try {
+          console.log("🆓 FIRST MINUTE COMPLETED - MARKING FREE MINUTE AS USED:", {
+            consultationId: consultation._id,
+            userId: consultation.user,
+            providerId: consultation.provider,
+            duration: billableMinutesRoundedUp,
+            rate: ratePerMinute,
+          });
+
+          // Determine if user is guest or regular user
+          const consultationUserId = consultation.user;
+          let userModel;
+
+          if (isGuest) {
+            userModel = await Guest.findById(consultationUserId);
+          } else {
+            userModel = await User.findById(consultationUserId);
+          }
+
+          if (userModel) {
+            // Initialize freeMinutesUsed if it doesn't exist
+            if (!userModel.freeMinutesUsed) {
+              userModel.freeMinutesUsed = [];
+            }
+
+            // Check if not already marked as used for this provider
+            const alreadyMarked = userModel.freeMinutesUsed.some(
+              (entry) =>
+                entry.providerId.toString() === consultation.provider.toString()
+            );
+
+            if (!alreadyMarked) {
+              // Mark as used - first minute completed with this provider
+              userModel.freeMinutesUsed.push({
+                providerId: consultation.provider,
+                consultationId: consultation._id,
+                usedAt: new Date(),
+              });
+              await userModel.save();
+
+              // Also update the consultation to reflect that free minute was used
+              consultation.freeMinuteUsed = true;
+              await consultation.save();
+
+              console.log("✅ FREE MINUTE MARKED AS USED DURING BILLING:", {
+                userId: consultationUserId,
+                providerId: consultation.provider,
+                userType: isGuest ? "guest" : "regular",
+                consultationId: consultation._id,
+                minuteCompleted: billableMinutesRoundedUp,
+              });
+            } else {
+              console.log(
+                "ℹ️ Free minute already marked as used for this provider"
+              );
+            }
+          } else {
+            console.error(
+              "❌ User not found for free minute marking:",
+              consultationUserId
+            );
+          }
+        } catch (freeMinuteError) {
+          console.error("❌ Error marking free minute as used during billing:", freeMinuteError);
+          // Don't fail the billing if free minute marking fails
+        }
+      }
+
       // REAL-TIME CREDIT TO PROVIDER (receiver)
       const provider = await User.findById(consultation.provider);
       if (provider) {
@@ -1635,7 +1706,10 @@ const endConsultation = async (req, res) => {
     // 🆓 MARK FREE MINUTE AS USED - Fix for per-provider free minute system
     // Mark free minute as used for this provider when consultation completes
     // This ensures mobile app correctly shows that free minute has been used
-    if (consultation.rate > 0 && consultation.duration > 0) {
+    // CRITICAL FIX: Mark as used if consultation actually started (bothSidesAcceptedAt exists)
+    // regardless of final duration, to prevent showing "first call free" after completing a call
+    // UPDATED FIX: Also mark if consultation has any duration > 0, even if bothSidesAcceptedAt is missing
+    if ((consultation.bothSidesAcceptedAt || consultation.duration > 0 || consultation.startTime) && consultation.rate > 0) {
       try {
         console.log("🆓 CHECKING IF FREE MINUTE SHOULD BE MARKED AS USED:", {
           consultationId: consultation._id,
@@ -1643,6 +1717,10 @@ const endConsultation = async (req, res) => {
           providerId: consultation.provider,
           rate: consultation.rate,
           duration: consultation.duration,
+          bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+          startTime: consultation.startTime,
+          conditionMet: !!(consultation.bothSidesAcceptedAt || consultation.duration > 0 || consultation.startTime),
+          note: "Marking based on call actually starting, not final duration",
         });
 
         // Determine if user is guest or regular user
@@ -1686,6 +1764,7 @@ const endConsultation = async (req, res) => {
               providerId: consultation.provider,
               userType: isGuestUser ? "guest" : "regular",
               consultationId: consultation._id,
+              duration: consultation.duration,
             });
           } else {
             console.log(
@@ -1702,6 +1781,16 @@ const endConsultation = async (req, res) => {
         console.error("❌ Error marking free minute as used:", freeMinuteError);
         // Don't fail the consultation completion if free minute marking fails
       }
+    } else {
+      console.log("🆓 FREE MINUTE NOT MARKED - Consultation did not fully start:", {
+        bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+        duration: consultation.duration,
+        startTime: consultation.startTime,
+        rate: consultation.rate,
+        status: consultation.status,
+        conditionMet: !!(consultation.bothSidesAcceptedAt || consultation.duration > 0 || consultation.startTime),
+        rateCheck: consultation.rate > 0,
+      });
     }
 
     console.log("✅ CONSULTATION ENDED:", {
