@@ -293,6 +293,8 @@ const toggleProviderVisibility = async (req, res) => {
 // Get admin dashboard statistics
 const getAdminStats = async (req, res) => {
   try {
+    const Report = require('../models/Report.model');
+    
     const [
       totalUsers,
       totalProviders,
@@ -310,7 +312,10 @@ const getAdminStats = async (req, res) => {
       totalWithdrawals,
       onlineUsers,
       verifiedProviders,
-      pendingKyc
+      pendingKyc,
+      totalReports,
+      pendingReports,
+      todayReports
     ] = await Promise.all([
       User.countDocuments({ isServiceProvider: false }),
       User.countDocuments({ isServiceProvider: true }),
@@ -347,7 +352,14 @@ const getAdminStats = async (req, res) => {
       require('../models/Withdrawal.model').countDocuments(),
       User.countDocuments({ isOnline: true }),
       User.countDocuments({ isServiceProvider: true, providerVerificationStatus: 'verified' }),
-      User.countDocuments({ isServiceProvider: true, providerVerificationStatus: 'pending' })
+      User.countDocuments({ isServiceProvider: true, providerVerificationStatus: 'pending' }),
+      Report.countDocuments(),
+      Report.countDocuments({ status: 'pending' }),
+      Report.countDocuments({
+        createdAt: {
+          $gte: new Date(new Date().setHours(0, 0, 0, 0))
+        }
+      })
     ]);
 
     // Get recent activity (last 7 days)
@@ -528,6 +540,11 @@ const getAdminStats = async (req, res) => {
           totalTransactions,
           pendingWithdrawals,
           totalWithdrawals
+        },
+        reports: {
+          total: totalReports,
+          pending: pendingReports,
+          today: todayReports
         },
         charts: {
           dailyActivity: chartData,

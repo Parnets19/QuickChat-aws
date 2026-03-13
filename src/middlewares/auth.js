@@ -220,5 +220,6 @@ module.exports = {
   isServiceProvider,
   isAadharVerified,
   adminOnly,
+  adminProtect: adminOnly, // Alias for consistency
   guestAuth,
 };

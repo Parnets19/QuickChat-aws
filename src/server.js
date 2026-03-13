@@ -12,8 +12,8 @@ const { logger } = require('./utils/logger');
 const { initializeSocket } = require('./socket');
 const routes = require('./routes');
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from parent directory
+dotenv.config({ path: require('path').join(__dirname, '..', '.env') });
 
 // Initialize Express app
 const app = express();
