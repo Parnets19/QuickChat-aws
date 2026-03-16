@@ -901,8 +901,107 @@ const markMessagesAsRead = async (req, res, next) => {
   }
 };
 
+// @desc    Send a file (image/PDF) in chat
+// @route   POST /api/chat/send-file
+// @access  Private (User/Guest)
+const sendFileMessage = async (req, res, next) => {
+  try {
+    const { providerId } = req.body;
+    const senderId = req.user.id || req.user._id;
+    const isGuest = req.user.isGuest || false;
+
+    if (!providerId) return next(new AppError("Provider ID is required", 400));
+    if (!req.file) return next(new AppError("No file uploaded", 400));
+
+    const ext = req.file.originalname.split('.').pop().toLowerCase();
+    const isPdf = ext === 'pdf';
+    const fileType = isPdf ? 'file' : 'image';
+    const fileUrl = `/uploads/${req.file.filename}`;
+
+    // Find or create chat
+    let chat = await Chat.findOne({
+      $or: [
+        { user: senderId, provider: providerId },
+        { user: providerId, provider: senderId },
+      ],
+    });
+
+    if (!chat) {
+      chat = new Chat({
+        user: senderId,
+        provider: providerId,
+        isGuestUser: isGuest,
+        lastMessage: isPdf ? '📄 PDF' : '🖼️ Image',
+        lastMessageTime: new Date(),
+        status: 'active',
+      });
+      await chat.save();
+    } else {
+      chat.lastMessage = isPdf ? '📄 PDF' : '🖼️ Image';
+      chat.lastMessageTime = new Date();
+      await chat.save();
+    }
+
+    // Get sender info
+    let senderName = 'User';
+    let senderAvatar = null;
+    try {
+      if (isGuest) {
+        const guest = await Guest.findById(senderId);
+        if (guest) { senderName = guest.name; senderAvatar = guest.profilePhoto || null; }
+      } else {
+        const user = await User.findById(senderId);
+        if (user) { senderName = user.fullName || user.name; senderAvatar = user.profilePhoto || null; }
+      }
+    } catch (e) { /* ignore */ }
+
+    const chatMessage = new ChatMessage({
+      chat: chat._id,
+      sender: senderId,
+      senderType: isGuest ? 'Guest' : 'User',
+      senderName,
+      senderAvatar,
+      message: isPdf ? '📄 PDF Document' : '🖼️ Image',
+      messageType: fileType,
+      attachments: [{
+        type: fileType,
+        url: fileUrl,
+        filename: req.file.originalname,
+        size: req.file.size,
+      }],
+      timestamp: new Date(),
+      status: 'sent',
+    });
+
+    await chatMessage.save();
+
+    const payload = {
+      _id: chatMessage._id,
+      sender: { _id: senderId.toString(), name: senderName, avatar: senderAvatar },
+      senderName,
+      senderAvatar,
+      message: chatMessage.message,
+      messageType: fileType,
+      attachments: chatMessage.attachments,
+      timestamp: chatMessage.timestamp,
+      status: 'sent',
+    };
+
+    // Emit via socket
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`chat:${chat._id}`).emit('consultation:message', payload);
+    }
+
+    res.status(201).json({ success: true, data: { chatMessage: payload, chatId: chat._id } });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendMessage,
+  sendFileMessage,
   getChatHistory,
   getChatNotifications,
   markNotificationAsRead,

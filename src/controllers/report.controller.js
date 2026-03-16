@@ -138,11 +138,27 @@ const submitReport = async (req, res, next) => {
     // Auto-send warning if this is the first, second, or third report
     if (totalReports <= 3) {
       try {
+        // Fetch full report history for dynamic email
+        const allReportsAgainstUser = await Report.find({ reported: reportedUserId })
+          .populate('reporter', 'fullName')
+          .sort({ createdAt: -1 });
+
+        const totalBlocks = allReportsAgainstUser.filter(r => r.isBlocked).length;
+        const reportHistory = allReportsAgainstUser.map(r => ({
+          reason: r.reason,
+          date: r.createdAt,
+          reporterName: r.reporter?.fullName || 'Anonymous',
+          isBlocked: r.isBlocked,
+        }));
+
         await sendWarningEmail({
           userName: reportedUser.fullName,
           userEmail: reportedUser.email,
           warningNumber: totalReports,
           reason,
+          totalReports,
+          totalBlocks,
+          reportHistory,
         });
 
         // Update report with warning sent
@@ -304,7 +320,20 @@ const takeActionOnReport = async (req, res, next) => {
 
     // Take action on user account
     const reportedUser = await User.findById(report.reported._id);
-    
+
+    // Fetch full report history for dynamic email
+    const allReportsAgainstUser = await Report.find({ reported: report.reported._id })
+      .populate('reporter', 'fullName')
+      .sort({ createdAt: -1 });
+
+    const totalBlocks = allReportsAgainstUser.filter(r => r.isBlocked).length;
+    const reportHistory = allReportsAgainstUser.map(r => ({
+      reason: r.reason,
+      date: r.createdAt,
+      reporterName: r.reporter?.fullName || 'Anonymous',
+      isBlocked: r.isBlocked,
+    }));
+
     if (action === 'suspended') {
       reportedUser.status = 'suspended';
       await reportedUser.save();
@@ -319,6 +348,9 @@ const takeActionOnReport = async (req, res, next) => {
           warningNumber: 'suspended',
           reason: report.reason,
           adminNotes,
+          totalReports,
+          totalBlocks,
+          reportHistory,
         });
         console.log('✅ Suspension email sent:', emailResult);
       } catch (emailError) {
@@ -335,6 +367,9 @@ const takeActionOnReport = async (req, res, next) => {
           warningNumber: totalReports,
           reason: report.reason,
           adminNotes,
+          totalReports,
+          totalBlocks,
+          reportHistory,
         });
         console.log('✅ Warning email sent:', emailResult);
       } catch (emailError) {

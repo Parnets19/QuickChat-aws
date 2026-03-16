@@ -17,7 +17,15 @@ const initializeSocket = (io) => {
       );
       const token = socket.handshake.auth.token;
 
+      // Allow unauthenticated connections for support chat guests
       if (!token) {
+        const isSupportGuest = socket.handshake.auth.supportGuest === true;
+        if (isSupportGuest) {
+          socket.data.userId = `guest_${socket.id}`;
+          socket.data.user = { isGuest: true, isSupportGuest: true };
+          console.log("Socket: unauthenticated support guest connected");
+          return next();
+        }
         console.log("Socket authentication failed: No token provided");
         return next(new Error("Authentication error: No token provided"));
       }
@@ -2190,6 +2198,23 @@ const initializeSocket = (io) => {
       console.log(`📊 Active chat rooms:`, Array.from(activeChatRooms.entries()));
     });
     // ===== END ACTIVE CHAT ROOM TRACKING =====
+
+    // ===== SUPPORT CHAT ROOM HANDLERS =====
+    // Allow any socket (guest or authenticated) to join a support chat room
+    socket.on("join_support_chat", ({ chatId }) => {
+      if (!chatId) return;
+      socket.join(`support:${chatId}`);
+      console.log(`💬 Socket ${socket.id} joined support room: support:${chatId}`);
+    });
+
+    // Admin joins the global support room to receive new message notifications
+    socket.on("admin_join_support", () => {
+      if (socket.data.user?.role === 'admin' || socket.data.user?.isAdmin) {
+        socket.join('admin_support');
+        console.log(`🛡️ Admin ${socket.data.userId} joined admin_support room`);
+      }
+    });
+    // ===== END SUPPORT CHAT ROOM HANDLERS =====
 
     // Handle disconnect
     socket.on("disconnect", () => {

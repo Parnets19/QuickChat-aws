@@ -1,7 +1,9 @@
 const express = require("express");
 const { protect } = require("../middlewares/auth");
+const { upload } = require("../middlewares/upload");
 const {
   sendMessage,
+  sendFileMessage,
   getChatHistory,
   getChatNotifications,
   markNotificationAsRead,
@@ -17,11 +19,12 @@ router.use(protect);
 
 // Chat routes
 router.post("/send", sendMessage);
+router.post("/send-file", upload.single("file"), sendFileMessage);
 router.get("/history/:providerId", getChatHistory);
 router.get("/notifications", getChatNotifications);
 router.put("/notifications/:notificationId/read", markNotificationAsRead);
 router.get("/list", getChatList);
 router.post("/create", createOrGetChat);
-router.post("/mark-read", markMessagesAsRead); // New route for marking messages as read
+router.post("/mark-read", markMessagesAsRead);
 
 module.exports = router;

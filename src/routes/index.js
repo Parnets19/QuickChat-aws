@@ -26,6 +26,7 @@ const freeTrialRoutes = require("./freeTrial.routes");
 const blockRoutes = require("./block.routes");
 const phonePeRoutes = require("./phonepe.routes");
 const reportRoutes = require("./report.routes");
+const supportRoutes = require("./support.routes");
 
 const router = express.Router();
 
@@ -57,5 +58,6 @@ router.use("/free-trial", freeTrialRoutes); // First Time Free Trial system (new
 router.use("/users", blockRoutes); // Block and Report functionality
 router.use("/phonepe", phonePeRoutes); // PhonePe payment integration
 router.use("/reports", reportRoutes); // Report and Block system
+router.use("/support", supportRoutes); // Support chat system
 
 module.exports = router;
