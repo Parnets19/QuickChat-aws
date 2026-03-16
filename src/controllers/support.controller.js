@@ -237,6 +237,72 @@ const AUTO_REPLIES = [
     keywords: ['how to search', 'find expert', 'search provider', 'filter', 'browse'],
     reply: "To find an expert on Quick Chat:\n1. Go to 'Find Expert' page\n2. Use filters: Category, Language, Rating, Price\n3. See who's online right now (green dot = available)\n4. Click their profile to view details and start a call\n\n🌐 quickchatindia.com",
   },
+
+  // ── Ultra-short / typo-friendly phrases ────────────────────────────────────
+  {
+    keywords: ['cant pay', 'payment fail', 'payment failed', 'payment not working', 'payment error', 'transaction failed'],
+    reply: "Payment failed? Try this:\n1. Check your internet connection\n2. Make sure your UPI/card details are correct\n3. Try a different payment method\n4. Retry after 2-3 minutes\n\n📧 Still failing? Share your transaction ID to: Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['app crash', 'app closes', 'app closing', 'keeps crashing', 'force close', 'app stop'],
+    reply: "App crashing? Try:\n1. Force close and reopen the app\n2. Update to the latest version from Play Store / App Store\n3. Restart your phone\n4. Reinstall the app if issue persists\n\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['black screen', 'video black', 'camera black', 'no camera', 'camera not showing'],
+    reply: "Black screen during video call?\n1. Allow camera permission in phone settings\n2. Close other apps using the camera\n3. Switch camera (front/back) and switch back\n4. Rejoin the call\n\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['no internet', 'internet issue', 'wifi issue', 'network issue', 'connection issue', 'poor network'],
+    reply: "Connection issues during a call?\n• Minimum 2 Mbps internet speed recommended\n• Switch from WiFi to mobile data (or vice versa)\n• Move closer to your router\n• Close background apps consuming bandwidth\n\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['cant hear', 'no audio', 'audio not working', 'sound not coming', 'voice not coming', 'cant hear provider'],
+    reply: "Can't hear audio during a call?\n1. Check your phone volume — turn it up\n2. Make sure you haven't muted yourself\n3. Check if headphones are connected properly\n4. Allow microphone permission\n5. Rejoin the call\n\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['muted', 'mic muted', 'they cant hear me', 'provider cant hear', 'my voice not going'],
+    reply: "Provider can't hear you?\n1. Tap the mic icon to unmute yourself\n2. Check microphone permission is allowed\n3. Make sure no other app is using the mic\n4. Try using earphones with a built-in mic\n\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['how to rate', 'give rating', 'give review', 'rate after call', 'review after call'],
+    reply: "To rate a provider after a call:\n• The rating screen appears automatically when the call ends\n• Select 1-5 stars\n• Optionally write a review\n• Tap Submit\n\n⭐ 1-star rating shows the Report option if needed.",
+  },
+  {
+    keywords: ['wrong number', 'wrong mobile', 'registered wrong number', 'wrong phone number'],
+    reply: "Registered with the wrong number?\n📧 Email us at Quickchat2026@gmail.com with:\n• Your wrong number\n• Correct number\n• A valid ID proof\n\nWe'll update it within 24 hours.",
+  },
+  {
+    keywords: ['forgot email', 'dont remember email', 'lost access', 'cant access account', 'account recovery'],
+    reply: "Can't access your account?\n📧 Email us at Quickchat2026@gmail.com with:\n• Your registered mobile number\n• Any transaction ID or details to verify identity\n\nOur team will help you recover access within 24 hours.",
+  },
+  {
+    keywords: ['how to register as provider', 'provider registration', 'apply as provider', 'provider signup', 'join as expert'],
+    reply: "To register as a provider on Quick Chat:\n1. Login to your account\n2. Go to Profile > Become a Provider\n3. Fill in your expertise, bio, and per-minute rate\n4. Upload KYC documents\n5. Submit for admin approval (24-48 hrs)\n\n💰 Earn per minute of consultation!\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['provider earnings', 'how much do providers earn', 'provider income', 'how providers get paid'],
+    reply: "Provider earnings on Quick Chat:\n• You earn per minute of each consultation\n• Rate is set by you (visible on your profile)\n• Earnings accumulate in your wallet\n• Withdraw anytime (min ₹200)\n• Payouts in 2-3 business days\n\n📧 Earnings queries: Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['what is wallet', 'wallet kya hai', 'how wallet works', 'wallet balance'],
+    reply: "Quick Chat Wallet:\n• Your in-app balance used for consultations\n• Add money via PhonePe, UPI, or Card (min ₹50)\n• Balance is deducted per minute during calls\n• Providers receive earnings in their wallet\n• Withdraw to bank (min ₹200)\n\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['aadhaar', 'pan card', 'passport', 'id document', 'government id', 'upload document'],
+    reply: "For KYC document upload on Quick Chat:\n• Accepted IDs: Aadhaar Card, PAN Card, Passport, Voter ID\n• Go to Profile > Verification > Upload Document\n• Make sure the document is clear and readable\n• Verification takes 24-48 hours\n\n📧 KYC issues: Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['social media', 'instagram', 'facebook', 'twitter', 'youtube', 'follow us'],
+    reply: "Follow Quick Chat on social media for updates, offers, and tips!\n\n📸 Instagram: @quickchatindia\n📘 Facebook: Quick Chat India\n▶️ YouTube: Quick Chat India\n\n🌐 Website: quickchatindia.com\n📧 Support: Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['terms', 'terms and conditions', 'terms of service', 'tos', 'conditions'],
+    reply: "Quick Chat Terms & Conditions:\n📄 Read our full Terms of Service at: quickchatindia.com/terms\n\nKey points:\n• Users must be 18+ to use the platform\n• Providers must complete KYC verification\n• Misuse leads to account suspension\n• Refunds subject to our refund policy\n\n📧 Questions: Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['how to use', 'how does it work', 'explain', 'guide me', 'tutorial', 'steps'],
+    reply: "Here's how Quick Chat works:\n\n1️⃣ Register with your mobile number (free)\n2️⃣ Add money to your wallet (min ₹50)\n3️⃣ Browse experts on 'Find Expert' page\n4️⃣ Start an Audio / Video / Chat consultation\n5️⃣ Get billed per minute (first minute FREE for new users)\n6️⃣ Rate the provider after the call\n\n🌐 quickchatindia.com",
+  },
 ];
 
 const getAutoReply = (message) => {
