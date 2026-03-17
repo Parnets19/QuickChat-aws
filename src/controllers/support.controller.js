@@ -117,7 +117,7 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['privacy', 'data', 'personal information', 'gdpr', 'data protection', 'secure'],
-    reply: "Quick Chat takes your privacy seriously 🔒\n\n• All calls are encrypted end-to-end\n• We never share your personal data with third parties\n• You can request data deletion anytime\n• Payments are processed via secure PCI-compliant gateways\n\n📄 Read our full Privacy Policy at quickchatindia.com/privacy\n\n📧 Privacy concerns: Quickchat2026@gmail.com",
+    reply: "Quick Chat takes your privacy seriously 🔒\n\n• We use secure HTTPS for all data transmission\n• We never share your personal data with third parties\n• You can request data deletion anytime\n• Payments are processed via secure PCI-compliant gateways\n\n⚠️ Note: Calls are NOT end-to-end encrypted — they pass through our secure servers.\n\n📄 Read our full Privacy Policy at quickchatindia.com/privacy\n\n📧 Privacy concerns: Quickchat2026@gmail.com",
   },
   {
     keywords: ['coupon', 'promo', 'discount', 'offer', 'cashback', 'code', 'voucher'],
@@ -328,7 +328,11 @@ const startChat = async (req, res, next) => {
     // Find existing open chat for this user
     let chat = null;
     if (userId) {
+      // Logged-in user — find by userId
       chat = await SupportChat.findOne({ user: userId, status: { $in: ['open', 'in_progress'] } });
+    } else if (guestEmail) {
+      // Guest — find by email so same person doesn't get a new chat every time
+      chat = await SupportChat.findOne({ guestEmail, user: null, status: { $in: ['open', 'in_progress'] } });
     }
 
     if (!chat) {

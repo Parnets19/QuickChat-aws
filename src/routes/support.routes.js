@@ -9,12 +9,12 @@ const {
   adminReply,
   updateChatStatus,
 } = require('../controllers/support.controller');
-const { protect, adminOnly } = require('../middlewares/auth');
+const { protect, adminOnly, optionalProtect } = require('../middlewares/auth');
 
 // Public / user routes
-router.post('/chat', startChat);                                          // Start or get chat
-router.post('/chat/:chatId/message', sendMessage);                        // Send message
-router.get('/chat/:chatId', getChatHistory);                              // Get chat history
+router.post('/chat', optionalProtect, startChat);                         // Start or get chat (auth optional)
+router.post('/chat/:chatId/message', optionalProtect, sendMessage);       // Send message
+router.get('/chat/:chatId', optionalProtect, getChatHistory);             // Get chat history
 router.get('/my-chat', protect, getMyChat);                               // Logged-in user's chat
 
 // Admin routes

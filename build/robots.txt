@@ -2,7 +2,7 @@ User-agent: *
 Allow: /
 
 # Sitemap
-Sitemap: http://192.168.1.25:5001/sitemap.xml
+Sitemap: http://192.168.1.20:5001/sitemap.xml
 
 # Crawl-delay for better server performance
 Crawl-delay: 1

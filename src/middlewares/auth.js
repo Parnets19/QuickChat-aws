@@ -214,8 +214,31 @@ const guestAuth = async (req, res, next) => {
   }
 };
 
+// Optional auth — sets req.user if token present, but doesn't block if missing
+const optionalProtect = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return next();
+    const token = authHeader.split(' ')[1];
+    if (!token) return next();
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      if (decoded.isGuest) {
+        req.user = { _id: decoded.id, id: decoded.id, isGuest: true };
+        return next();
+      }
+      const user = await User.findById(decoded.id);
+      if (user && user.status === 'active') req.user = user;
+    } catch (_) { /* invalid token — just skip */ }
+    next();
+  } catch (error) {
+    next();
+  }
+};
+
 module.exports = {
   protect,
+  optionalProtect,
   authorize,
   isServiceProvider,
   isAadharVerified,
