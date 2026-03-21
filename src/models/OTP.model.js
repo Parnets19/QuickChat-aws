@@ -15,7 +15,7 @@ const OTPSchema = new mongoose.Schema(
     },
     purpose: {
       type: String,
-      enum: ['registration', 'login', 'forgot-password', 'guest'],
+      enum: ['registration', 'login', 'forgot-password', 'guest', 'password-reset'],
       required: true,
     },
     isVerified: {

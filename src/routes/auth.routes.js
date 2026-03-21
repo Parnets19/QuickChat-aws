@@ -11,6 +11,9 @@ const {
   updateFCMToken,
   guestLogin,
   resetPassword,
+  verifyResetOtp,
+  getSecurityQuestion,
+  verifySecurityQuestion,
 } = require('../controllers/auth.controller');
 const { protect } = require('../middlewares/auth');
 const { otpLimiter, authLimiter } = require('../middlewares/rateLimiter');
@@ -24,6 +27,9 @@ router.post('/login', process.env.NODE_ENV === 'development' ? (req, res, next) 
 router.post('/login-otp', authLimiter, loginWithOTP);
 router.post('/guest-login', authLimiter, guestLogin);
 router.post('/reset-password', resetPassword);
+router.post('/verify-reset-otp', verifyResetOtp);
+router.post('/get-security-question', getSecurityQuestion);
+router.post('/verify-security-question', verifySecurityQuestion);
 router.get('/me', protect, getMe);
 router.post('/logout', protect, logout);
 router.post('/refresh-token', refreshToken);

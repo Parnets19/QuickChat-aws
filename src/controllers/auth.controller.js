@@ -200,6 +200,8 @@ const register = async (req, res, next) => {
       portfolioLinks,
       bankDetails,
       isServiceProvider,
+      securityQuestion,
+      securityAnswer,
     } = req.body;
 
 
@@ -336,6 +338,14 @@ const register = async (req, res, next) => {
     if (availability && availability.length > 0)
       userData.availability = availability;
     if (bankDetails) userData.bankDetails = bankDetails;
+
+    // Save security question/answer if provided
+    if (securityQuestion) userData.securityQuestion = securityQuestion;
+    if (securityAnswer) {
+      const bcrypt = require("bcryptjs");
+      const salt = await bcrypt.genSalt(10);
+      userData.securityAnswer = await bcrypt.hash(securityAnswer.toLowerCase().trim(), salt);
+    }
 
     // Create user
     console.log("Creating user with data:", JSON.stringify(userData, null, 2));
@@ -819,6 +829,97 @@ const resetPassword = async (req, res, next) => {
   }
 };
 
+// @desc    Verify OTP for password reset
+// @route   POST /api/auth/verify-reset-otp
+// @access  Public
+const verifyResetOtp = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return next(new AppError("Email and OTP are required", 400));
+
+    const otpDoc = await OTP.findOne({ email, otp, purpose: "password-reset", isVerified: false });
+    if (!otpDoc) return next(new AppError("Invalid OTP", 400));
+    if (otpDoc.expiresAt < new Date()) return next(new AppError("OTP has expired", 400));
+
+    otpDoc.isVerified = true;
+    await otpDoc.save();
+
+    res.status(200).json({ success: true, message: "OTP verified successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get security question for a user (by email)
+// @route   POST /api/auth/get-security-question
+// @access  Public
+const getSecurityQuestion = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) return next(new AppError("Email is required", 400));
+
+    const user = await User.findOne({ email });
+    if (!user) return next(new AppError("No account found with this email", 404));
+
+    if (!user.securityQuestion) {
+      return next(new AppError("No security question set for this account", 400));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { securityQuestion: user.securityQuestion },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Verify security question answer, then send OTP
+// @route   POST /api/auth/verify-security-question
+// @access  Public
+const verifySecurityQuestion = async (req, res, next) => {
+  try {
+    const { email, securityAnswer } = req.body;
+    if (!email || !securityAnswer) {
+      return next(new AppError("Email and answer are required", 400));
+    }
+
+    const user = await User.findOne({ email }).select("+securityAnswer");
+    if (!user) return next(new AppError("No account found with this email", 404));
+
+    if (!user.securityAnswer) {
+      return next(new AppError("No security question set for this account", 400));
+    }
+
+    const bcrypt = require("bcryptjs");
+    const isMatch = await bcrypt.compare(securityAnswer.toLowerCase().trim(), user.securityAnswer);
+    if (!isMatch) {
+      return next(new AppError("Incorrect answer. Please try again.", 400));
+    }
+
+    // Answer correct — send OTP for password reset
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await OTP.deleteMany({ email, purpose: "password-reset" });
+    await OTP.create({ email, otp, type: "email", purpose: "password-reset", expiresAt });
+
+    sendOTPEmail(email, otp, "password-reset");
+
+    const responseData = {
+      success: true,
+      message: `OTP sent to ${email}`,
+    };
+    if (process.env.NODE_ENV === "development") {
+      responseData.dummyOtp = otp;
+    }
+
+    res.status(200).json(responseData);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -831,4 +932,7 @@ module.exports = {
   updateFCMToken,
   guestLogin,
   resetPassword,
+  verifyResetOtp,
+  getSecurityQuestion,
+  verifySecurityQuestion,
 };

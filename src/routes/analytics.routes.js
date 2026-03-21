@@ -7,6 +7,7 @@ const {
   getCategoryAnalytics,
   getProviderAnalytics,
   getDailyActivityAnalytics,
+  getDailyUserJoins,
   exportAnalytics
 } = require('../controllers/analytics.controller');
 const { protect, adminOnly } = require('../middlewares/auth');
@@ -22,6 +23,7 @@ router.get('/revenue', getRevenueAnalytics);
 router.get('/categories', getCategoryAnalytics);
 router.get('/providers', getProviderAnalytics);
 router.get('/daily-activity', getDailyActivityAnalytics);
+router.get('/daily-joins', getDailyUserJoins);
 router.get('/export', exportAnalytics);
 
 module.exports = router;

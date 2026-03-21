@@ -45,6 +45,7 @@ router.get('/providers/:id', adminController.getProviderById);
 router.put('/providers/:id', adminController.updateProvider);
 router.put('/providers/:id/status', adminController.updateProviderStatus);
 router.put('/providers/:id/visibility', adminController.toggleProviderVisibility);
+router.put('/providers/:id/recommended', adminController.toggleProviderRecommended);
 
 // Guest management routes
 router.get('/guests', adminGuestController.getAllGuests);

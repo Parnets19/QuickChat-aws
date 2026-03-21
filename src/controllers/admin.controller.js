@@ -290,6 +290,27 @@ const toggleProviderVisibility = async (req, res) => {
   }
 };
 
+// Toggle provider recommended status
+const toggleProviderRecommended = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const provider = await User.findById(id);
+    if (!provider) {
+      return res.status(404).json({ success: false, message: 'Provider not found' });
+    }
+    provider.isRecommended = !provider.isRecommended;
+    provider.recommendedAt = provider.isRecommended ? new Date() : null;
+    await provider.save();
+    res.status(200).json({
+      success: true,
+      message: `Provider ${provider.isRecommended ? 'marked as recommended' : 'removed from recommended'}`,
+      data: { id: provider._id, isRecommended: provider.isRecommended }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to toggle recommended status', error: error.message });
+  }
+};
+
 // Get admin dashboard statistics
 const getAdminStats = async (req, res) => {
   try {
@@ -1095,6 +1116,7 @@ module.exports = {
   updateProvider,
   updateProviderStatus,
   toggleProviderVisibility,
+  toggleProviderRecommended,
   getAdminStats,
   makeCurrentUserAdmin,
   createAdminUser,

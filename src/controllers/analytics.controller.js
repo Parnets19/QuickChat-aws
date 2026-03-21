@@ -369,66 +369,254 @@ const getProviderAnalytics = async (req, res) => {
   }
 };
 
-// Get daily activity analytics
+// Get daily activity analytics - comprehensive data for all activity types
 const getDailyActivityAnalytics = async (req, res) => {
   try {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const { days = 30, page = 1, limit = 10 } = req.query;
+    const daysNum = Math.min(parseInt(days) || 30, 365);
+    const pageNum = Math.max(parseInt(page) || 1, 1);
+    const limitNum = Math.min(parseInt(limit) || 10, 90); // max 90 rows per page
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysNum);
+    startDate.setHours(0, 0, 0, 0);
 
-    const dailyActivity = await Consultation.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: sevenDaysAgo }
-        }
-      },
-      {
-        $group: {
-          _id: {
-            dayOfWeek: { $dayOfWeek: '$createdAt' },
-            date: {
-              $dateToString: {
-                format: '%Y-%m-%d',
-                date: '$createdAt'
-              }
-            }
-          },
-          consultations: { $sum: 1 },
-          users: { $addToSet: '$userId' }
-        }
-      },
-      {
-        $project: {
-          dayOfWeek: '$_id.dayOfWeek',
-          date: '$_id.date',
-          consultations: 1,
-          users: { $size: '$users' }
-        }
-      },
-      {
-        $sort: { date: 1 }
-      }
+    const dateFormat = '%Y-%m-%d';
+
+    // Run all aggregations in parallel
+    const [
+      consultationData,
+      transactionData,
+      withdrawalData,
+      newUserData,
+      newGuestData
+    ] = await Promise.all([
+      // Consultations per day
+      Consultation.aggregate([
+        { $match: { createdAt: { $gte: startDate } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: dateFormat, date: '$createdAt' } },
+            consultations: { $sum: 1 },
+            completedConsultations: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+            revenue: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, '$totalAmount', 0] } },
+            activeUsers: { $addToSet: '$userId' }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
+
+      // Transactions per day
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: startDate }, status: 'completed' } },
+        {
+          $group: {
+            _id: { $dateToString: { format: dateFormat, date: '$createdAt' } },
+            transactions: { $sum: 1 },
+            transactionVolume: { $sum: '$amount' },
+            deposits: { $sum: { $cond: [{ $in: ['$type', ['deposit', 'wallet_credit', 'credit']] }, 1, 0] } },
+            depositAmount: { $sum: { $cond: [{ $in: ['$type', ['deposit', 'wallet_credit', 'credit']] }, '$amount', 0] } }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
+
+      // Withdrawals per day
+      Withdrawal.aggregate([
+        { $match: { createdAt: { $gte: startDate } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: dateFormat, date: '$createdAt' } },
+            withdrawalRequests: { $sum: 1 },
+            withdrawalAmount: { $sum: '$amount' },
+            approvedWithdrawals: { $sum: { $cond: [{ $in: ['$status', ['approved', 'processed']] }, 1, 0] } }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
+
+      // New registered users per day
+      User.aggregate([
+        { $match: { createdAt: { $gte: startDate } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: dateFormat, date: '$createdAt' } },
+            newUsers: { $sum: 1 },
+            newProviders: { $sum: { $cond: [{ $eq: ['$role', 'provider'] }, 1, 0] } }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
+
+      // New guests per day
+      Guest.aggregate([
+        { $match: { createdAt: { $gte: startDate } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: dateFormat, date: '$createdAt' } },
+            newGuests: { $sum: 1 }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ])
     ]);
 
-    // Format with day names
+    // Build lookup maps
+    const consultMap = {};
+    consultationData.forEach(d => { consultMap[d._id] = d; });
+    const txMap = {};
+    transactionData.forEach(d => { txMap[d._id] = d; });
+    const wdMap = {};
+    withdrawalData.forEach(d => { wdMap[d._id] = d; });
+    const userMap = {};
+    newUserData.forEach(d => { userMap[d._id] = d; });
+    const guestMap = {};
+    newGuestData.forEach(d => { guestMap[d._id] = d; });
+
+    // Fill every day in range
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const formattedData = dailyActivity.map(day => ({
-      day: dayNames[day.dayOfWeek - 1],
-      date: day.date,
-      consultations: day.consultations,
-      users: day.users
-    }));
+    const result = [];
+
+    for (let i = daysNum - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+      const dateStr = d.toISOString().split('T')[0];
+      const label = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+      const dayName = dayNames[d.getDay()];
+
+      const c = consultMap[dateStr] || {};
+      const t = txMap[dateStr] || {};
+      const w = wdMap[dateStr] || {};
+      const u = userMap[dateStr] || {};
+      const g = guestMap[dateStr] || {};
+
+      result.push({
+        date: dateStr,
+        label,
+        day: dayName,
+        // User registrations
+        newUsers: (u.newUsers || 0) + (g.newGuests || 0),
+        newRegisteredUsers: u.newUsers || 0,
+        newProviders: u.newProviders || 0,
+        newGuests: g.newGuests || 0,
+        // Consultations
+        consultations: c.consultations || 0,
+        completedConsultations: c.completedConsultations || 0,
+        activeUsers: c.activeUsers ? c.activeUsers.length : 0,
+        // Revenue
+        revenue: c.revenue || 0,
+        // Transactions
+        transactions: t.transactions || 0,
+        transactionVolume: t.transactionVolume || 0,
+        deposits: t.deposits || 0,
+        depositAmount: t.depositAmount || 0,
+        // Withdrawals
+        withdrawalRequests: w.withdrawalRequests || 0,
+        withdrawalAmount: w.withdrawalAmount || 0,
+        approvedWithdrawals: w.approvedWithdrawals || 0
+      });
+    }
 
     res.json({
       success: true,
-      data: formattedData
+      data: result.slice((pageNum - 1) * limitNum, pageNum * limitNum),
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(result.length / limitNum),
+        totalItems: result.length,
+        itemsPerPage: limitNum,
+        hasNext: pageNum * limitNum < result.length,
+        hasPrev: pageNum > 1
+      },
+      totals: result.reduce((acc, d) => ({
+        newUsers: acc.newUsers + d.newUsers,
+        consultations: acc.consultations + d.consultations,
+        completedConsultations: acc.completedConsultations + d.completedConsultations,
+        revenue: acc.revenue + d.revenue,
+        transactions: acc.transactions + d.transactions,
+        transactionVolume: acc.transactionVolume + d.transactionVolume,
+        deposits: acc.deposits + d.deposits,
+        depositAmount: acc.depositAmount + d.depositAmount,
+        withdrawalRequests: acc.withdrawalRequests + d.withdrawalRequests,
+        withdrawalAmount: acc.withdrawalAmount + d.withdrawalAmount,
+        approvedWithdrawals: acc.approvedWithdrawals + d.approvedWithdrawals
+      }), {
+        newUsers: 0, consultations: 0, completedConsultations: 0, revenue: 0,
+        transactions: 0, transactionVolume: 0, deposits: 0, depositAmount: 0,
+        withdrawalRequests: 0, withdrawalAmount: 0, approvedWithdrawals: 0
+      }),
+      chartData: result
     });
-
   } catch (error) {
     console.error('Error fetching daily activity analytics:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch daily activity analytics'
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch daily activity analytics' });
+  }
+};
+
+// Get daily user joins (last 30 days)
+const getDailyUserJoins = async (req, res) => {
+  try {
+    const { days = 30 } = req.query;
+    const daysNum = parseInt(days);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysNum);
+    startDate.setHours(0, 0, 0, 0);
+
+    const [userJoins, guestJoins] = await Promise.all([
+      User.aggregate([
+        { $match: { createdAt: { $gte: startDate } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            users: { $sum: 1 },
+            providers: {
+              $sum: { $cond: [{ $eq: ['$role', 'provider'] }, 1, 0] }
+            }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
+      Guest.aggregate([
+        { $match: { createdAt: { $gte: startDate } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            guests: { $sum: 1 }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ])
+    ]);
+
+    // Build a map for all days in range
+    const guestMap = {};
+    guestJoins.forEach(g => { guestMap[g._id] = g.guests; });
+
+    const userMap = {};
+    userJoins.forEach(u => { userMap[u._id] = { users: u.users, providers: u.providers }; });
+
+    // Fill all days
+    const result = [];
+    for (let i = daysNum - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const label = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+      const u = userMap[dateStr] || { users: 0, providers: 0 };
+      result.push({
+        date: dateStr,
+        label,
+        users: u.users,
+        providers: u.providers,
+        guests: guestMap[dateStr] || 0,
+        total: u.users + (guestMap[dateStr] || 0)
+      });
+    }
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error fetching daily user joins:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch daily user joins' });
   }
 };
 
@@ -462,5 +650,6 @@ module.exports = {
   getCategoryAnalytics,
   getProviderAnalytics,
   getDailyActivityAnalytics,
+  getDailyUserJoins,
   exportAnalytics
 };

@@ -820,6 +820,7 @@ const searchProviders = async (req, res, next) => {
       minRating,
       maxPrice,
       consultationType,
+      recommended,
       page = 1,
       limit = 20,
     } = req.query;
@@ -897,6 +898,10 @@ const searchProviders = async (req, res, next) => {
       query[`rates.${consultationType || "chat"}`] = {
         $lte: parseFloat(maxPrice),
       };
+    }
+
+    if (recommended === 'true' || recommended === true) {
+      query.isRecommended = true;
     }
 
     const providers = await User.find(query)

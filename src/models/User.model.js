@@ -385,6 +385,37 @@ const UserSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Featured/Recommended provider (set by admin)
+    isFeatured: {
+      type: Boolean,
+      default: false,
+    },
+    featuredAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Security Question for password recovery
+    securityQuestion: {
+      type: String,
+      default: null,
+    },
+    securityAnswer: {
+      type: String,
+      select: false, // Don't return in queries by default
+      default: null,
+    },
+
+    // Admin-granted special recognition (Recommended badge)
+    isRecommended: {
+      type: Boolean,
+      default: false,
+    },
+    recommendedAt: {
+      type: Date,
+      default: null,
+    },
+
     // Block and Report functionality
     blockedUsers: [
       {
