@@ -398,7 +398,10 @@ const login = async (req, res, next) => {
     const user = await User.findOne(query).select("+password");
 
     if (!user) {
-      return next(new AppError("Invalid credentials", 401));
+      if (email) {
+        return next(new AppError("Email not registered", 401));
+      }
+      return next(new AppError("Mobile number not registered", 401));
     }
 
     // Check if user has a password set
@@ -414,7 +417,7 @@ const login = async (req, res, next) => {
     // Check password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
-      return next(new AppError("Invalid credentials", 401));
+      return next(new AppError("Incorrect password", 401));
     }
 
     // Check if account is active
