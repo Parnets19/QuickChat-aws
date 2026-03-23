@@ -8,12 +8,27 @@ const { uploadToCloudinary } = require("../utils/cloudinary");
 // @access  Public
 const getUserProfile = async (req, res, next) => {
   try {
+    // Validate ObjectId format before querying
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return next(new AppError("Invalid user ID", 400));
+    }
+
     const user = await User.findById(req.params.id)
       .select("-wallet -earnings -bankDetails")
       .populate("serviceCategories");
 
     if (!user) {
-      return next(new AppError("User not found", 404));
+      // Return a minimal response for deleted/non-existent users
+      return res.status(200).json({
+        success: true,
+        data: {
+          _id: req.params.id,
+          fullName: 'Deleted User',
+          isOnline: false,
+          consultationStatus: 'offline',
+          isDeleted: true,
+        },
+      });
     }
 
     // Don't show hidden profiles

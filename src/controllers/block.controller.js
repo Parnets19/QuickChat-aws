@@ -176,8 +176,12 @@ const checkBlockStatus = async (req, res, next) => {
     const currentUser = await User.findById(currentUserId);
     const otherUser = await User.findById(userId);
 
+    // If other user doesn't exist (deleted account), return safe defaults
     if (!otherUser) {
-      return next(new AppError("User not found", 404));
+      return res.status(200).json({
+        success: true,
+        data: { isBlockedByMe: false, isBlockedByThem: false, isBlocked: false },
+      });
     }
 
     // Check if current user blocked the other user
