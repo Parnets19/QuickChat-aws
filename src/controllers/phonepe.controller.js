@@ -1,5 +1,6 @@
 const phonePeTransactionModel = require("../models/phonepe.model");
 const axios = require("axios");
+const mongoose = require("mongoose");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG — all values come from ecosystem.config.js env block
@@ -61,23 +62,58 @@ async function getToken() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Credit wallet via the config stored on the transaction
-// This calls /api/earnings/add-money (or whatever was stored in config)
+// Credit wallet DIRECTLY in DB — no HTTP call, no JWT dependency
+// This is called from the PhonePe callback and status-check poll.
 // ─────────────────────────────────────────────────────────────────────────────
 async function creditWalletViaConfig(txn) {
-  if (!txn.config) {
-    console.warn("⚠️ No config on transaction, cannot credit wallet:", txn._id);
-    return false;
-  }
-
   try {
-    const configObj = JSON.parse(txn.config);
-    console.log("💰 Crediting wallet via config:", configObj);
-    await axios(configObj);
-    console.log("✅ Wallet credited for txn:", txn._id);
+    const { User, Transaction } = require("../models");
+
+    const userId = txn.userId;
+    const amount  = parseFloat(txn.amount);
+
+    if (!userId || !amount || amount <= 0) {
+      console.warn("⚠️ creditWallet: invalid userId or amount", { userId, amount });
+      return false;
+    }
+
+    console.log("💰 Crediting wallet directly for userId:", userId, "amount:", amount);
+
+    const user = await User.findById(userId);
+    if (!user) {
+      console.error("❌ creditWallet: User not found:", userId);
+      return false;
+    }
+
+    const previousBalance = user.wallet || 0;
+    user.wallet = previousBalance + amount;
+    await user.save();
+
+    // Record the transaction
+    await Transaction.create({
+      user:           userId,
+      userType:       "User",
+      type:           "deposit",
+      category:       "deposit",
+      amount:         amount,
+      balance:        user.wallet,
+      description:    "Wallet Recharge via PhonePe",
+      status:         "completed",
+      paymentMethod:  "upi",
+      paymentGateway: "phonepe",
+      transactionId:  `PHONEPE_${txn._id}`,
+      metadata: {
+        phonePeTxnId:    txn._id.toString(),
+        merchantOrderId: txn._id.toString(),
+        previousBalance,
+        newBalance:      user.wallet,
+      },
+    });
+
+    console.log("✅ Wallet credited:", { userId, amount, previousBalance, newBalance: user.wallet });
     return true;
   } catch (e) {
-    console.error("❌ Wallet credit error:", e.response?.data || e.message);
+    console.error("❌ creditWallet error:", e.message);
     return false;
   }
 }
@@ -107,11 +143,11 @@ class PhonePeController {
       // Detect if request is from mobile app
       const isMobile = platform === 'mobile' || req.headers['x-platform'] === 'mobile';
       
-      // Use appropriate redirect URL based on platform
-      // For mobile: Use deep link that will open the app after payment
-      // For web: Use web URL
+      // PhonePe requires HTTPS redirect URLs — custom URI schemes (quickchat://) are not supported.
+      // For mobile: redirect to a web URL that the WebView can detect as success.
+      // For web: redirect to the earnings page.
       const redirectUrl = isMobile
-        ? `quickchat://payment-success?transactionId=${txn._id}&userID=${userId}`
+        ? `${CALLBACK_URL}/payment-success?transactionId=${txn._id}&userID=${userId}&platform=mobile`
         : `${CALLBACK_URL}/provider/earnings?transactionId=${txn._id}&userID=${userId}`;
 
       console.log("🔗 Redirect URL:", redirectUrl, "(mobile:", isMobile, ")");
