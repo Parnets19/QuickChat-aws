@@ -5,7 +5,7 @@ const mongoose = require("mongoose");
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG — all values come from ecosystem.config.js env block
 // ─────────────────────────────────────────────────────────────────────────────
-const PHONEPE_ENV   = (process.env.PHONEPE_ENV || "test").trim().toLowerCase();
+const PHONEPE_ENV   = (process.env.PHONEPE_ENV || "production").trim().toLowerCase();
 const IS_PROD       = PHONEPE_ENV === "production";
 
 const CLIENT_ID     = process.env.PHONEPE_CLIENT_ID     || "SU2602271710223361427734";
