@@ -20,10 +20,8 @@ const PAY_URL = IS_PROD
   ? "https://api.phonepe.com/apis/pg/checkout/v2/pay"
   : "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay";
 
-// Mobile SDK Create Order Token API
-const MOBILE_ORDER_TOKEN_URL = IS_PROD
-  ? "https://api.phonepe.com/apis/hermes/pg/v1/pay"
-  : "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/pay";
+// Mobile SDK Create Order Token API - CORRECT endpoint (same for sandbox & production)
+const MOBILE_ORDER_TOKEN_URL = "https://api.phonepe.com/payments/v2/sdk/order";
 
 const AUTH_ENDPOINT = IS_PROD
   ? "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
@@ -153,14 +151,20 @@ class PhonePeController {
         console.log("📱 Mobile payment detected - using Create Order Token API");
         
         const mobilePayload = {
-          merchantId: MERCHANT_ID,
-          merchantTransactionId: txn._id.toString(),
-          merchantUserId: userId,
+          merchantOrderId: txn._id.toString(),
           amount: Math.round(amount * 100), // paise
-          callbackUrl: `${BACKEND_URL}/api/phonepe/payment-callback`,
-          mobileNumber: Mobile || "9999999999",
-          paymentInstrument: {
-            type: "PAY_PAGE"
+          expireAfter: 1200,
+          metaInfo: {
+            udf1: userId,
+            udf2: username || "",
+            udf3: Mobile || ""
+          },
+          paymentFlow: {
+            type: "PG_CHECKOUT",
+            message: "Wallet Recharge",
+            merchantUrls: {
+              callbackUrl: `${BACKEND_URL}/api/phonepe/payment-callback`,
+            }
           }
         };
 
@@ -176,10 +180,11 @@ class PhonePeController {
             },
           });
 
-          console.log("✅ Mobile PhonePe response →", mobileResp);
+          console.log("✅ Mobile order token response →", mobileResp);
 
-          // Mobile API returns an order token, not a redirect URL
-          const orderToken = mobileResp?.data?.instrumentResponse?.intentUrl || mobileResp?.data?.token;
+          // The token comes from the response
+          const orderToken = mobileResp?.token;
+          const orderId = mobileResp?.orderId;
           
           if (!orderToken) {
             console.error("❌ No order token in response:", mobileResp);
@@ -192,7 +197,7 @@ class PhonePeController {
           return res.status(200).json({ 
             id: txn._id, 
             orderToken: orderToken,
-            orderId: txn._id.toString(),
+            orderId: orderId || txn._id.toString(),
             merchantId: MERCHANT_ID,
             isMobile: true
           });
