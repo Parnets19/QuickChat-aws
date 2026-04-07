@@ -20,8 +20,10 @@ const PAY_URL = IS_PROD
   ? "https://api.phonepe.com/apis/pg/checkout/v2/pay"
   : "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay";
 
-// Mobile SDK Create Order Token API - CORRECT endpoint (same for sandbox & production)
-const MOBILE_ORDER_TOKEN_URL = "https://api.phonepe.com/payments/v2/sdk/order";
+// Mobile SDK Create Order Token API - Use the same checkout API but different response handling
+const MOBILE_ORDER_TOKEN_URL = IS_PROD
+  ? "https://api.phonepe.com/apis/pg/checkout/v2/pay"
+  : "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay";
 
 const AUTH_ENDPOINT = IS_PROD
   ? "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
@@ -146,9 +148,9 @@ class PhonePeController {
       // Detect if request is from mobile app
       const isMobile = platform === 'mobile' || req.headers['x-platform'] === 'mobile';
       
-      // For mobile: use the native SDK Create Order Token API
+      // For mobile: use the same checkout API but extract token from redirectUrl
       if (isMobile) {
-        console.log("📱 Mobile payment detected - using Create Order Token API");
+        console.log("📱 Mobile payment detected - using checkout API and extracting token");
         
         const mobilePayload = {
           merchantOrderId: txn._id.toString(),
@@ -163,6 +165,7 @@ class PhonePeController {
             type: "PG_CHECKOUT",
             message: "Wallet Recharge",
             merchantUrls: {
+              redirectUrl: `${CALLBACK_URL}/payment-success?transactionId=${txn._id}&userID=${userId}&platform=mobile`,
               callbackUrl: `${BACKEND_URL}/api/phonepe/payment-callback`,
             }
           }
@@ -180,27 +183,30 @@ class PhonePeController {
             },
           });
 
-          console.log("✅ Mobile order token response →", mobileResp);
+          console.log("✅ Mobile checkout response →", mobileResp);
 
-          // The token comes from the response
-          const orderToken = mobileResp?.token;
-          const orderId = mobileResp?.orderId;
-          
-          if (!orderToken) {
-            console.error("❌ No order token in response:", mobileResp);
-            return res.status(500).json({ 
-              error: "No order token from PhonePe", 
-              raw: mobileResp 
-            });
+          // Extract token from redirectUrl
+          const redirectUrl = mobileResp?.redirectUrl;
+          if (redirectUrl) {
+            // Extract token from URL: https://mercury-t2.phonepe.com/transact/pgv3?token=XXX&routingKey=YYY
+            const urlParams = new URL(redirectUrl);
+            const orderToken = urlParams.searchParams.get('token');
+            const orderId = mobileResp?.orderId;
+            
+            if (orderToken) {
+              console.log("✅ Extracted token from redirectUrl for mobile SDK");
+              return res.status(200).json({ 
+                id: txn._id, 
+                orderToken: orderToken,
+                orderId: orderId || txn._id.toString(),
+                merchantId: MERCHANT_ID,
+                isMobile: true
+              });
+            }
           }
-
-          return res.status(200).json({ 
-            id: txn._id, 
-            orderToken: orderToken,
-            orderId: orderId || txn._id.toString(),
-            merchantId: MERCHANT_ID,
-            isMobile: true
-          });
+          
+          console.error("❌ Could not extract token from response:", mobileResp);
+          // Fall through to web checkout
 
         } catch (mobileErr) {
           console.error("❌ Mobile payment error:", mobileErr.response?.data || mobileErr.message);
