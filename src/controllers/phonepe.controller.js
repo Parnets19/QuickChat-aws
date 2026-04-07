@@ -20,6 +20,11 @@ const PAY_URL = IS_PROD
   ? "https://api.phonepe.com/apis/pg/checkout/v2/pay"
   : "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay";
 
+// Mobile SDK Create Order Token API
+const MOBILE_ORDER_TOKEN_URL = IS_PROD
+  ? "https://api.phonepe.com/apis/hermes/pg/v1/pay"
+  : "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/pay";
+
 const AUTH_ENDPOINT = IS_PROD
   ? "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
   : "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token";
@@ -143,9 +148,63 @@ class PhonePeController {
       // Detect if request is from mobile app
       const isMobile = platform === 'mobile' || req.headers['x-platform'] === 'mobile';
       
-      // PhonePe requires HTTPS redirect URLs — custom URI schemes (quickchat://) are not supported.
-      // For mobile: redirect to a web URL that the WebView can detect as success.
-      // For web: redirect to the earnings page.
+      // For mobile: use the native SDK Create Order Token API
+      if (isMobile) {
+        console.log("📱 Mobile payment detected - using Create Order Token API");
+        
+        const mobilePayload = {
+          merchantId: MERCHANT_ID,
+          merchantTransactionId: txn._id.toString(),
+          merchantUserId: userId,
+          amount: Math.round(amount * 100), // paise
+          callbackUrl: `${BACKEND_URL}/api/phonepe/payment-callback`,
+          mobileNumber: Mobile || "9999999999",
+          paymentInstrument: {
+            type: "PAY_PAGE"
+          }
+        };
+
+        console.log("📤 Mobile PhonePe payload →", JSON.stringify(mobilePayload, null, 2));
+
+        try {
+          const { data: mobileResp } = await axios.post(MOBILE_ORDER_TOKEN_URL, mobilePayload, {
+            headers: {
+              "Content-Type": "application/json",
+              "accept": "application/json",
+              "Authorization": `O-Bearer ${token}`,
+              "X-Merchant-Id": MERCHANT_ID,
+            },
+          });
+
+          console.log("✅ Mobile PhonePe response →", mobileResp);
+
+          // Mobile API returns an order token, not a redirect URL
+          const orderToken = mobileResp?.data?.instrumentResponse?.intentUrl || mobileResp?.data?.token;
+          
+          if (!orderToken) {
+            console.error("❌ No order token in response:", mobileResp);
+            return res.status(500).json({ 
+              error: "No order token from PhonePe", 
+              raw: mobileResp 
+            });
+          }
+
+          return res.status(200).json({ 
+            id: txn._id, 
+            orderToken: orderToken,
+            orderId: txn._id.toString(),
+            merchantId: MERCHANT_ID,
+            isMobile: true
+          });
+
+        } catch (mobileErr) {
+          console.error("❌ Mobile payment error:", mobileErr.response?.data || mobileErr.message);
+          // Fallback to web checkout if mobile API fails
+          console.log("⚠️ Falling back to web checkout API");
+        }
+      }
+
+      // Web checkout flow (original code)
       const redirectUrl = isMobile
         ? `${CALLBACK_URL}/payment-success?transactionId=${txn._id}&userID=${userId}&platform=mobile`
         : `${CALLBACK_URL}/provider/earnings?transactionId=${txn._id}&userID=${userId}`;
