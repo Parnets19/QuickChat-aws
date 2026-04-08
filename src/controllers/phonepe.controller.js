@@ -2,6 +2,9 @@ const phonePeTransactionModel = require("../models/phonepe.model");
 const axios = require("axios");
 const mongoose = require("mongoose");
 
+// PhonePe Official Node.js SDK
+const { StandardCheckoutClient, Env, CreateSdkOrderRequest } = require('pg-sdk-node');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG — all values come from ecosystem.config.js env block
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,11 +23,6 @@ const PAY_URL = IS_PROD
   ? "https://api.phonepe.com/apis/pg/checkout/v2/pay"
   : "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay";
 
-// Mobile SDK Create Order Token API - Correct endpoint for mobile SDK
-const MOBILE_ORDER_TOKEN_URL = IS_PROD
-  ? "https://api.phonepe.com/payments/v2/sdk/order"
-  : "https://api-preprod.phonepe.com/payments/v2/sdk/order";
-
 const AUTH_ENDPOINT = IS_PROD
   ? "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
   : "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token";
@@ -33,13 +31,22 @@ const ORDER_STATUS_URL = IS_PROD
   ? "https://api.phonepe.com/apis/pg/checkout/v2/order"
   : "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/order";
 
+// Initialize PhonePe SDK Client (singleton)
+const phonePeClient = StandardCheckoutClient.getInstance(
+  CLIENT_ID,
+  CLIENT_SECRET,
+  Number(CLIENT_VER),
+  IS_PROD ? Env.PRODUCTION : Env.SANDBOX
+);
+
 console.log("🔧 PhonePe Config →", {
   PHONEPE_ENV, IS_PROD, CLIENT_ID, MERCHANT_ID,
   PAY_URL, CALLBACK_URL, BACKEND_URL
 });
+console.log("✅ PhonePe Node.js SDK client initialized");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OAuth2 token cache
+// OAuth2 token cache (for web checkout fallback)
 // ─────────────────────────────────────────────────────────────────────────────
 let _token = null;
 let _expiresAt = 0;
@@ -148,64 +155,30 @@ class PhonePeController {
       // Detect if request is from mobile app
       const isMobile = platform === 'mobile' || req.headers['x-platform'] === 'mobile';
       
-      // For mobile: use the mobile SDK Create Order Token API
+      // For mobile: use the PhonePe Node.js SDK
       if (isMobile) {
-        console.log("📱 Mobile payment detected - using SDK Create Order Token API");
+        console.log("📱 Mobile payment - using official pg-sdk-node");
         
-        const mobilePayload = {
-          merchantOrderId: txn._id.toString(),
-          amount: Math.round(amount * 100), // paise
-          expireAfter: 1200,
-          metaInfo: {
-            udf1: userId,
-            udf2: username || "",
-            udf3: Mobile || ""
-          },
-          paymentFlow: {
-            type: "PG_CHECKOUT",
-            message: "Wallet Recharge",
-            merchantUrls: {
-              callbackUrl: `${BACKEND_URL}/api/phonepe/payment-callback`,
-            }
-          }
-        };
-
-        console.log("📤 Mobile PhonePe payload →", JSON.stringify(mobilePayload, null, 2));
+        const request = CreateSdkOrderRequest.StandardCheckoutBuilder()
+          .merchantOrderId(txn._id.toString())
+          .amount(Math.round(amount * 100)) // paise
+          .redirectUrl(`${CALLBACK_URL}/payment-success?transactionId=${txn._id}&userID=${userId}&platform=mobile`)
+          .build();
 
         try {
-          const { data: mobileResp } = await axios.post(MOBILE_ORDER_TOKEN_URL, mobilePayload, {
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `O-Bearer ${token}`,
-              "X-Merchant-Id": MERCHANT_ID,
-            },
-          });
+          const response = await phonePeClient.createSdkOrder(request);
+          console.log("✅ SDK Order created:", response);
 
-          console.log("✅ Mobile SDK order response →", JSON.stringify(mobileResp));
-
-          const orderToken = mobileResp?.token;
-          const orderId = mobileResp?.orderId;
-          
-          if (!orderToken) {
-            console.error("❌ No token in response:", mobileResp);
-            return res.status(500).json({ 
-              error: "No order token", 
-              raw: mobileResp 
-            });
-          }
-
-          return res.status(200).json({ 
-            id: txn._id, 
-            orderToken: orderToken,
-            orderId: orderId,
+          return res.status(200).json({
+            id: txn._id,
+            orderToken: response.token,
+            orderId: response.orderId,
             merchantId: MERCHANT_ID,
             isMobile: true
           });
-
-        } catch (mobileErr) {
-          console.error("❌ Mobile payment error:", mobileErr.response?.data || mobileErr.message);
-          // Fallback to web checkout if mobile API fails
-          console.log("⚠️ Falling back to web checkout API");
+        } catch (sdkErr) {
+          console.error("❌ SDK createSdkOrder error:", sdkErr);
+          // fall through to web checkout below
         }
       }
 
