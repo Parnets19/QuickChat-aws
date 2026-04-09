@@ -362,8 +362,57 @@ class PhonePeController {
   // ── Get All Payments (Admin) ──────────────────────────────────────────────
   async getallpayment(req, res) {
     try {
-      const data = await phonePeTransactionModel.find({}).sort({ _id: -1 });
-      return res.status(200).json({ success: data });
+      // Extract pagination and filter parameters
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+      const status = req.query.status; // 'all', 'COMPLETED', 'FAILED', 'PENDING', 'InProgress'
+      const search = req.query.search;
+
+      // Build filter query
+      const filter = {};
+      
+      if (status && status !== 'all') {
+        if (status === 'InProgress') {
+          // InProgress means transaction exists but status is not set yet
+          filter.$or = [
+            { status: { $exists: false } },
+            { status: null },
+            { status: '' }
+          ];
+        } else {
+          filter.status = status;
+        }
+      }
+
+      // Add search filter
+      if (search) {
+        filter.$or = [
+          { username: { $regex: search, $options: 'i' } },
+          { Mobile: { $regex: search, $options: 'i' } },
+          { orderId: { $regex: search, $options: 'i' } },
+          { transactionId: { $regex: search, $options: 'i' } }
+        ];
+      }
+
+      // Get total count for pagination
+      const total = await phonePeTransactionModel.countDocuments(filter);
+
+      // Get paginated data
+      const data = await phonePeTransactionModel
+        .find(filter)
+        .sort({ _id: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit);
+
+      return res.status(200).json({
+        success: data,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(total / limit),
+          totalItems: total,
+          itemsPerPage: limit
+        }
+      });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
