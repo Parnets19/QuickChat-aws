@@ -370,28 +370,39 @@ class PhonePeController {
 
       // Build filter query
       const filter = {};
+      const conditions = [];
       
+      // Add status filter
       if (status && status !== 'all') {
         if (status === 'InProgress') {
           // InProgress means transaction exists but status is not set yet
-          filter.$or = [
-            { status: { $exists: false } },
-            { status: null },
-            { status: '' }
-          ];
+          conditions.push({
+            $or: [
+              { status: { $exists: false } },
+              { status: null },
+              { status: '' }
+            ]
+          });
         } else {
-          filter.status = status;
+          conditions.push({ status: status });
         }
       }
 
       // Add search filter
       if (search) {
-        filter.$or = [
-          { username: { $regex: search, $options: 'i' } },
-          { Mobile: { $regex: search, $options: 'i' } },
-          { orderId: { $regex: search, $options: 'i' } },
-          { transactionId: { $regex: search, $options: 'i' } }
-        ];
+        conditions.push({
+          $or: [
+            { username: { $regex: search, $options: 'i' } },
+            { Mobile: { $regex: search, $options: 'i' } },
+            { orderId: { $regex: search, $options: 'i' } },
+            { transactionId: { $regex: search, $options: 'i' } }
+          ]
+        });
+      }
+
+      // Combine conditions with $and if there are multiple
+      if (conditions.length > 0) {
+        filter.$and = conditions;
       }
 
       // Get total count for pagination
