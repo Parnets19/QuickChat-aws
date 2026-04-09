@@ -63,6 +63,7 @@ const updateProfile = async (req, res, next) => {
       "skills",
       "languagesKnown",
       "bio",
+      "portfolioLinks",
     ];
 
     const updateData = {};
