@@ -368,6 +368,8 @@ class PhonePeController {
       const status = req.query.status; // 'all', 'COMPLETED', 'FAILED', 'PENDING', 'InProgress'
       const search = req.query.search;
 
+      console.log('📊 PhonePe Filter Request:', { page, limit, status, search });
+
       // Build filter query
       const filter = {};
       const conditions = [];
@@ -375,12 +377,13 @@ class PhonePeController {
       // Add status filter
       if (status && status !== 'all') {
         if (status === 'InProgress') {
-          // InProgress means transaction exists but status is not set yet
+          // InProgress means transaction exists but status is not set yet or is 'InProgress'
           conditions.push({
             $or: [
               { status: { $exists: false } },
               { status: null },
-              { status: '' }
+              { status: '' },
+              { status: 'InProgress' }
             ]
           });
         } else {
@@ -405,6 +408,8 @@ class PhonePeController {
         filter.$and = conditions;
       }
 
+      console.log('🔍 MongoDB Filter:', JSON.stringify(filter, null, 2));
+
       // Get total count for pagination
       const total = await phonePeTransactionModel.countDocuments(filter);
 
@@ -414,6 +419,8 @@ class PhonePeController {
         .sort({ _id: -1 })
         .skip((page - 1) * limit)
         .limit(limit);
+
+      console.log('📦 Results:', { total, returned: data.length, statuses: data.map(d => d.status) });
 
       return res.status(200).json({
         success: data,
@@ -425,6 +432,7 @@ class PhonePeController {
         }
       });
     } catch (err) {
+      console.error('❌ PhonePe getallpayment error:', err);
       return res.status(500).json({ error: err.message });
     }
   }
