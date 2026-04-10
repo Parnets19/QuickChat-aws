@@ -2235,9 +2235,7 @@ const startServerSideWalletMonitoring = () => {
         status: "ongoing",
         billingStarted: true,
         bothSidesAcceptedAt: { $exists: true },
-      })
-        .populate("user", "wallet fullName")
-        .populate("provider", "fullName");
+      });
 
       if (ongoingConsultations.length === 0) {
         return; // No ongoing consultations to monitor
@@ -2249,19 +2247,35 @@ const startServerSideWalletMonitoring = () => {
 
       for (const consultation of ongoingConsultations) {
         const now = new Date();
-        const callDurationMinutes =
-          (now - consultation.bothSidesAcceptedAt) / (1000 * 60);
+        const callDurationSeconds = Math.floor(
+          (now - consultation.bothSidesAcceptedAt) / 1000
+        );
+        const callDurationMinutes = callDurationSeconds / 60;
+
+        // CRITICAL FIX: Only check consultations that have been running for at least 1 minute
+        // This prevents premature termination during the first minute
+        if (callDurationSeconds < 60) {
+          console.log(
+            `⏳ SERVER MONITOR: Skipping consultation ${consultation._id} - only ${callDurationSeconds}s elapsed (waiting for 60s)`
+          );
+          continue;
+        }
 
         // Check if call has been running too long without recent billing
         if (callDurationMinutes > 2) {
           // More than 2 minutes
           const recentTransactions = await Transaction.find({
-            user: consultation.user._id,
+            user: consultation.user,
             consultationId: consultation._id,
             createdAt: { $gte: new Date(now - 2 * 60 * 1000) }, // Last 2 minutes
           });
 
           if (recentTransactions.length === 0) {
+            // Get fresh user data for logging
+            const UserModel = consultation.userType === "Guest" ? Guest : User;
+            const freshUser = await UserModel.findById(consultation.user).select("fullName name");
+            const provider = await User.findById(consultation.provider).select("fullName");
+
             console.log(
               `🚨 SERVER MONITOR: No recent billing detected for consultation ${consultation._id}`
             );
@@ -2269,10 +2283,10 @@ const startServerSideWalletMonitoring = () => {
               `   Duration: ${callDurationMinutes.toFixed(2)} minutes`
             );
             console.log(
-              `   Client: ${consultation.user?.fullName || "Unknown"}`
+              `   Client: ${freshUser?.fullName || freshUser?.name || "Unknown"}`
             );
             console.log(
-              `   Provider: ${consultation.provider?.fullName || "Unknown"}`
+              `   Provider: ${provider?.fullName || "Unknown"}`
             );
             console.log(`   Rate: ₹${consultation.rate}/min`);
 
@@ -2293,11 +2307,11 @@ const startServerSideWalletMonitoring = () => {
                 timestamp: now,
               };
 
-              io.to(`user:${consultation.user._id}`).emit(
+              io.to(`user:${consultation.user}`).emit(
                 "consultation:emergency-ended",
                 emergencyData
               );
-              io.to(`user:${consultation.provider._id}`).emit(
+              io.to(`user:${consultation.provider}`).emit(
                 "consultation:emergency-ended",
                 emergencyData
               );
@@ -2307,16 +2321,36 @@ const startServerSideWalletMonitoring = () => {
           }
         }
 
-        // Check wallet balance for insufficient funds
-        const userWallet = consultation.user?.wallet || 0;
+        // CRITICAL FIX: Fetch FRESH wallet balance from database (not stale populated data)
+        const UserModel = consultation.userType === "Guest" ? Guest : User;
+        const freshUser = await UserModel.findById(consultation.user).select("wallet fullName name");
+        
+        if (!freshUser) {
+          console.log(`⚠️ SERVER MONITOR: User not found for consultation ${consultation._id}`);
+          continue;
+        }
+
+        const userWallet = freshUser.wallet || 0;
         const ratePerMinute = consultation.rate;
 
+        console.log(`💰 SERVER MONITOR: Wallet check for consultation ${consultation._id}:`, {
+          userId: freshUser._id,
+          userName: freshUser.fullName || freshUser.name,
+          freshWallet: userWallet,
+          ratePerMinute,
+          callDurationSeconds,
+          callDurationMinutes: callDurationMinutes.toFixed(2),
+          hasSufficientFunds: userWallet >= ratePerMinute,
+        });
+
+        // Only terminate if wallet is truly insufficient
         if (userWallet < ratePerMinute) {
           console.log(`🚨 SERVER MONITOR: Insufficient balance detected`);
-          console.log(`   User: ${consultation.user?.fullName || "Unknown"}`);
+          console.log(`   User: ${freshUser.fullName || freshUser.name || "Unknown"}`);
           console.log(`   Balance: ₹${userWallet}`);
           console.log(`   Required: ₹${ratePerMinute}/min`);
           console.log(`   Consultation: ${consultation._id}`);
+          console.log(`   Duration: ${callDurationSeconds}s (${callDurationMinutes.toFixed(2)} min)`);
 
           // Force end due to insufficient funds
           await endConsultationDueToInsufficientFunds(consultation._id);
@@ -2336,11 +2370,11 @@ const startServerSideWalletMonitoring = () => {
               timestamp: now,
             };
 
-            io.to(`user:${consultation.user._id}`).emit(
+            io.to(`user:${consultation.user}`).emit(
               "consultation:auto-terminated",
               terminationData
             );
-            io.to(`user:${consultation.provider._id}`).emit(
+            io.to(`user:${consultation.provider}`).emit(
               "consultation:auto-terminated",
               terminationData
             );
