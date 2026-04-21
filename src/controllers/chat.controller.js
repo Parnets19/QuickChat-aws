@@ -513,10 +513,7 @@ const getChatNotifications = async (req, res, next) => {
         status: { $ne: "read" },
       });
 
-      if (
-        unreadCount > 0 ||
-        chat.lastMessageTime > new Date(Date.now() - 24 * 60 * 60 * 1000)
-      ) {
+      if (unreadCount > 0) {
         let userName = "Unknown User";
         let userAvatar = null;
 
