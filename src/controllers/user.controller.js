@@ -2,6 +2,14 @@ const { User, Consultation, Review, Transaction } = require("../models");
 const Notification = require("../models/Notification.model");
 const { AppError } = require("../middlewares/errorHandler");
 const { uploadToCloudinary } = require("../utils/cloudinary");
+const fs = require("fs");
+const path = require("path");
+
+// Absolute path to uploads directory — avoids process.cwd() returning /root
+const UPLOADS_DIR = path.join(__dirname, "../../uploads");
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true, mode: 0o755 });
+}
 
 // @desc    Get user profile
 // @route   GET /api/users/profile/:id
@@ -101,15 +109,6 @@ const uploadProfilePhoto = async (req, res, next) => {
     console.log("🔍 Upload Debug - File name:", req.file.filename);
     console.log("🔍 Upload Debug - Original name:", req.file.originalname);
 
-    // Ensure uploads directory exists
-    const fs = require("fs");
-    const path = require("path");
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      console.log("✅ Created uploads directory");
-    }
-
     const result = await uploadToCloudinary(req.file.path, "skillhub/profiles");
 
     console.log("🔍 Upload Debug - Result URL:", result.url);
@@ -161,15 +160,6 @@ const uploadAadhar = async (req, res, next) => {
 
     if (!files || !files.front) {
       return next(new AppError("Please upload Aadhar card document", 400));
-    }
-
-    // Ensure uploads directory exists
-    const fs = require("fs");
-    const path = require("path");
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      console.log("✅ Created uploads directory");
     }
 
     const frontResult = await uploadToCloudinary(
@@ -235,15 +225,6 @@ const uploadPortfolio = async (req, res, next) => {
   try {
     if (!req.file) {
       return next(new AppError("Please upload a file", 400));
-    }
-
-    // Ensure uploads directory exists
-    const fs = require("fs");
-    const path = require("path");
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      console.log("✅ Created uploads directory");
     }
 
     const result = await uploadToCloudinary(

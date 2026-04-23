@@ -1,11 +1,20 @@
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const { AppError } = require('./errorHandler');
+
+// Resolve uploads directory to an absolute path relative to project root
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+
+// Ensure uploads directory exists with proper permissions
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true, mode: 0o755 });
+}
 
 // Configure storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    cb(null, UPLOADS_DIR);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);

@@ -375,6 +375,24 @@ const register = async (req, res, next) => {
       },
     });
   } catch (error) {
+    // Surface Mongoose validation errors as 400 instead of 500
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(e => e.message).join(', ');
+      console.error("❌ Mongoose validation error during registration:", messages);
+      return next(new AppError(`Validation failed: ${messages}`, 400));
+    }
+    // Duplicate key error (unique constraint — email or mobile already exists)
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyValue || {})[0] || 'field';
+      console.error("❌ Duplicate key error during registration:", field, error.keyValue);
+      const msg = field === 'email'
+        ? `Email is already registered. Please login instead.`
+        : field === 'mobile'
+        ? `Mobile number is already registered. Please login instead.`
+        : `${field} is already in use.`;
+      return next(new AppError(msg, 400));
+    }
+    console.error("❌ Register error:", error.message, error.stack);
     next(error);
   }
 };
