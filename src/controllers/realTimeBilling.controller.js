@@ -300,18 +300,40 @@ const startConsultation = async (req, res) => {
       'rates.audio': provider.rates?.audio,
     });
 
-    // 🚨 STRICT WALLET VALIDATION - NO FREE TRIALS, NO EXCEPTIONS
+    // 🆓 CHECK FREE MINUTE STATUS for this user+provider pair
+    let isFirstMinuteFree = false;
+    if (ratePerMinute > 0) {
+      try {
+        const hasUsedFreeMinute = userModel.freeMinutesUsed?.some(
+          (entry) => entry.providerId.toString() === providerId.toString()
+        );
+        const completedConsultations = await Consultation.countDocuments({
+          user: userId,
+          provider: providerId,
+          status: "completed",
+          $or: [
+            { bothSidesAcceptedAt: { $exists: true } },
+            { duration: { $gt: 0 } },
+            { startTime: { $exists: true } },
+          ],
+        });
+        isFirstMinuteFree = !hasUsedFreeMinute && completedConsultations === 0;
+        console.log("🆓 FREE MINUTE CHECK:", {
+          userId, providerId, hasUsedFreeMinute, completedConsultations, isFirstMinuteFree,
+        });
+      } catch (freeCheckError) {
+        console.error("❌ Error checking free minute status:", freeCheckError);
+        isFirstMinuteFree = false;
+      }
+    }
+
+    // 🚨 WALLET VALIDATION — skip for first-time free calls
     const userWallet = userModel?.wallet || 0;
 
-    if (ratePerMinute > 0) {
+    if (ratePerMinute > 0 && !isFirstMinuteFree) {
       // Reject zero or negative balances
       if (userWallet <= 0) {
-        console.log("🚨 CALL REJECTED - ZERO/NEGATIVE BALANCE:", {
-          userId,
-          userWallet,
-          ratePerMinute,
-        });
-
+        console.log("🚨 CALL REJECTED - ZERO/NEGATIVE BALANCE:", { userId, userWallet, ratePerMinute });
         return res.status(400).json({
           success: false,
           message: `Insufficient wallet balance. You have ₹${userWallet.toFixed(2)} in your wallet. Please add money before starting the call.`,
@@ -320,26 +342,19 @@ const startConsultation = async (req, res) => {
 
       // Check minimum balance (at least 1 minute)
       if (userWallet < ratePerMinute) {
-        console.log("🚨 CALL REJECTED - INSUFFICIENT FUNDS:", {
-          userWallet,
-          ratePerMinute,
-          shortfall: ratePerMinute - userWallet,
-        });
-
+        console.log("🚨 CALL REJECTED - INSUFFICIENT FUNDS:", { userWallet, ratePerMinute });
         return res.status(400).json({
           success: false,
           message: `Insufficient balance. You need at least ₹${ratePerMinute} for 1 minute. Current balance: ₹${userWallet.toFixed(2)}. Please add ₹${(ratePerMinute - userWallet).toFixed(2)} or more.`,
         });
       }
 
-      console.log("✅ WALLET VALIDATION PASSED:", {
-        userWallet,
-        ratePerMinute,
-        maxMinutes: Math.floor(userWallet / ratePerMinute),
-      });
+      console.log("✅ WALLET VALIDATION PASSED:", { userWallet, ratePerMinute, maxMinutes: Math.floor(userWallet / ratePerMinute) });
+    } else if (isFirstMinuteFree) {
+      console.log("🆓 FIRST MINUTE FREE - Skipping wallet validation");
     }
 
-    // Create consultation record - STRICT PREPAID MODEL (NO FREE TRIALS)
+    // Create consultation record
     const consultation = new Consultation({
       user: userId,
       userType: isGuest ? "Guest" : "User",
@@ -347,20 +362,19 @@ const startConsultation = async (req, res) => {
       type: consultationType,
       status: "ongoing",
       rate: ratePerMinute,
-      startTime: null, // Will be set when both sides accept
-      totalAmount: 0, // Will be calculated in real-time
+      startTime: null,
+      totalAmount: 0,
       duration: 0,
-      billingStarted: false, // Will be true when both sides accept
+      billingStarted: false,
       lastBillingTime: null,
-      clientAccepted: true, // Client accepts by starting the consultation
-      providerAccepted: false, // Provider needs to accept separately
+      clientAccepted: true,
+      providerAccepted: false,
       clientAcceptedAt: new Date(),
       providerAcceptedAt: null,
       bothSidesAcceptedAt: null,
-      // NO FREE TRIALS - Billing starts immediately when call connects
-      isFirstMinuteFree: false,
+      isFirstMinuteFree,   // ← actual value now
       freeMinuteUsed: false,
-      billingStartsAt: null, // Will be set when call connects
+      billingStartsAt: null,
     });
 
     await consultation.save();
@@ -396,8 +410,8 @@ const startConsultation = async (req, res) => {
           from: userId, // Add 'from' field for mobile app compatibility
           fromName: clientName, // Add fromName for mobile app compatibility
           amount: ratePerMinute,
-          isFirstMinuteFree: false, // NO FREE TRIALS
-          isFree: ratePerMinute === 0, // Add flag to indicate if it's a free call
+          isFirstMinuteFree: isFirstMinuteFree, // actual value
+          isFree: ratePerMinute === 0,
           timestamp: new Date(),
           source: "real-time-billing",
         });
@@ -517,10 +531,12 @@ const startConsultation = async (req, res) => {
         ratePerMinute,
         providerName: provider.fullName,
         startTime: consultation.startTime,
-        isFirstMinuteFree: false, // NO FREE TRIALS
-        isFree: ratePerMinute === 0, // Add flag to indicate if it's a free call
+        isFirstMinuteFree: isFirstMinuteFree,
+        isFree: ratePerMinute === 0,
         message:
-          ratePerMinute === 0
+          isFirstMinuteFree
+            ? `First minute free! Consultation started with ${provider.fullName} at ₹${ratePerMinute}/min after that.`
+            : ratePerMinute === 0
             ? `Free call started with ${provider.fullName}!`
             : `Consultation started successfully with ${provider.fullName} at ₹${ratePerMinute}/min`,
       },

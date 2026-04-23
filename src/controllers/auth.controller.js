@@ -923,6 +923,29 @@ const verifySecurityQuestion = async (req, res, next) => {
   }
 };
 
+// @desc    Check if a mobile number belongs to a regular user/provider account
+// @route   GET /api/auth/check-mobile/:mobile
+// @access  Public
+const checkMobile = async (req, res, next) => {
+  try {
+    const { mobile } = req.params;
+    if (!mobile || mobile.length !== 10) {
+      return next(new AppError('Please provide a valid 10-digit mobile number', 400));
+    }
+    const user = await User.findOne({ mobile }).select('_id role isProvider');
+    if (!user) {
+      return res.status(404).json({ success: false, exists: false });
+    }
+    return res.status(200).json({
+      success: true,
+      exists: true,
+      isProvider: user.isProvider || user.role === 'provider',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -938,4 +961,5 @@ module.exports = {
   verifyResetOtp,
   getSecurityQuestion,
   verifySecurityQuestion,
+  checkMobile,
 };
