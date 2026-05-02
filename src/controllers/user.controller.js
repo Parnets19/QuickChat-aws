@@ -977,9 +977,9 @@ const getUserDocuments = async (req, res, next) => {
         // Otherwise, prepend 'uploads/'
         let fullPath;
         if (fileName.startsWith("uploads/")) {
-          fullPath = fileName;
+          fullPath = path.join(__dirname, "../../", fileName);
         } else {
-          fullPath = path.join("uploads", fileName);
+          fullPath = path.join(__dirname, "../../uploads", fileName);
         }
 
         console.log(

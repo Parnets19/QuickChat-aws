@@ -73,6 +73,17 @@ router.post('/become-provider', becomeProvider);
 router.put('/provider-settings', isServiceProvider, updateProviderSettings);
 router.put('/toggle-visibility', toggleProfileVisibility);
 router.put('/bank-details', updateBankDetails);
+router.get('/bank-details', async (req, res, next) => {
+  try {
+    const user = await require('../models/User.model').findById(req.user?._id).select('bankDetails');
+    res.status(200).json({
+      success: true,
+      data: { bankDetails: user?.bankDetails || {} },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Document management routes
 router.get('/documents', getUserDocuments);
