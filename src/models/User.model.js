@@ -421,6 +421,16 @@ const UserSchema = new mongoose.Schema(
         },
       },
     ],
+
+    // Account deactivation / deletion fields
+    deactivatedAt: { type: Date, default: null },
+    reactivatedAt: { type: Date, default: null },
+    deletionRequested: { type: Boolean, default: false },
+    deletionRequestedAt: { type: Date, default: null },
+    deletionReason: { type: String, default: '' },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
   },
   {
     timestamps: true,
