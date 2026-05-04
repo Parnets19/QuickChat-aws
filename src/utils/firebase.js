@@ -143,7 +143,22 @@ const sendPushNotification = async (notification) => {
     // Log specific error types
     if (error.code === 'messaging/invalid-registration-token' || 
         error.code === 'messaging/registration-token-not-registered') {
-      console.error('❌ Invalid or expired FCM token - user needs to re-register');
+      console.error('❌ Invalid or expired FCM token - removing from DB');
+      // Clean up the single invalid token
+      try {
+        const tokenToRemove = Array.isArray(notification.token) ? notification.token[0] : notification.token;
+        if (tokenToRemove) {
+          const User = require('../models/User.model');
+          const Guest = require('../models/Guest.model');
+          await Promise.all([
+            User.updateMany({ fcmTokens: tokenToRemove }, { $pull: { fcmTokens: tokenToRemove } }),
+            Guest.updateMany({ fcmTokens: tokenToRemove }, { $pull: { fcmTokens: tokenToRemove } }),
+          ]);
+          console.log('🧹 Removed stale single FCM token from DB');
+        }
+      } catch (cleanupErr) {
+        console.error('⚠️ Failed to clean up invalid token:', cleanupErr.message);
+      }
     }
     
     return { success: false, error: error.message };
@@ -161,10 +176,17 @@ const sendMulticastNotification = async (notification) => {
       notification.token = [notification.token];
     }
 
+    // Filter out empty/null tokens upfront
+    const validTokens = notification.token.filter(t => t && typeof t === 'string' && t.length > 10);
+    if (validTokens.length === 0) {
+      console.warn('⚠️ No valid tokens to send multicast notification');
+      return { success: false, error: 'No valid tokens' };
+    }
+
     console.log('📤 Preparing to send multicast notification:', {
       title: notification.title,
       body: notification.body?.substring(0, 50),
-      tokenCount: notification.token.length,
+      tokenCount: validTokens.length,
       dataKeys: Object.keys(notification.data || {})
     });
 
@@ -178,7 +200,7 @@ const sendMulticastNotification = async (notification) => {
         body: notification.body,
         ...(notification.data || {}),
       },
-      tokens: notification.token,
+      tokens: validTokens,
     };
 
     // Add Android-specific configuration for incoming calls
@@ -191,11 +213,9 @@ const sendMulticastNotification = async (notification) => {
           priority: 'high',
           defaultSound: true,
           defaultVibrateTimings: true,
-          tag: notification.data.consultationId, // Group notifications by consultation
+          tag: notification.data.consultationId,
         },
       };
-      
-      // Add APNS configuration for iOS
       message.apns = {
         payload: {
           aps: {
@@ -205,10 +225,8 @@ const sendMulticastNotification = async (notification) => {
           },
         },
       };
-      
       console.log('📞 Multicast incoming call notification configured with high priority');
     } else if (notification.data?.action === 'new_message') {
-      // For chat messages
       message.android = {
         priority: 'high',
         notification: {
@@ -217,25 +235,57 @@ const sendMulticastNotification = async (notification) => {
           priority: 'high',
         },
       };
-      
       console.log('💬 Multicast chat message notification configured');
     }
 
     const response = await admin.messaging().sendEachForMulticast(message);
     console.log(`✅ Multicast notifications sent: ${response.successCount} success, ${response.failureCount} failed`);
-    
+
+    // ── Auto-clean invalid tokens from DB ────────────────────────────────────
     if (response.failureCount > 0) {
+      const invalidTokens = [];
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
-          console.error(`❌ Failed to send to token ${idx}:`, resp.error?.message);
+          const errCode = resp.error?.code || '';
+          const isInvalid =
+            errCode === 'messaging/invalid-registration-token' ||
+            errCode === 'messaging/registration-token-not-registered' ||
+            errCode === 'messaging/invalid-argument';
+          if (isInvalid) {
+            invalidTokens.push(validTokens[idx]);
+          } else {
+            console.error(`❌ Failed to send to token[${idx}]:`, resp.error?.message);
+          }
         }
       });
+
+      if (invalidTokens.length > 0) {
+        console.log(`🧹 Removing ${invalidTokens.length} invalid FCM tokens from DB...`);
+        try {
+          const User = require('../models/User.model');
+          const Guest = require('../models/Guest.model');
+          // Pull invalid tokens from both User and Guest collections
+          await Promise.all([
+            User.updateMany(
+              { fcmTokens: { $in: invalidTokens } },
+              { $pull: { fcmTokens: { $in: invalidTokens } } }
+            ),
+            Guest.updateMany(
+              { fcmTokens: { $in: invalidTokens } },
+              { $pull: { fcmTokens: { $in: invalidTokens } } }
+            ),
+          ]);
+          console.log(`✅ Removed ${invalidTokens.length} stale FCM tokens from DB`);
+        } catch (cleanupErr) {
+          console.error('⚠️ Failed to clean up invalid tokens:', cleanupErr.message);
+        }
+      }
     }
-    
-    return { 
-      success: true, 
-      successCount: response.successCount, 
-      failureCount: response.failureCount 
+
+    return {
+      success: true,
+      successCount: response.successCount,
+      failureCount: response.failureCount,
     };
   } catch (error) {
     console.error('❌ Multicast notification error:', error);

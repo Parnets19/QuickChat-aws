@@ -65,7 +65,7 @@ async function autoProcessCompletedConsultations() {
         console.log(`   👤 Provider: ${provider.fullName}`);
 
         const totalAmount = consultation.totalAmount;
-        const PLATFORM_COMMISSION_RATE = 0.05;
+        const PLATFORM_COMMISSION_RATE = 0.10;
         const platformCommission =
           Math.round(totalAmount * PLATFORM_COMMISSION_RATE * 100) / 100;
         const providerEarnings =

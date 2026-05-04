@@ -44,6 +44,11 @@ const getUserProfile = async (req, res, next) => {
       return next(new AppError("Profile not available", 404));
     }
 
+    // Don't show unverified provider profiles to others
+    if (user.isServiceProvider && user.providerVerificationStatus !== 'verified') {
+      return next(new AppError("This provider's profile is not yet available", 404));
+    }
+
     res.status(200).json({
       success: true,
       data: user,

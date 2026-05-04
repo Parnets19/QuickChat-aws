@@ -53,8 +53,6 @@ router.use("/billing", realTimeBillingRoutes); // Real-time billing system
 router.use("/wallet", walletRoutes); // Wallet balance API
 router.use("/chat", chatRoutes); // Chat system
 router.use("/analytics", analyticsRoutes); // Analytics and reports
-router.use("/free-minute", freeMinuteRoutes); // First Minute Free Trial system (legacy)
-router.use("/free-trial", freeTrialRoutes); // First Time Free Trial system (new)
 router.use("/users", blockRoutes); // Block and Report functionality
 router.use("/phonepe", phonePeRoutes); // PhonePe payment integration
 router.use("/reports", reportRoutes); // Report and Block system

@@ -357,6 +357,24 @@ const register = async (req, res, next) => {
        sendWelcomeEmail(email, fullName);
     }
 
+    // Notify all connected admins about new KYC request
+    try {
+      if (req.io) {
+        req.io.emit("admin:new_kyc_request", {
+          userId: user._id,
+          fullName: user.fullName,
+          mobile: user.mobile,
+          email: user.email,
+          profilePhoto: user.profilePhoto || null,
+          createdAt: user.createdAt,
+          message: `New provider registered: ${user.fullName} is awaiting KYC verification`,
+        });
+        console.log("📢 Admin notified of new KYC request for:", user.fullName);
+      }
+    } catch (notifyError) {
+      console.error("⚠️ Failed to notify admin (non-critical):", notifyError.message);
+    }
+
     // Generate token
     const token = user.generateAuthToken();
     const refreshToken = user.generateRefreshToken();

@@ -43,8 +43,8 @@ const preciseMoneyCalculation = (amount1, amount2, operation) => {
   return Math.round(resultCents) / 100;
 };
 
-// Platform commission rate (5%)
-const PLATFORM_COMMISSION_RATE = 0.05;
+// Platform commission rate (10%)
+const PLATFORM_COMMISSION_RATE = 0.10;
 
 // Helper function to update provider consultation status
 const updateProviderStatus = async (providerId, status) => {
@@ -186,6 +186,18 @@ const createConsultation = async (req, res, next) => {
       return next(new AppError("Provider not found", 404));
     }
 
+    // CRITICAL: Check if provider is verified before allowing any consultation
+    if (provider.providerVerificationStatus !== 'verified') {
+      const statusMessages = {
+        pending: 'This provider is not yet verified. Please try again after their account is approved.',
+        rejected: 'This provider\'s account verification was rejected. They cannot accept consultations.',
+      };
+      return next(new AppError(
+        statusMessages[provider.providerVerificationStatus] || 'This provider is not verified.',
+        403
+      ));
+    }
+
     // CRITICAL: Check if users have blocked each other (one-way check)
     const userId = req.user.id || req.user._id;
     const currentUser = await User.findById(userId);
@@ -299,35 +311,8 @@ const createConsultation = async (req, res, next) => {
       isProviderToProvider,
     });
 
-    // Check if this is user's first-time free trial (one-time across all providers)
-    let isFirstTimeFreeTrial = false;
-    if (rate > 0 && (type === "audio" || type === "video")) {
-      try {
-        // Check if user has used their one-time free trial
-        let hasUsedFreeTrial = false;
-
-        if (req.user?.isGuest) {
-          const guest = await Guest.findById(req.user.id);
-          hasUsedFreeTrial = guest?.hasUsedFreeTrialCall || false;
-        } else {
-          const userForFreeCheck = await User.findById(req.user._id);
-          hasUsedFreeTrial = userForFreeCheck?.hasUsedFreeTrialCall || false;
-        }
-
-        isFirstTimeFreeTrial = !hasUsedFreeTrial;
-        console.log(
-          `🎯 Free trial check: isFirstTime=${isFirstTimeFreeTrial}, hasUsed=${hasUsedFreeTrial}`
-        );
-      } catch (error) {
-        console.error("Error checking free trial status:", error);
-        isFirstTimeFreeTrial = false;
-      }
-    }
-
-    // 🛡️ WALLET BALANCE VALIDATION - Updated for free trial system
-    // For free trial calls, no wallet balance required!
-    // For non-free-trial calls, normal wallet validation applies
-    if (rate > 0 && !isFirstTimeFreeTrial) {
+    // 🛡️ WALLET BALANCE VALIDATION
+    if (rate > 0) {
       let currentUser;
       if (req.user?.isGuest) {
         currentUser = await Guest.findById(req.user.id);
@@ -339,13 +324,12 @@ const createConsultation = async (req, res, next) => {
         const currentBalance = currentUser.wallet || 0;
         const minimumRequired = rate; // At least one minute worth
 
-        console.log("🛡️ WALLET BALANCE CHECK (NON-FREE-TRIAL):", {
+        console.log("🛡️ WALLET BALANCE CHECK:", {
           userId: currentUser._id,
           currentBalance,
           ratePerMinute: rate,
           minimumRequired,
           canAfford: currentBalance >= minimumRequired,
-          isFirstTimeFreeTrial,
         });
 
         if (currentBalance < minimumRequired) {
@@ -369,8 +353,6 @@ const createConsultation = async (req, res, next) => {
       } else {
         return next(new AppError("User not found", 404));
       }
-    } else if (isFirstTimeFreeTrial) {
-      console.log("🎉 FREE TRIAL CALL - No wallet balance required!");
     }
 
     // Create consultation (handle guest users and provider-to-provider)
@@ -381,13 +363,6 @@ const createConsultation = async (req, res, next) => {
       rate,
       status: initialStatus,
       startTime: null, // Start time will be set when provider accepts/starts the consultation
-      // NEW: Free trial system fields
-      isFirstTimeFreeTrial, // Is this the user's one-time free trial?
-      freeTrialUsed: false, // Has the free trial been consumed?
-      entireCallFree: isFirstTimeFreeTrial, // Is entire call free?
-      // OLD: Keep for backward compatibility
-      isFirstMinuteFree: false, // Deprecated: always false now
-      freeMinuteUsed: false, // Deprecated: always false now
     };
 
     // Add provider-to-provider specific fields
@@ -405,43 +380,6 @@ const createConsultation = async (req, res, next) => {
     }
 
     const consultation = await Consultation.create(consultationData);
-
-    // 🎯 MARK FREE TRIAL AS USED IMMEDIATELY - New free trial system
-    // Mark free trial as used when consultation is created (not when completed)
-    // This prevents users from getting multiple free trials
-    if (isFirstTimeFreeTrial && rate > 0) {
-      try {
-        console.log("🎯 MARKING FREE TRIAL AS USED ON CREATION:", {
-          consultationId: consultation._id,
-          userId: req.user?.isGuest ? req.user.id : req.user?._id,
-          providerId: providerId,
-          isFirstTimeFreeTrial: isFirstTimeFreeTrial,
-        });
-
-        // Determine if user is guest or regular user
-        const isGuestUser = req.user?.isGuest;
-        const userId = isGuestUser ? req.user.id : req.user?._id;
-
-        if (isGuestUser) {
-          await Guest.findByIdAndUpdate(userId, {
-            hasUsedFreeTrialCall: true,
-            freeTrialUsedAt: new Date(),
-            freeTrialConsultationId: consultation._id,
-          });
-        } else {
-          await User.findByIdAndUpdate(userId, {
-            hasUsedFreeTrialCall: true,
-            freeTrialUsedAt: new Date(),
-            freeTrialConsultationId: consultation._id,
-          });
-        }
-
-        console.log("✅ FREE TRIAL MARKED AS USED FOR USER:", userId);
-      } catch (error) {
-        console.error("❌ Error marking free trial as used:", error);
-        // Don't fail the consultation creation if this fails
-      }
-    }
 
     // Add auto-timeout for free calls (rate = 0) and audio/video calls
     if (rate === 0 && (type === "audio" || type === "video")) {
@@ -1031,89 +969,6 @@ const endConsultation = async (req, res, next) => {
     // CRITICAL FIX: Mark as used if consultation actually started (bothSidesAcceptedAt exists)
     // regardless of final duration, to prevent showing "first call free" after completing a call
     // UPDATED FIX: Also mark if consultation has any duration > 0, even if bothSidesAcceptedAt is missing
-    if ((consultation.bothSidesAcceptedAt || consultation.duration > 0 || consultation.startTime) && consultation.rate > 0) {
-      try {
-        console.log("🆓 CHECKING IF FREE MINUTE SHOULD BE MARKED AS USED:", {
-          consultationId: consultation._id,
-          userId: consultationUserId,
-          providerId: consultation.provider,
-          rate: consultation.rate,
-          duration: consultation.duration,
-          bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
-          startTime: consultation.startTime,
-          conditionMet: !!(consultation.bothSidesAcceptedAt || consultation.duration > 0 || consultation.startTime),
-          note: "Marking based on call actually starting, not final duration",
-        });
-
-        // Determine if user is guest or regular user
-        const isGuestUser = req.user?.isGuest;
-        let userModel;
-
-        if (isGuestUser) {
-          userModel = await Guest.findById(consultationUserId);
-        } else {
-          userModel = await User.findById(consultationUserId);
-        }
-
-        if (userModel) {
-          // Initialize freeMinutesUsed if it doesn't exist
-          if (!userModel.freeMinutesUsed) {
-            userModel.freeMinutesUsed = [];
-          }
-
-          // Check if not already marked as used for this provider
-          const alreadyMarked = userModel.freeMinutesUsed.some(
-            (entry) =>
-              entry.providerId.toString() === consultation.provider.toString()
-          );
-
-          if (!alreadyMarked) {
-            // Mark as used - this is the first completed consultation with this provider
-            userModel.freeMinutesUsed.push({
-              providerId: consultation.provider,
-              consultationId: consultation._id,
-              usedAt: new Date(),
-            });
-            await userModel.save();
-
-            // Also update the consultation to reflect that free minute was used
-            consultation.freeMinuteUsed = true;
-            await consultation.save();
-
-            console.log("✅ FREE MINUTE MARKED AS USED FOR THIS PROVIDER:", {
-              userId: consultationUserId,
-              providerId: consultation.provider,
-              userType: isGuestUser ? "guest" : "regular",
-              consultationId: consultation._id,
-              duration: consultation.duration,
-            });
-          } else {
-            console.log(
-              "ℹ️ Free minute already marked as used for this provider"
-            );
-          }
-        } else {
-          console.error(
-            "❌ User not found for free minute marking:",
-            consultationUserId
-          );
-        }
-      } catch (freeMinuteError) {
-        console.error("❌ Error marking free minute as used:", freeMinuteError);
-        // Don't fail the consultation completion if free minute marking fails
-      }
-    } else {
-      console.log("🆓 FREE MINUTE NOT MARKED - Consultation did not fully start:", {
-        bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
-        duration: consultation.duration,
-        startTime: consultation.startTime,
-        rate: consultation.rate,
-        status: consultation.status,
-        conditionMet: !!(consultation.bothSidesAcceptedAt || consultation.duration > 0 || consultation.startTime),
-        rateCheck: consultation.rate > 0,
-      });
-    }
-
     // Check if provider has any other ongoing consultations and update status accordingly
     await checkProviderBusyStatus(consultation.provider);
 

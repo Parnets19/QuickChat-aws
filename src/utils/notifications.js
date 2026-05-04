@@ -180,10 +180,15 @@ const createNotification = async (options) => {
  */
 const sendVerificationNotification = async (userId, status, notes = '', io = null) => {
   const isVerified = status === 'verified';
+  const isCorrectionRequested = status === 'correction_requested';
   
-  const title = isVerified ? 'Account Verified!' : 'Account Verification Failed';
+  const title = isVerified ? 'Account Verified!' 
+              : isCorrectionRequested ? 'Action Required: Profile Correction Needed'
+              : 'Account Verification Failed';
   const message = isVerified 
     ? 'Congratulations! Your account has been verified and you can now start providing consultations.'
+    : isCorrectionRequested
+    ? `Please update your profile. Admin notes: ${notes || 'Please review and correct your submitted information.'}`
     : `Your account verification was rejected. ${notes ? `Reason: ${notes}` : 'Please check your documents and try again.'}`;
 
   return await createNotification({
@@ -192,7 +197,8 @@ const sendVerificationNotification = async (userId, status, notes = '', io = nul
     message,
     type: 'admin',
     data: {
-      verificationStatus: status,
+      verificationStatus: status === 'correction_requested' ? 'pending' : status,
+      correctionRequested: isCorrectionRequested,
       notes: notes || ''
     },
     io

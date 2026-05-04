@@ -166,30 +166,6 @@ const ConsultationSchema = new mongoose.Schema(
       },
     },
 
-    // First Minute Free Trial fields
-    isFirstMinuteFree: {
-      type: Boolean,
-      default: false,
-    },
-    freeMinuteUsed: {
-      type: Boolean,
-      default: false,
-    },
-    billingStartsAt: Date, // When billing actually starts (startTime + 1 minute if first minute free)
-
-    // NEW: First Time Free Trial System
-    isFirstTimeFreeTrial: {
-      type: Boolean,
-      default: false,
-    },
-    freeTrialUsed: {
-      type: Boolean,
-      default: false,
-    },
-    entireCallFree: {
-      type: Boolean,
-      default: false,
-    },
   },
   {
     timestamps: true,
