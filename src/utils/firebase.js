@@ -94,22 +94,40 @@ const sendPushNotification = async (notification) => {
 
     // For incoming calls, add special configuration
     if (notification.data?.action === 'incoming_call') {
-      message.android.notification = {
-        channelId: 'incoming_calls',
-        sound: 'default',
+      // CRITICAL: For background/killed state heads-up notifications on Android,
+      // the message-level priority must be 'high' AND the notification channel
+      // must exist on the device with IMPORTANCE_HIGH.
+      message.android = {
         priority: 'high',
-        defaultSound: true,
-        defaultVibrateTimings: true,
-        tag: notification.data.consultationId,
+        ttl: 30 * 1000, // 30 seconds — call expires quickly
+        notification: {
+          channelId: 'incoming_calls',
+          sound: 'default',
+          priority: 'high',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          tag: notification.data.consultationId,
+          // Ensure heads-up (peek) notification on Android
+          notificationCount: 1,
+          visibility: 'public',
+        },
       };
       
       // Add APNS configuration for iOS
       message.apns = {
+        headers: {
+          'apns-priority': '10', // High priority for iOS
+          'apns-push-type': 'alert',
+        },
         payload: {
           aps: {
             sound: 'default',
             badge: 1,
             'content-available': 1,
+            alert: {
+              title: notification.title,
+              body: notification.body,
+            },
           },
         },
       };
@@ -207,6 +225,7 @@ const sendMulticastNotification = async (notification) => {
     if (notification.data?.action === 'incoming_call') {
       message.android = {
         priority: 'high',
+        ttl: 30 * 1000, // 30 seconds
         notification: {
           channelId: 'incoming_calls',
           sound: 'default',
@@ -214,14 +233,23 @@ const sendMulticastNotification = async (notification) => {
           defaultSound: true,
           defaultVibrateTimings: true,
           tag: notification.data.consultationId,
+          visibility: 'public',
         },
       };
       message.apns = {
+        headers: {
+          'apns-priority': '10',
+          'apns-push-type': 'alert',
+        },
         payload: {
           aps: {
             sound: 'default',
             badge: 1,
             'content-available': 1,
+            alert: {
+              title: notification.title,
+              body: notification.body,
+            },
           },
         },
       };
