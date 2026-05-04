@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
 const adminGuestController = require('../controllers/adminGuest.controller');
+const broadcastController = require('../controllers/broadcastNotification.controller');
 const { protect, adminOnly } = require('../middlewares/auth');
 
 // Public route to create admin user (no authentication required)
@@ -115,6 +116,10 @@ router.post('/fix-user-roles', adminController.fixUserRoles);
 // Reports and Blocks management routes
 router.get('/reports-blocks', adminController.getReportsAndBlocks);
 router.put('/reports/:userId/:reportId/status', adminController.updateReportStatus);
+
+// ── Broadcast Notifications ───────────────────────────────────────────────────
+router.get('/broadcast-notification/stats', broadcastController.getBroadcastStats);
+router.post('/broadcast-notification', broadcastController.sendBroadcastNotification);
 
 // Deletion requests — admin can view and approve/reject
 router.get('/deletion-requests', async (req, res, next) => {
