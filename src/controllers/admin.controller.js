@@ -60,7 +60,7 @@ const getAllProviders = async (req, res) => {
     const enhancedProviders = await Promise.all(
       providers.map(async (provider) => {
         const consultationCount = await Consultation.countDocuments({
-          providerId: provider._id
+          provider: provider._id
         });
 
         return {
