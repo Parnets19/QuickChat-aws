@@ -520,9 +520,9 @@ const loginWithOTP = async (req, res, next) => {
       return next(new AppError("User not found", 404));
     }
 
-    // Check if account is active
-    if (user.status !== "active") {
-      return next(new AppError("Your account has been suspended", 403));
+    // Allow inactive (user-deactivated) to login — app shows reactivation screen
+    if (user.status === 'suspended' || user.status === 'deleted') {
+      return next(new AppError("Your account has been suspended. Please contact support.", 403));
     }
 
     // Mark OTP as verified
