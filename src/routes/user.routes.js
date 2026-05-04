@@ -11,6 +11,7 @@ const {
   getDashboard,
   updateBankDetails,
   searchProviders,
+  getLocations,
   getUserDocuments,
   updateDocument,
   deleteDocument,
@@ -28,6 +29,7 @@ const router = express.Router();
 // Public routes
 router.get('/profile/:id', getUserProfile);
 router.get('/search', searchProviders);
+router.get('/locations', getLocations);
 
 // Test route to verify public access
 router.get('/test-public', (req, res) => {

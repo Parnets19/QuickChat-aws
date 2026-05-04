@@ -881,7 +881,18 @@ const searchProviders = async (req, res, next) => {
     }
 
     if (city) {
-      query["place.city"] = new RegExp(city, "i");
+      // Search across all place sub-fields: village, town, city, state
+      const locationRegex = new RegExp(city, "i");
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { "place.village": locationRegex },
+          { "place.town":    locationRegex },
+          { "place.city":    locationRegex },
+          { "place.state":   locationRegex },
+          { "place.country": locationRegex },
+        ],
+      });
     }
 
     if (gender) {
@@ -1431,6 +1442,50 @@ const requestAccountDeletion = async (req, res, next) => {
   }
 };
 
+// @desc    Get all distinct location values from verified providers
+// @route   GET /api/users/locations
+// @access  Public
+const getLocations = async (req, res, next) => {
+  try {
+    // Aggregate all non-empty place sub-fields from verified, active providers
+    const results = await User.aggregate([
+      {
+        $match: {
+          isServiceProvider: true,
+          isProfileHidden: false,
+          status: "active",
+          providerVerificationStatus: "verified",
+        },
+      },
+      {
+        $project: {
+          places: {
+            $filter: {
+              input: [
+                "$place.village",
+                "$place.town",
+                "$place.city",
+                "$place.state",
+              ],
+              as: "p",
+              cond: { $and: [{ $ne: ["$$p", null] }, { $ne: ["$$p", ""] }] },
+            },
+          },
+        },
+      },
+      { $unwind: "$places" },
+      { $group: { _id: { $toLower: "$places" }, display: { $first: "$places" } } },
+      { $sort: { display: 1 } },
+    ]);
+
+    const locations = results.map((r) => r.display).filter(Boolean);
+
+    res.status(200).json({ success: true, data: locations });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateProfile,
@@ -1443,6 +1498,7 @@ module.exports = {
   getDashboard,
   updateBankDetails,
   searchProviders,
+  getLocations,
   getUserDocuments,
   updateDocument,
   deleteDocument,
