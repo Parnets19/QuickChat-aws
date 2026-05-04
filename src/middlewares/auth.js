@@ -84,8 +84,14 @@ const protect = async (req, res, next) => {
       //   status: user.status,
       // });
 
+      if (user.status === 'inactive') {
+        // Deactivated by user — allow login but flag it so the app can show reactivation screen
+        req.user = user;
+        req.userDeactivated = true;
+        return next();
+      }
+
       if (user.status !== "active") {
-        // console.log("🔐 AUTH DEBUG - User account suspended:", user.status);
         return next(new AppError("Your account has been suspended", 403));
       }
 

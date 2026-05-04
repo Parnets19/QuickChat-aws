@@ -16,6 +16,9 @@ const {
   deleteDocument,
   updateConsultationStatus,
   getVerificationStatus,
+  deactivateAccount,
+  reactivateAccount,
+  requestAccountDeletion,
 } = require('../controllers/user.controller');
 const { protect, isServiceProvider } = require('../middlewares/auth');
 const { uploadImage, upload } = require('../middlewares/upload');
@@ -94,6 +97,11 @@ router.put('/consultation-status', isServiceProvider, updateConsultationStatus);
 
 // Provider verification status
 router.get('/verification-status', isServiceProvider, getVerificationStatus);
+
+// Account deactivation / reactivation / deletion
+router.post('/deactivate', deactivateAccount);
+router.post('/reactivate', reactivateAccount);
+router.post('/request-deletion', requestAccountDeletion);
 
 module.exports = router;
 

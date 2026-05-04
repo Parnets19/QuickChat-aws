@@ -1319,6 +1319,118 @@ const getVerificationStatus = async (req, res, next) => {
   }
 };
 
+// ── Deactivate account (user-initiated) ──────────────────────────────────────
+const deactivateAccount = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          status: 'inactive',
+          isProfileHidden: true,
+          isOnline: false,
+          consultationStatus: 'offline',
+          fcmTokens: [], // Clear push tokens so no notifications
+          deactivatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    if (!user) return next(new AppError('User not found', 404));
+
+    // Notify via socket if connected
+    if (req.io) {
+      req.io.to(`user:${userId}`).emit('account:deactivated');
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Account deactivated successfully. Log in again to reactivate.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ── Reactivate account (user-initiated) ──────────────────────────────────────
+const reactivateAccount = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          status: 'active',
+          isProfileHidden: false,
+          deactivatedAt: null,
+          reactivatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    if (!user) return next(new AppError('User not found', 404));
+
+    res.status(200).json({
+      success: true,
+      message: 'Account reactivated successfully.',
+      data: { status: user.status },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ── Request account deletion ──────────────────────────────────────────────────
+const requestAccountDeletion = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { reason } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          status: 'inactive',
+          isProfileHidden: true,
+          isOnline: false,
+          consultationStatus: 'offline',
+          fcmTokens: [],
+          deletionRequested: true,
+          deletionRequestedAt: new Date(),
+          deletionReason: reason || '',
+        },
+      },
+      { new: true }
+    );
+
+    if (!user) return next(new AppError('User not found', 404));
+
+    // Notify admin via socket
+    if (req.io) {
+      req.io.emit('admin:deletion_request', {
+        userId: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        mobile: user.mobile,
+        reason: reason || '',
+        requestedAt: new Date(),
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Deletion request submitted. Admin will review within 48 hours.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateProfile,
@@ -1336,4 +1448,7 @@ module.exports = {
   deleteDocument,
   updateConsultationStatus,
   getVerificationStatus,
+  deactivateAccount,
+  reactivateAccount,
+  requestAccountDeletion,
 };
