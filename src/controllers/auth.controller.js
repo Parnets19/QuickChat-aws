@@ -456,10 +456,11 @@ const login = async (req, res, next) => {
       return next(new AppError("Incorrect password", 401));
     }
 
-    // Check if account is active
-    if (user.status !== "active") {
-      return next(new AppError("Your account has been suspended", 403));
+    // Allow inactive (user-deactivated) to login — app shows reactivation screen
+    if (user.status === 'suspended' || user.status === 'deleted') {
+      return next(new AppError("Your account has been suspended. Please contact support.", 403));
     }
+    // Note: status === 'inactive' is allowed through — user sees reactivation screen in app
 
     // Update last active
     user.lastActive = new Date();
