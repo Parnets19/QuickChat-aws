@@ -37,11 +37,11 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['provider', 'expert', 'advisor', 'become', 'earn', 'offer service', 'astrologer', 'consultant'],
-    reply: "To become a provider on Quick Chat:\n1. Go to your profile settings\n2. Click 'Become a Provider'\n3. Fill in your expertise and set your per-minute rate\n4. Upload required documents\n5. Wait for admin approval (24-48 hours)\n\n💰 Providers earn per minute of consultation\n💸 Minimum withdrawal: ₹200\n⏱️ Payouts within 2-3 business days\n📧 Questions: Quickchat2026@gmail.com",
+    reply: "To become a provider on Quick Chat:\n1. Go to your profile settings\n2. Click 'Become a Provider'\n3. Fill in your expertise and set your per-minute rate\n4. Upload required documents\n5. Wait for admin approval (24-48 hours)\n\n💰 Providers earn per minute of consultation\n💸 Minimum withdrawal: ₹200\n⏱️ Payouts within 24 hours\n📧 Questions: Quickchat2026@gmail.com",
   },
   {
     keywords: ['withdraw', 'withdrawal', 'payout', 'earnings', 'bank', 'transfer money'],
-    reply: "To withdraw your earnings from Quick Chat:\n1. Go to 'Wallet' > 'Withdraw'\n2. Enter your bank account details\n3. Enter the amount to withdraw\n4. Submit the request\n\n💰 Minimum withdrawal: ₹200\n⏱️ Processing time: 2-3 business days\n🏦 Transferred directly to your bank account\n\n📧 Withdrawal issues: Quickchat2026@gmail.com",
+    reply: "To withdraw your earnings from Quick Chat:\n1. Go to 'Wallet' > 'Withdraw'\n2. Enter your bank account details\n3. Enter the amount to withdraw\n4. Submit the request\n\n💰 Minimum withdrawal: ₹200\n⏱️ Processing time: 24 hours\n🏦 Transferred directly to your bank account\n\n📧 Withdrawal issues: Quickchat2026@gmail.com",
   },
   {
     keywords: ['free', 'trial', 'free minute', 'first call', 'free consultation'],
@@ -163,11 +163,11 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['minimum withdrawal', 'min withdraw', 'least withdrawal', 'how much to withdraw'],
-    reply: "Minimum withdrawal amount is ₹200.\n\nWithdrawals are processed within 2-3 business days directly to your bank account.",
+    reply: "Minimum withdrawal amount is ₹200.\n\nWithdrawals are processed within 24 hours directly to your bank account.",
   },
   {
     keywords: ['how long', 'how many days', 'when will', 'processing time', 'how much time'],
-    reply: "Processing times on Quick Chat:\n• Wallet recharge: Instant\n• Withdrawal to bank: 2-3 business days\n• Refunds: 5-7 business days\n• KYC verification: 24-48 hours\n• Account appeal: 48 hours\n\n📧 Quickchat2026@gmail.com",
+    reply: "Processing times on Quick Chat:\n• Wallet recharge: Instant\n• Withdrawal to bank: 24 hours\n• Refunds: 5-7 business days\n• KYC verification: 24-48 hours\n• Account appeal: 48 hours\n\n📧 Quickchat2026@gmail.com",
   },
   {
     keywords: ['provider offline', 'provider not available', 'expert not online', 'no provider', 'all busy'],
