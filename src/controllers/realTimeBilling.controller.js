@@ -404,7 +404,7 @@ const startConsultation = async (req, res) => {
               consultationId: consultation._id.toString(),
               consultationType,
               callType: consultationType,
-              from: userId.toString(),
+              callerId: userId.toString(),
               fromName: clientName,
               to: providerId.toString(),
               clientPhoto: clientPhoto || "",
