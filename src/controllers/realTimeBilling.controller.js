@@ -1681,7 +1681,7 @@ const createBillingTransactions = async (
     const userTransaction = new Transaction({
       user: user._id,
       userType: isGuest ? "Guest" : "User",
-      type: "consultation",
+      type: "consultation_payment",  // valid enum value
       category: "consultation",
       amount: amount,
       balance: user.wallet,
