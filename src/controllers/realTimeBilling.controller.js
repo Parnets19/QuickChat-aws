@@ -388,6 +388,53 @@ const startConsultation = async (req, res) => {
             ratePerMinute === 0
           })`
         );
+
+        // ── FCM Push Notification for background/killed state ─────────────
+        // Socket only works when app is in foreground. FCM ensures the provider
+        // gets notified even when the app is in background or killed.
+        try {
+          const provider = await User.findById(providerId).select("fcmTokens fullName");
+          if (provider && provider.fcmTokens && provider.fcmTokens.length > 0) {
+            const { sendPushNotification, sendMulticastNotification } = require("../utils/firebase");
+            const callTitle = `Incoming ${consultationType === "video" ? "Video" : "Audio"} Call`;
+            const callBody = `${clientName} is calling you`;
+            const callData = {
+              type: "consultation",
+              action: "incoming_call",
+              consultationId: consultation._id.toString(),
+              consultationType,
+              callType: consultationType,
+              from: userId.toString(),
+              fromName: clientName,
+              to: providerId.toString(),
+              clientPhoto: clientPhoto || "",
+              rate: ratePerMinute.toString(),
+              amount: ratePerMinute.toString(),
+            };
+
+            if (provider.fcmTokens.length === 1) {
+              await sendPushNotification({
+                title: callTitle,
+                body: callBody,
+                token: provider.fcmTokens[0],
+                data: callData,
+              });
+            } else {
+              await sendMulticastNotification({
+                title: callTitle,
+                body: callBody,
+                token: provider.fcmTokens,
+                data: callData,
+              });
+            }
+            console.log(`📲 FCM push sent to provider ${providerId} (${provider.fcmTokens.length} device(s))`);
+          } else {
+            console.log(`⚠️ Provider ${providerId} has no FCM tokens — push skipped`);
+          }
+        } catch (fcmError) {
+          // Non-critical — socket notification already sent
+          console.error("⚠️ FCM push for incoming call failed (non-critical):", fcmError.message);
+        }
       }
     }
 
