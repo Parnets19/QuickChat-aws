@@ -94,29 +94,29 @@ const sendPushNotification = async (notification) => {
 
     // For incoming calls, add special configuration
     if (notification.data?.action === 'incoming_call') {
-      // CRITICAL: For background/killed state heads-up notifications on Android,
-      // the message-level priority must be 'high' AND the notification channel
-      // must exist on the device with IMPORTANCE_HIGH.
+      // Use 'default' channel as primary — it always exists on Android.
+      // 'incoming_calls' channel (IMPORTANCE_HIGH) is created in MainActivity.kt
+      // and will be used automatically once the app is rebuilt.
       message.android = {
         priority: 'high',
         ttl: 30 * 1000, // 30 seconds — call expires quickly
         notification: {
-          channelId: 'incoming_calls',
+          // 'default' channel always exists; 'incoming_calls' needs a rebuild to exist
+          channelId: 'default',
           sound: 'default',
           priority: 'high',
           defaultSound: true,
           defaultVibrateTimings: true,
           tag: notification.data.consultationId,
-          // Ensure heads-up (peek) notification on Android
-          notificationCount: 1,
           visibility: 'public',
+          notificationCount: 1,
         },
       };
       
       // Add APNS configuration for iOS
       message.apns = {
         headers: {
-          'apns-priority': '10', // High priority for iOS
+          'apns-priority': '10',
           'apns-push-type': 'alert',
         },
         payload: {
@@ -132,7 +132,7 @@ const sendPushNotification = async (notification) => {
         },
       };
       
-      console.log('📞 Incoming call notification configured with high priority');
+      console.log('📞 Incoming call notification configured with high priority (channel: default)');
     } else if (notification.data?.action === 'new_message') {
       // For chat messages, use default channel
       message.android.notification = {
@@ -225,9 +225,9 @@ const sendMulticastNotification = async (notification) => {
     if (notification.data?.action === 'incoming_call') {
       message.android = {
         priority: 'high',
-        ttl: 30 * 1000, // 30 seconds
+        ttl: 30 * 1000,
         notification: {
-          channelId: 'incoming_calls',
+          channelId: 'default',
           sound: 'default',
           priority: 'high',
           defaultSound: true,
@@ -253,7 +253,7 @@ const sendMulticastNotification = async (notification) => {
           },
         },
       };
-      console.log('📞 Multicast incoming call notification configured with high priority');
+      console.log('📞 Multicast incoming call notification configured with high priority (channel: default)');
     } else if (notification.data?.action === 'new_message') {
       message.android = {
         priority: 'high',
