@@ -1336,6 +1336,29 @@ const endConsultation = async (req, res) => {
         durationInMinutes: (durationInSeconds / 60).toFixed(2),
       });
 
+      // ── MINIMUM DURATION GUARD ────────────────────────────────────────────
+      // If both sides accepted but the call ended in under 30 seconds,
+      // WebRTC most likely never established a real media connection
+      // (e.g. second call where peer connection failed to negotiate).
+      // In that case we do NOT charge the client.
+      const MINIMUM_BILLABLE_SECONDS = 30;
+      if (durationInSeconds < MINIMUM_BILLABLE_SECONDS) {
+        console.log(
+          `⚠️ CALL TOO SHORT (${durationInSeconds}s < ${MINIMUM_BILLABLE_SECONDS}s) — NO CHARGE APPLIED`,
+          {
+            consultationId: consultation._id,
+            durationInSeconds,
+            bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+            endTime: consultation.endTime,
+            reason: "WebRTC likely never connected — protecting client from ghost charge",
+          }
+        );
+        finalDuration = 0;
+        finalAmount = 0;
+        consultation.endReason = consultation.endReason || "no_media_connection";
+        // Skip billing entirely — fall through to save & respond
+      } else {
+
       // STRICT PREPAID MODEL - NO FREE MINUTES
       // Round UP: 2min 30sec = 3 minutes charged
       const billableMinutes = Math.ceil(durationInSeconds / 60);
@@ -1364,6 +1387,7 @@ const endConsultation = async (req, res) => {
         finalDuration,
         calculation: `${billableMinutes} minutes × ₹${ratePerMinute} = ₹${finalAmount}`,
       });
+      } // end else (durationInSeconds >= MINIMUM_BILLABLE_SECONDS)
     } else {
       console.log(
         "⚠️ No billing occurred - consultation ended before both sides accepted"
