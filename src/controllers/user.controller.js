@@ -1340,7 +1340,8 @@ const deactivateAccount = async (req, res, next) => {
       {
         $set: {
           status: 'inactive',
-          isProfileHidden: true,
+          // NOTE: isProfileHidden is NOT set here — admin controls visibility separately.
+          // status: 'inactive' already removes the user from search results.
           isOnline: false,
           consultationStatus: 'offline',
           fcmTokens: [], // Clear push tokens so no notifications
@@ -1407,7 +1408,7 @@ const requestAccountDeletion = async (req, res, next) => {
       {
         $set: {
           status: 'inactive',
-          isProfileHidden: true,
+          // NOTE: isProfileHidden is NOT set here — admin controls visibility separately.
           isOnline: false,
           consultationStatus: 'offline',
           fcmTokens: [],
