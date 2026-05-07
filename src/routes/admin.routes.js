@@ -117,6 +117,128 @@ router.post('/fix-user-roles', adminController.fixUserRoles);
 router.get('/reports-blocks', adminController.getReportsAndBlocks);
 router.put('/reports/:userId/:reportId/status', adminController.updateReportStatus);
 
+// ── Admin Add Money to User/Guest Wallet ─────────────────────────────────────
+router.post('/users/:id/add-wallet', async (req, res, next) => {
+  try {
+    const User = require('../models/User.model');
+    const Guest = require('../models/Guest.model');
+    const { Transaction } = require('../models');
+    const { createNotification } = require('../utils/notifications');
+    const { id } = req.params;
+    const { amount, reason, customReason, userType = 'user' } = req.body;
+
+    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+    }
+    if (!reason) {
+      return res.status(400).json({ success: false, message: 'Reason is required' });
+    }
+
+    const creditAmount = Math.round(parseFloat(amount) * 100) / 100;
+    const description = customReason
+      ? `${reason}: ${customReason}`
+      : reason;
+
+    let targetUser, previousBalance, newBalance, userName;
+
+    if (userType === 'guest') {
+      targetUser = await Guest.findById(id);
+      if (!targetUser) return res.status(404).json({ success: false, message: 'Guest not found' });
+
+      previousBalance = targetUser.wallet || 0;
+      newBalance = Math.round((previousBalance + creditAmount) * 100) / 100;
+      targetUser.wallet = newBalance;
+      await targetUser.save();
+      userName = targetUser.name;
+
+      // Transaction for guest
+      await Transaction.create({
+        user: targetUser._id,
+        userType: 'Guest',
+        type: 'credit',
+        category: 'adjustment',
+        amount: creditAmount,
+        balance: newBalance,
+        description: `Admin Credit — ${description}`,
+        status: 'completed',
+        processedBy: req.user._id,
+        processedAt: new Date(),
+        metadata: {
+          previousBalance,
+          newBalance,
+          adminNote: description,
+          adminId: req.user._id.toString(),
+        },
+      });
+
+      // Push notification for guest
+      await createNotification({
+        userId: targetUser._id.toString(),
+        userType: 'guest',
+        title: '💰 Wallet Credited',
+        message: `Rs.${creditAmount} has been added to your wallet. Reason: ${description}`,
+        type: 'wallet',
+        data: { amount: creditAmount, reason: description, newBalance },
+        io: req.io,
+      }).catch(() => {});
+
+    } else {
+      targetUser = await User.findById(id);
+      if (!targetUser) return res.status(404).json({ success: false, message: 'User not found' });
+
+      previousBalance = targetUser.wallet || 0;
+      newBalance = Math.round((previousBalance + creditAmount) * 100) / 100;
+      targetUser.wallet = newBalance;
+      await targetUser.save();
+      userName = targetUser.fullName;
+
+      // Transaction for user
+      await Transaction.create({
+        user: targetUser._id,
+        userType: 'User',
+        type: 'credit',
+        category: 'adjustment',
+        amount: creditAmount,
+        balance: newBalance,
+        description: `Admin Credit — ${description}`,
+        status: 'completed',
+        processedBy: req.user._id,
+        processedAt: new Date(),
+        metadata: {
+          previousBalance,
+          newBalance,
+          adminNote: description,
+          adminId: req.user._id.toString(),
+        },
+      });
+
+      // Push notification for user
+      await createNotification({
+        userId: targetUser._id.toString(),
+        userType: 'user',
+        title: '💰 Wallet Credited',
+        message: `Rs.${creditAmount} has been added to your wallet. Reason: ${description}`,
+        type: 'wallet',
+        data: { amount: creditAmount, reason: description, newBalance },
+        io: req.io,
+      }).catch(() => {});
+
+      // Real-time socket event
+      if (req.io) {
+        req.io.to(`user:${id}`).emit('wallet:updated', { newBalance, amount: creditAmount, reason: description });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Rs.${creditAmount} added to ${userName}'s wallet successfully`,
+      data: { previousBalance, newBalance, amountAdded: creditAmount, description },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ── User Full Details (for admin user detail page) ────────────────────────────
 router.get('/users/:id/details', async (req, res, next) => {
   try {
@@ -157,6 +279,45 @@ router.get('/users/:id/details', async (req, res, next) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    // ── Manually populate Guest callers (populate() only works for User refs) ──
+    const Guest = require('../models/Guest.model');
+    const guestIds = providerConsultations
+      .filter(c => c.userType === 'Guest' && c.user)
+      .map(c => c.user.toString());
+    const uniqueGuestIds = [...new Set(guestIds)];
+    const guests = uniqueGuestIds.length > 0
+      ? await Guest.find({ _id: { $in: uniqueGuestIds } }).select('name mobile').lean()
+      : [];
+    const guestMap = {};
+    guests.forEach(g => { guestMap[g._id.toString()] = g; });
+
+    // Normalize: if user is null (populate failed) and userType is Guest, inject guest data
+    const normalizedProviderConsultations = providerConsultations.map(c => {
+      if (c.userType === 'Guest' && c.user) {
+        const guestId = c.user._id ? c.user._id.toString() : c.user.toString();
+        const guest = guestMap[guestId];
+        if (guest) {
+          return {
+            ...c,
+            user: {
+              _id: guest._id,
+              fullName: guest.name,   // Guest uses 'name' not 'fullName'
+              profilePhoto: null,
+              isGuest: true,
+              mobile: guest.mobile,
+            }
+          };
+        }
+        // Guest not found — show mobile if available
+        return { ...c, user: { _id: c.user, fullName: 'Guest User', profilePhoto: null, isGuest: true } };
+      }
+      // Regular user — if populate worked, user.fullName exists; if not, show fallback
+      if (!c.user || !c.user.fullName) {
+        return { ...c, user: { _id: c.user, fullName: 'Deleted User', profilePhoto: null } };
+      }
+      return c;
+    });
+
     // ── Transactions ──────────────────────────────────────────────────────────
     const txQuery = { user: id };
     if (hasDateFilter) txQuery.createdAt = dateFilter;
@@ -166,7 +327,7 @@ router.get('/users/:id/details', async (req, res, next) => {
 
     // ── Aggregated stats ──────────────────────────────────────────────────────
     const completedAsClient = clientConsultations.filter(c => c.status === 'completed');
-    const completedAsProvider = providerConsultations.filter(c => c.status === 'completed');
+    const completedAsProvider = normalizedProviderConsultations.filter(c => c.status === 'completed');
 
     const totalSpentOnCalls = completedAsClient.reduce((s, c) => s + (c.totalAmount || 0), 0);
     const totalEarnedFromCalls = completedAsProvider.reduce((s, c) => s + (c.totalAmount || 0) * 0.9, 0);
@@ -191,7 +352,7 @@ router.get('/users/:id/details', async (req, res, next) => {
           totalSpentOnCalls: Math.round(totalSpentOnCalls * 100) / 100,
           totalCallDurationAsClient, // in minutes
           // As provider
-          totalCallsReceived: providerConsultations.length,
+          totalCallsReceived: normalizedProviderConsultations.length,
           completedCallsReceived: completedAsProvider.length,
           totalEarnedFromCalls: Math.round(totalEarnedFromCalls * 100) / 100,
           totalCallDurationAsProvider, // in minutes
@@ -203,7 +364,7 @@ router.get('/users/:id/details', async (req, res, next) => {
           totalSpent: user.totalSpent || 0,
         },
         consultationsAsClient: clientConsultations,
-        consultationsAsProvider: providerConsultations,
+        consultationsAsProvider: normalizedProviderConsultations,
         transactions,
       },
     });
@@ -212,7 +373,160 @@ router.get('/users/:id/details', async (req, res, next) => {
   }
 });
 
-// ── Broadcast Notifications ───────────────────────────────────────────────────
+// ── Admin: Add Money to User/Provider Wallet ─────────────────────────────────
+router.post('/users/:id/add-money', async (req, res, next) => {
+  try {
+    const User = require('../models/User.model');
+    const { Transaction } = require('../models');
+    const { createNotification } = require('../utils/notifications');
+    const { id } = req.params;
+    const { amount, reason, customReason } = req.body;
+
+    if (!amount || parseFloat(amount) <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+    }
+
+    const PRESET_REASONS = [
+      'Refund',
+      'Promotional Offer',
+      'Bonus',
+      'Compensation',
+      'Cashback',
+      'Welcome Bonus',
+      'Referral Bonus',
+      'Contest Prize',
+      'Manual Adjustment',
+    ];
+
+    const finalReason = reason === 'Other' ? (customReason || 'Admin Credit') : (reason || 'Admin Credit');
+    if (reason && reason !== 'Other' && !PRESET_REASONS.includes(reason)) {
+      return res.status(400).json({ success: false, message: 'Invalid reason' });
+    }
+
+    const user = await User.findById(id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const parsedAmount = parseFloat(parseFloat(amount).toFixed(2));
+    const previousBalance = user.wallet || 0;
+    const newBalance = parseFloat((previousBalance + parsedAmount).toFixed(2));
+
+    // Update wallet
+    await User.findByIdAndUpdate(id, { wallet: newBalance });
+
+    // Create transaction record
+    const transaction = new Transaction({
+      user: user._id,
+      userType: 'User',
+      type: 'credit',
+      category: 'adjustment',
+      amount: parsedAmount,
+      balance: newBalance,
+      description: `Admin Credit: ${finalReason}`,
+      status: 'completed',
+      processedBy: req.user._id,
+      processedAt: new Date(),
+      metadata: {
+        previousBalance,
+        newBalance,
+        adminId: req.user._id,
+        reason: finalReason,
+      },
+    });
+    await transaction.save();
+
+    // Send notification
+    try {
+      await createNotification({
+        userId: user._id.toString(),
+        userType: 'user',
+        title: '💰 Wallet Credited',
+        message: `Rs.${parsedAmount.toFixed(2)} has been added to your wallet. Reason: ${finalReason}`,
+        type: 'wallet',
+        data: { amount: parsedAmount, reason: finalReason, newBalance },
+        io: req.io,
+      });
+    } catch (notifErr) {
+      console.error('Notification error (non-fatal):', notifErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Rs.${parsedAmount} added to ${user.fullName}'s wallet`,
+      data: { previousBalance, newBalance, amountAdded: parsedAmount, transaction },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Admin: Add Money to Guest Wallet ─────────────────────────────────────────
+router.post('/guests/:id/add-money-v2', async (req, res, next) => {
+  try {
+    const Guest = require('../models/Guest.model');
+    const { Transaction } = require('../models');
+    const { createNotification } = require('../utils/notifications');
+    const { id } = req.params;
+    const { amount, reason, customReason } = req.body;
+
+    if (!amount || parseFloat(amount) <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+    }
+
+    const finalReason = reason === 'Other' ? (customReason || 'Admin Credit') : (reason || 'Admin Credit');
+
+    const guest = await Guest.findById(id);
+    if (!guest) return res.status(404).json({ success: false, message: 'Guest not found' });
+
+    const parsedAmount = parseFloat(parseFloat(amount).toFixed(2));
+    const previousBalance = guest.wallet || 0;
+    const newBalance = parseFloat((previousBalance + parsedAmount).toFixed(2));
+
+    await Guest.findByIdAndUpdate(id, { wallet: newBalance });
+
+    const transaction = new Transaction({
+      user: guest._id,
+      userType: 'Guest',
+      type: 'credit',
+      category: 'adjustment',
+      amount: parsedAmount,
+      balance: newBalance,
+      description: `Admin Credit: ${finalReason}`,
+      status: 'completed',
+      processedBy: req.user._id,
+      processedAt: new Date(),
+      metadata: {
+        previousBalance,
+        newBalance,
+        adminId: req.user._id,
+        reason: finalReason,
+      },
+    });
+    await transaction.save();
+
+    // Send push notification to guest
+    try {
+      await createNotification({
+        userId: guest._id.toString(),
+        userType: 'guest',
+        title: '💰 Wallet Credited',
+        message: `Rs.${parsedAmount.toFixed(2)} has been added to your wallet. Reason: ${finalReason}`,
+        type: 'wallet',
+        data: { amount: parsedAmount, reason: finalReason, newBalance },
+        io: req.io,
+      });
+    } catch (notifErr) {
+      console.error('Notification error (non-fatal):', notifErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Rs.${parsedAmount} added to ${guest.name}'s wallet`,
+      data: { previousBalance, newBalance, amountAdded: parsedAmount, transaction },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 router.get('/broadcast-notification/stats', broadcastController.getBroadcastStats);
 router.post('/broadcast-notification', broadcastController.sendBroadcastNotification);
 
