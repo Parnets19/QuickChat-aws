@@ -505,6 +505,32 @@ const adminReply = async (req, res, next) => {
       });
     }
 
+    // ── Send push notification to the user if they are logged in ─────────────
+    if (chat.user) {
+      try {
+        const { createNotification } = require('../utils/notifications');
+        const preview = message.trim().length > 80
+          ? message.trim().substring(0, 80) + '…'
+          : message.trim();
+
+        await createNotification({
+          userId: chat.user.toString(),
+          userType: 'user',
+          title: '💬 Support Team Replied',
+          message: `Our support team has replied: "${preview}"`,
+          type: 'admin',
+          data: {
+            action: 'support_reply',
+            chatId: chatId.toString(),
+          },
+          io,
+        });
+      } catch (notifError) {
+        console.error('⚠️ Failed to send support reply notification:', notifError.message);
+        // Non-critical — don't fail the request
+      }
+    }
+
     res.status(200).json({ success: true, data: chat.messages[chat.messages.length - 1] });
   } catch (error) {
     next(error);

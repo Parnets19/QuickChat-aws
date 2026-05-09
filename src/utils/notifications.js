@@ -199,7 +199,8 @@ const sendVerificationNotification = async (userId, status, notes = '', io = nul
     data: {
       verificationStatus: status === 'correction_requested' ? 'pending' : status,
       correctionRequested: isCorrectionRequested,
-      notes: notes || ''
+      notes: notes || '',
+      action: isCorrectionRequested ? 'kyc_correction' : 'kyc_result',
     },
     io
   });
