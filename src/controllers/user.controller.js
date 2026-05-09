@@ -1377,7 +1377,8 @@ const reactivateAccount = async (req, res, next) => {
       {
         $set: {
           status: 'active',
-          isProfileHidden: false,
+          // NOTE: isProfileHidden is intentionally NOT reset here.
+          // The user may have hidden their profile before deactivating — preserve that choice.
           deactivatedAt: null,
           reactivatedAt: new Date(),
         },
