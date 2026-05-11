@@ -586,6 +586,32 @@ const getDashboard = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .limit(5);
 
+      // Enrich with Guest names when populate returns null (Mixed type field)
+      const Guest = require('../models/Guest.model');
+      const guestIds = providerConsultations
+        .filter(c => c.userType === 'Guest' && c.user && !c.user?.fullName)
+        .map(c => c.user.toString());
+      const uniqueGuestIds = [...new Set(guestIds)];
+      const guests = uniqueGuestIds.length > 0
+        ? await Guest.find({ _id: { $in: uniqueGuestIds } }).select('name mobile').lean()
+        : [];
+      const guestMap = {};
+      guests.forEach(g => { guestMap[g._id.toString()] = g; });
+
+      const enrichedProviderConsultations = providerConsultations.map(c => {
+        const plain = c.toObject ? c.toObject() : c;
+        if (plain.userType === 'Guest' && plain.user && !plain.user?.fullName) {
+          const guestId = plain.user.toString();
+          const guest = guestMap[guestId];
+          if (guest) {
+            plain.user = { _id: guest._id, fullName: guest.name, profilePhoto: null, isGuest: true };
+          } else {
+            plain.user = { _id: plain.user, fullName: 'Guest User', profilePhoto: null, isGuest: true };
+          }
+        }
+        return plain;
+      });
+
       const pendingWithdrawals = await Transaction.aggregate([
         { $match: { user: userId, type: "withdrawal", status: "pending" } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -594,7 +620,7 @@ const getDashboard = async (req, res, next) => {
       const profileViews = req.user?.profileViews || 0;
 
       providerStats = {
-        providerConsultations,
+        providerConsultations: enrichedProviderConsultations,
         pendingWithdrawals: pendingWithdrawals[0]?.total || 0,
         profileViews,
         monthlyEarnings: req.user?.monthlyEarnings || 0,
