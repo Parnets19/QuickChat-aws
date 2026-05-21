@@ -1078,6 +1078,30 @@ const initializeSocket = (io) => {
     socket.on("webrtc:ice-candidate", handleWebRTCIceCandidate); // Mobile format
     socket.on("ice-candidate", handleWebRTCIceCandidate); // Web format
 
+    // BILLING SAFETY: Record the exact moment WebRTC actually connected.
+    // This is used as the TRUE billing start time in endConsultation.
+    // If this event never arrives (call failed to connect), webrtcConnectedAt
+    // stays null and endConsultation charges nothing — protecting the client.
+    socket.on("webrtc:connected", async (data) => {
+      try {
+        const { consultationId, connectedAt } = data;
+        if (!consultationId) return;
+
+        const Consultation = require('../models/Consultation.model');
+        const consultation = await Consultation.findById(consultationId);
+        if (!consultation) return;
+
+        // Only set once — don't overwrite if already set
+        if (!consultation.webrtcConnectedAt) {
+          consultation.webrtcConnectedAt = connectedAt ? new Date(connectedAt) : new Date();
+          await consultation.save();
+          console.log(`✅ BILLING: webrtcConnectedAt recorded for ${consultationId}:`, consultation.webrtcConnectedAt);
+        }
+      } catch (err) {
+        console.error('❌ Error recording webrtcConnectedAt:', err?.message);
+      }
+    });
+
     // CRITICAL FIX: Handle ready-to-receive signal from answerer
     socket.on("webrtc:ready-to-receive", (data) => {
       try {

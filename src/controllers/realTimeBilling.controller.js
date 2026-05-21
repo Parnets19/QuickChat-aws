@@ -750,6 +750,32 @@ const processRealTimeBilling = async (req, res) => {
       });
     }
 
+    // BILLING SAFETY GUARD: Do NOT process per-minute billing if WebRTC
+    // has not confirmed connected. This prevents charging for calls where
+    // both sides accepted but the media connection never established.
+    if (!consultation.webrtcConnectedAt) {
+      console.log(`⚠️ BILLING BLOCKED — webrtcConnectedAt not set for ${consultationId}. WebRTC not confirmed connected yet.`);
+      return res.json({
+        success: true,
+        message: "Billing paused — waiting for WebRTC connection confirmation",
+        data: {
+          consultationId,
+          billingBlocked: true,
+          reason: "webrtc_not_connected",
+        },
+      });
+    }
+
+    // BILLING SAFETY GUARD: Explicit billingStarted check
+    if (!consultation.billingStarted) {
+      console.log(`⚠️ BILLING BLOCKED — billingStarted is false for ${consultationId}`);
+      return res.json({
+        success: true,
+        message: "Billing not started yet",
+        data: { consultationId, billingBlocked: true },
+      });
+    }
+
     console.log("📋 CONSULTATION DETAILS:", {
       id: consultation._id,
       client: consultation.user,
@@ -1324,9 +1350,27 @@ const endConsultation = async (req, res) => {
     let finalAmount = 0;
 
     if (consultation.bothSidesAcceptedAt && consultation.billingStarted) {
+      // BILLING SAFETY: Use webrtcConnectedAt if available — this is the moment
+      // WebRTC actually established a media connection. If it's not set, it means
+      // WebRTC never connected (call failed) and we should NOT charge the client.
+      const billingStartTime = consultation.webrtcConnectedAt || null;
+
+      if (!billingStartTime) {
+        console.log(
+          `⚠️ NO WEBRTC CONNECTION RECORDED for ${consultationId} — NO CHARGE APPLIED`,
+          {
+            bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+            webrtcConnectedAt: consultation.webrtcConnectedAt,
+            reason: "WebRTC never confirmed connected — protecting client from ghost charge",
+          }
+        );
+        finalDuration = 0;
+        finalAmount = 0;
+        consultation.endReason = consultation.endReason || "no_webrtc_connection";
+      } else {
       // Calculate EXACT duration in seconds first
       const durationInSeconds = Math.floor(
-        (consultation.endTime - consultation.bothSidesAcceptedAt) / 1000
+        (consultation.endTime - billingStartTime) / 1000
       );
 
       console.log("⏱️ DURATION CALCULATION:", {
@@ -1388,6 +1432,7 @@ const endConsultation = async (req, res) => {
         calculation: `${billableMinutes} minutes × ₹${ratePerMinute} = ₹${finalAmount}`,
       });
       } // end else (durationInSeconds >= MINIMUM_BILLABLE_SECONDS)
+      } // end else (billingStartTime exists — WebRTC confirmed connected)
     } else {
       console.log(
         "⚠️ No billing occurred - consultation ended before both sides accepted"
