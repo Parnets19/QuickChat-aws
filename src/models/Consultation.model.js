@@ -66,6 +66,11 @@ const ConsultationSchema = new mongoose.Schema(
     clientAcceptedAt: Date,
     providerAcceptedAt: Date,
     bothSidesAcceptedAt: Date, // When both sides have accepted - this is when billing starts
+    // WebRTC connection tracking - used for billing safety
+    webrtcConnectedAt: {
+      type: Date,
+      default: null,
+    },
     endReason: {
       type: String,
       enum: [
@@ -74,6 +79,9 @@ const ConsultationSchema = new mongoose.Schema(
         "provider_ended",
         "system_error",
         "no_answer",
+        "no_webrtc_connection",
+        "wallet_exhausted",
+        "timeout_no_answer",
       ],
       default: "manual",
     },
