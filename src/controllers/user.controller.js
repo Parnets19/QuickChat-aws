@@ -49,6 +49,12 @@ const getUserProfile = async (req, res, next) => {
       return next(new AppError("This provider's profile is not yet available", 404));
     }
 
+    // Increment profile views (don't count self-views)
+    const viewerId = req.user?._id?.toString();
+    if (user.isServiceProvider && viewerId !== req.params.id) {
+      User.findByIdAndUpdate(req.params.id, { $inc: { profileViews: 1 } }).catch(() => {});
+    }
+
     res.status(200).json({
       success: true,
       data: user,
