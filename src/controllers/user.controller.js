@@ -679,13 +679,39 @@ const getDashboard = async (req, res, next) => {
     ]);
 
     // Get consultations where user was the client (spent money)
-    const clientConsultations = await Consultation.find({
+    const clientConsultationsRaw = await Consultation.find({
       user: userIdString, // Use string format since database stores as strings
       status: "completed",
     })
       .populate("provider", "fullName profilePhoto")
       .sort({ createdAt: -1 })
       .limit(5);
+
+    // Enrich provider names if populate failed (provider stored as ObjectId should always work, but just in case)
+    const providerIdsToEnrich = clientConsultationsRaw
+      .filter(c => c.provider && typeof c.provider !== 'object')
+      .map(c => c.provider.toString());
+    const uniqueProviderIds = [...new Set(providerIdsToEnrich)];
+    const providerLookup = uniqueProviderIds.length > 0
+      ? await User.find({ _id: { $in: uniqueProviderIds } }).select('fullName profilePhoto').lean()
+      : [];
+    const providerMap = {};
+    providerLookup.forEach(p => { providerMap[p._id.toString()] = p; });
+
+    const clientConsultations = clientConsultationsRaw.map(c => {
+      const plain = c.toObject ? c.toObject() : c;
+      // If provider is already populated with fullName, keep it
+      if (plain.provider && typeof plain.provider === 'object' && plain.provider.fullName) {
+        return plain;
+      }
+      // Otherwise enrich
+      const provIdStr = (plain.provider?._id || plain.provider || '').toString();
+      const prov = providerMap[provIdStr];
+      if (prov) {
+        plain.provider = { _id: prov._id, fullName: prov.fullName, profilePhoto: prov.profilePhoto };
+      }
+      return plain;
+    });
 
     const userStats = {
       userActivity,
