@@ -263,9 +263,47 @@ const sendProfileVisibilityNotification = async (userId, isHidden, io = null) =>
   });
 };
 
+/**
+ * Create an admin panel notification (shown in admin bell icon)
+ */
+const createAdminNotification = async (options) => {
+  try {
+    const AdminNotification = require('../models/AdminNotification.model');
+    const { title, message, type, data = {}, triggeredBy, affectedUser, io } = options;
+
+    const notification = await AdminNotification.create({
+      title,
+      message,
+      type,
+      data,
+      triggeredBy,
+      affectedUser,
+    });
+
+    // Emit to admin socket room for real-time updates
+    if (io) {
+      io.to('admin_room').emit('admin:notification', {
+        _id: notification._id,
+        title,
+        message,
+        type,
+        data,
+        isRead: false,
+        createdAt: notification.createdAt,
+      });
+    }
+
+    console.log(`🔔 Admin notification created: ${type} - ${title}`);
+    return notification;
+  } catch (error) {
+    console.error('Error creating admin notification:', error);
+  }
+};
+
 module.exports = {
   createNotification,
   sendVerificationNotification,
   sendStatusChangeNotification,
-  sendProfileVisibilityNotification
+  sendProfileVisibilityNotification,
+  createAdminNotification,
 };

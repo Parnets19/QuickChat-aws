@@ -17,6 +17,7 @@ const WithdrawalRequest = require('./Withdrawal.model');
 const Chat = require('./Chat');
 const ChatMessage = require('./ChatMessage');
 const Report = require('./Report.model');
+const AdminNotification = require('./AdminNotification.model');
 
 module.exports = {
   User,
@@ -38,5 +39,6 @@ module.exports = {
   Chat,
   ChatMessage,
   Report,
+  AdminNotification,
 };
 

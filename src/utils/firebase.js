@@ -143,10 +143,12 @@ const sendPushNotification = async (notification) => {
       
       console.log('💬 Chat message notification configured');
     } else {
-      // For other notifications
+      // For other notifications — show full body text in expanded view
       message.android.notification = {
         channelId: 'default',
         sound: 'default',
+        // Android BigTextStyle: shows full message when notification is expanded
+        body: notification.body,
       };
     }
 
@@ -264,6 +266,16 @@ const sendMulticastNotification = async (notification) => {
         },
       };
       console.log('💬 Multicast chat message notification configured');
+    } else {
+      // For broadcast/general notifications — show full body in expanded view
+      message.android = {
+        priority: 'high',
+        notification: {
+          channelId: 'default',
+          sound: 'default',
+          body: notification.body, // Full body for BigTextStyle
+        },
+      };
     }
 
     const response = await admin.messaging().sendEachForMulticast(message);

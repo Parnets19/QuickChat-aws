@@ -226,6 +226,28 @@ const updateProviderStatus = async (req, res) => {
     // Send notification to provider about status change
     try {
       await sendStatusChangeNotification(provider._id, status, req.io);
+      
+      // Create admin panel notification
+      const { createAdminNotification } = require('../utils/notifications');
+      if (status === 'suspended') {
+        await createAdminNotification({
+          title: 'Account Suspended',
+          message: `${provider.fullName}'s account has been suspended by admin.`,
+          type: 'account_suspended',
+          triggeredBy: req.user._id,
+          affectedUser: provider._id,
+          io: req.io,
+        });
+      } else if (status === 'inactive') {
+        await createAdminNotification({
+          title: 'Account Deactivated',
+          message: `${provider.fullName}'s account has been deactivated by admin.`,
+          type: 'account_deactivated',
+          triggeredBy: req.user._id,
+          affectedUser: provider._id,
+          io: req.io,
+        });
+      }
     } catch (notificationError) {
       console.error('Error sending status change notification:', notificationError);
       // Don't fail the request if notification fails

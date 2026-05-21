@@ -2238,6 +2238,14 @@ const initializeSocket = (io) => {
         console.log(`🛡️ Admin ${socket.data.userId} joined admin_support room`);
       }
     });
+
+    // Admin joins notification room
+    socket.on("join:admin_room", () => {
+      if (socket.data.user?.role === 'admin' || socket.data.user?.isAdmin) {
+        socket.join('admin_room');
+        console.log(`🔔 Admin ${socket.data.userId} joined admin_room for notifications`);
+      }
+    });
     // ===== END SUPPORT CHAT ROOM HANDLERS =====
 
     // Handle disconnect

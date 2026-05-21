@@ -598,15 +598,36 @@ const getDashboard = async (req, res, next) => {
       const guestMap = {};
       guests.forEach(g => { guestMap[g._id.toString()] = g; });
 
+      // Enrich with regular User names when populate fails (user stored as string)
+      const regularUserIds = providerConsultations
+        .filter(c => c.userType !== 'Guest' && c.user && !c.user?.fullName)
+        .map(c => typeof c.user === 'string' ? c.user : c.user.toString());
+      const uniqueRegularUserIds = [...new Set(regularUserIds)];
+      const regularUsers = uniqueRegularUserIds.length > 0
+        ? await User.find({ _id: { $in: uniqueRegularUserIds } }).select('fullName profilePhoto').lean()
+        : [];
+      const regularUserMap = {};
+      regularUsers.forEach(u => { regularUserMap[u._id.toString()] = u; });
+
       const enrichedProviderConsultations = providerConsultations.map(c => {
         const plain = c.toObject ? c.toObject() : c;
-        if (plain.userType === 'Guest' && plain.user && !plain.user?.fullName) {
-          const guestId = plain.user.toString();
-          const guest = guestMap[guestId];
-          if (guest) {
-            plain.user = { _id: guest._id, fullName: guest.name, profilePhoto: null, isGuest: true };
+        // If user field is a string (not populated), or populate returned null
+        if (plain.user && !plain.user?.fullName) {
+          if (plain.userType === 'Guest') {
+            const guestId = plain.user.toString();
+            const guest = guestMap[guestId];
+            if (guest) {
+              plain.user = { _id: guest._id, fullName: guest.name, profilePhoto: null, isGuest: true };
+            } else {
+              plain.user = { _id: plain.user, fullName: 'Guest User', profilePhoto: null, isGuest: true };
+            }
           } else {
-            plain.user = { _id: plain.user, fullName: 'Guest User', profilePhoto: null, isGuest: true };
+            // Regular user stored as string — populate failed, look up manually
+            const userIdStr = typeof plain.user === 'string' ? plain.user : plain.user._id?.toString() || plain.user.toString();
+            const regularUser = regularUserMap[userIdStr];
+            if (regularUser) {
+              plain.user = { _id: regularUser._id, fullName: regularUser.fullName, profilePhoto: regularUser.profilePhoto };
+            }
           }
         }
         return plain;
@@ -1384,6 +1405,17 @@ const deactivateAccount = async (req, res, next) => {
       req.io.to(`user:${userId}`).emit('account:deactivated');
     }
 
+    // Notify admin panel
+    const { createAdminNotification } = require('../utils/notifications');
+    await createAdminNotification({
+      title: 'User Deactivated Account',
+      message: `${user.fullName} has deactivated their account.`,
+      type: 'account_deactivated',
+      triggeredBy: userId,
+      affectedUser: userId,
+      io: req.io,
+    }).catch(() => {});
+
     res.status(200).json({
       success: true,
       message: 'Account deactivated successfully. Log in again to reactivate.',
@@ -1460,6 +1492,17 @@ const requestAccountDeletion = async (req, res, next) => {
         requestedAt: new Date(),
       });
     }
+
+    // Create admin notification
+    const { createAdminNotification } = require('../utils/notifications');
+    await createAdminNotification({
+      title: 'Account Deletion Request',
+      message: `${user.fullName} has requested account deletion.${reason ? ` Reason: ${reason}` : ''}`,
+      type: 'deletion_request',
+      triggeredBy: userId,
+      affectedUser: userId,
+      io: req.io,
+    }).catch(() => {});
 
     res.status(200).json({
       success: true,

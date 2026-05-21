@@ -82,6 +82,17 @@ router.delete('/users/:id', async (req, res, next) => {
       });
     }
 
+    // Create admin notification
+    const { createAdminNotification } = require('../utils/notifications');
+    await createAdminNotification({
+      title: 'Account Deleted',
+      message: `${user.fullName}'s account has been deleted by admin.`,
+      type: 'account_deleted',
+      triggeredBy: req.user._id,
+      affectedUser: id,
+      io: req.io,
+    }).catch(() => {});
+
     res.status(200).json({
       success: true,
       message: 'User account deleted and anonymized successfully',
@@ -579,6 +590,63 @@ router.post('/deletion-requests/:id/reject', async (req, res, next) => {
     await sendVerificationNotification(id, 'active', `Your account deletion request was rejected. ${reason || ''}`, req.io).catch(() => {});
 
     res.status(200).json({ success: true, message: 'Deletion request rejected. Account restored.' });
+  } catch (error) { next(error); }
+});
+
+// ── Admin Notifications ───────────────────────────────────────────────────────
+router.get('/notifications', async (req, res, next) => {
+  try {
+    const AdminNotification = require('../models/AdminNotification.model');
+    const { page = 1, limit = 20 } = req.query;
+
+    const notifications = await AdminNotification.find()
+      .populate('affectedUser', 'fullName email mobile profilePhoto')
+      .populate('triggeredBy', 'fullName email')
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit));
+
+    const total = await AdminNotification.countDocuments();
+    const unreadCount = await AdminNotification.countDocuments({ isRead: false });
+
+    res.status(200).json({
+      success: true,
+      data: notifications,
+      unreadCount,
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
+    });
+  } catch (error) { next(error); }
+});
+
+router.get('/notifications/unread-count', async (req, res, next) => {
+  try {
+    const AdminNotification = require('../models/AdminNotification.model');
+    const count = await AdminNotification.countDocuments({ isRead: false });
+    res.status(200).json({ success: true, data: { count } });
+  } catch (error) { next(error); }
+});
+
+router.put('/notifications/:id/read', async (req, res, next) => {
+  try {
+    const AdminNotification = require('../models/AdminNotification.model');
+    await AdminNotification.findByIdAndUpdate(req.params.id, { isRead: true });
+    res.status(200).json({ success: true, message: 'Marked as read' });
+  } catch (error) { next(error); }
+});
+
+router.put('/notifications/read-all', async (req, res, next) => {
+  try {
+    const AdminNotification = require('../models/AdminNotification.model');
+    await AdminNotification.updateMany({ isRead: false }, { isRead: true });
+    res.status(200).json({ success: true, message: 'All marked as read' });
+  } catch (error) { next(error); }
+});
+
+router.delete('/notifications/:id', async (req, res, next) => {
+  try {
+    const AdminNotification = require('../models/AdminNotification.model');
+    await AdminNotification.findByIdAndDelete(req.params.id);
+    res.status(200).json({ success: true, message: 'Notification deleted' });
   } catch (error) { next(error); }
 });
 
