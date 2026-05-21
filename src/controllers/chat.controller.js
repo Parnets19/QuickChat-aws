@@ -648,6 +648,9 @@ const getChatList = async (req, res, next) => {
             if (guest) {
               otherUserName = guest.name || "Guest User";
               otherUserAvatar = guest.profilePhoto || null;
+            } else {
+              // Guest not found (may have been deleted) — show friendly name
+              otherUserName = "Guest User";
             }
           } else {
             // Other user is a regular user/provider
@@ -663,6 +666,15 @@ const getChatList = async (req, res, next) => {
                 profilePhoto: user.profilePhoto,
                 avatarSet: otherUserAvatar,
               });
+            } else {
+              // User not found in User collection — try Guest collection as fallback
+              const guest = await Guest.findById(otherUserId);
+              if (guest) {
+                otherUserName = guest.name || "Guest User";
+                otherUserAvatar = guest.profilePhoto || null;
+              } else {
+                otherUserName = "Deleted User";
+              }
             }
           }
         } catch (error) {
