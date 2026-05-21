@@ -600,8 +600,15 @@ const getDashboard = async (req, res, next) => {
 
       // Enrich with regular User names when populate fails (user stored as string)
       const regularUserIds = providerConsultations
-        .filter(c => c.userType !== 'Guest' && c.user && !c.user?.fullName)
-        .map(c => typeof c.user === 'string' ? c.user : c.user.toString());
+        .filter(c => {
+          // If user is already populated (has fullName), skip
+          if (c.user && typeof c.user === 'object' && c.user.fullName) return false;
+          // If it's a guest, skip (handled above)
+          if (c.userType === 'Guest') return false;
+          // User field exists but wasn't populated
+          return !!c.user;
+        })
+        .map(c => typeof c.user === 'string' ? c.user : (c.user?._id || c.user).toString());
       const uniqueRegularUserIds = [...new Set(regularUserIds)];
       const regularUsers = uniqueRegularUserIds.length > 0
         ? await User.find({ _id: { $in: uniqueRegularUserIds } }).select('fullName profilePhoto').lean()
@@ -611,23 +618,23 @@ const getDashboard = async (req, res, next) => {
 
       const enrichedProviderConsultations = providerConsultations.map(c => {
         const plain = c.toObject ? c.toObject() : c;
-        // If user field is a string (not populated), or populate returned null
-        if (plain.user && !plain.user?.fullName) {
-          if (plain.userType === 'Guest') {
-            const guestId = plain.user.toString();
-            const guest = guestMap[guestId];
-            if (guest) {
-              plain.user = { _id: guest._id, fullName: guest.name, profilePhoto: null, isGuest: true };
-            } else {
-              plain.user = { _id: plain.user, fullName: 'Guest User', profilePhoto: null, isGuest: true };
-            }
+        // Check if user is already populated with fullName
+        if (plain.user && typeof plain.user === 'object' && plain.user.fullName) {
+          return plain; // Already has name, skip
+        }
+        // User needs enrichment
+        const userIdStr = typeof plain.user === 'string' ? plain.user : (plain.user?._id || plain.user || '').toString();
+        if (plain.userType === 'Guest') {
+          const guest = guestMap[userIdStr];
+          if (guest) {
+            plain.user = { _id: guest._id, fullName: guest.name, profilePhoto: null, isGuest: true };
           } else {
-            // Regular user stored as string — populate failed, look up manually
-            const userIdStr = typeof plain.user === 'string' ? plain.user : plain.user._id?.toString() || plain.user.toString();
-            const regularUser = regularUserMap[userIdStr];
-            if (regularUser) {
-              plain.user = { _id: regularUser._id, fullName: regularUser.fullName, profilePhoto: regularUser.profilePhoto };
-            }
+            plain.user = { _id: userIdStr, fullName: 'Guest User', profilePhoto: null, isGuest: true };
+          }
+        } else if (userIdStr) {
+          const regularUser = regularUserMap[userIdStr];
+          if (regularUser) {
+            plain.user = { _id: regularUser._id, fullName: regularUser.fullName, profilePhoto: regularUser.profilePhoto };
           }
         }
         return plain;
