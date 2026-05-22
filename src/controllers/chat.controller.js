@@ -208,9 +208,10 @@ const sendMessage = async (req, res, next) => {
       const receiverInRoom = receiverRoom && receiverRoom.size > 1; // More than just sender
       
       if (receiverInRoom) {
-        console.log(`📨 CHAT CONTROLLER: Receiver is in room, progressing status: sent → delivered → read`);
+        console.log(`📨 CHAT CONTROLLER: Receiver is in room, marking as delivered`);
         
-        // Step 1: Update to 'delivered' immediately (double tick)
+        // Only mark as 'delivered' (double tick) — NOT 'read'
+        // 'read' (blue tick) should only happen when client explicitly sends chat:markAsRead
         chatMessage.status = 'delivered';
         await chatMessage.save();
         
@@ -221,20 +222,6 @@ const sendMessage = async (req, res, next) => {
           });
           console.log(`✅ CHAT CONTROLLER: Message status updated to delivered (double tick)`);
         }, 100);
-        
-        // Step 2: Update to 'read' after a short delay (blue tick)
-        // Since receiver is actively viewing the chat, mark as read immediately
-        setTimeout(async () => {
-          chatMessage.status = 'read';
-          chatMessage.readAt = new Date();
-          await chatMessage.save();
-          
-          io.to(roomName).emit("consultation:messageStatus", {
-            messageId: chatMessage._id,
-            status: "read",
-          });
-          console.log(`✅ CHAT CONTROLLER: Message status updated to read (blue tick)`);
-        }, 500); // Small delay to show the progression
       } else {
         console.log(`📨 CHAT CONTROLLER: Receiver not in room, status remains 'sent' (single tick)`);
       }
