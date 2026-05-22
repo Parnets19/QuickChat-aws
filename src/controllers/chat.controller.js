@@ -696,6 +696,20 @@ const getChatList = async (req, res, next) => {
           unreadCount,
         });
 
+        // Get last message details (sender + status) for tick marks in chat list
+        let lastMessageSender = null;
+        let lastMessageStatus = 'sent';
+        try {
+          const lastMsg = await ChatMessage.findOne({ chat: chat._id })
+            .sort({ timestamp: -1 })
+            .select('sender status')
+            .lean();
+          if (lastMsg) {
+            lastMessageSender = lastMsg.sender?.toString() || null;
+            lastMessageStatus = lastMsg.status || 'sent';
+          }
+        } catch (e) {}
+
         return {
           chatId: chat._id,
           otherUser: {
@@ -706,6 +720,8 @@ const getChatList = async (req, res, next) => {
           },
           lastMessage: chat.lastMessage || "",
           lastMessageTime: chat.lastMessageTime || new Date(),
+          lastMessageSender,
+          lastMessageStatus,
           status: chat.status || "active",
           unreadCount: unreadCount,
           hasUnreadMessages: unreadCount > 0,
