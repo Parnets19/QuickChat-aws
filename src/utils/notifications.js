@@ -23,6 +23,7 @@ const createNotification = async (options) => {
       type = 'system',
       data = {},
       sendPush = true,
+      saveToDatabase = true,
       io
     } = options;
 
@@ -32,12 +33,13 @@ const createNotification = async (options) => {
       title,
       message: message.substring(0, 50),
       type,
-      sendPush
+      sendPush,
+      saveToDatabase
     });
 
-    // Create notification in database (only for users, not guests/admins for now)
+    // Create notification in database (skip for chat messages — they belong in chat list only)
     let notification;
-    if (userType === 'user') {
+    if (saveToDatabase && userType === 'user') {
       notification = new Notification({
         user: userId,
         title,

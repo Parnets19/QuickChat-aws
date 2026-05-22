@@ -273,7 +273,7 @@ const notificationTemplates = {
   },
 
   // Custom notification
-  custom: async (userId, userType, title, message, type = 'system', data = {}, io) => {
+  custom: async (userId, userType, title, message, type = 'system', data = {}, io, options = {}) => {
     return await createNotification({
       userId,
       userType,
@@ -281,6 +281,7 @@ const notificationTemplates = {
       message,
       type,
       data,
+      saveToDatabase: options.saveToDatabase !== undefined ? options.saveToDatabase : true,
       io
     });
   }

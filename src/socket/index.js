@@ -512,7 +512,7 @@ const initializeSocket = (io) => {
             consultationId: data.consultationId
           });
           
-          // Send custom notification for chat message
+          // Send custom notification for chat message (push only, don't save to notifications DB)
           await notificationTemplates.custom(
             otherUserId,
             userType,
@@ -526,7 +526,8 @@ const initializeSocket = (io) => {
               messageType: data.type || 'text',
               action: 'new_message'
             },
-            io
+            io,
+            { saveToDatabase: false }
           );
           console.log(`✅ Push notification sent to user ${otherUserId}`);
         } catch (notifError) {

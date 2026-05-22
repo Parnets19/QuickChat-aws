@@ -359,7 +359,7 @@ const sendMessage = async (req, res, next) => {
             chatId: chat._id
           });
           
-          // Send custom notification for chat message
+          // Send custom notification for chat message (push only, don't save to notifications DB)
           await notificationTemplates.custom(
             receiverIdString,
             receiverType,
@@ -374,7 +374,8 @@ const sendMessage = async (req, res, next) => {
               messageType: 'text',
               action: 'new_message'
             },
-            io
+            io,
+            { saveToDatabase: false }
           );
           console.log(`✅ Firebase push notification sent to user ${receiverIdString}`);
         } catch (notifError) {
@@ -849,6 +850,28 @@ const markMessagesAsRead = async (req, res, next) => {
             readBy: userId,
           });
         });
+      }
+
+      // ENHANCED: Delete chat notifications from Notification collection
+      // so they don't show in the notifications screen anymore
+      try {
+        const Notification = require('../models/Notification.model');
+        await Notification.deleteMany({
+          user: userId,
+          type: 'consultation',
+          'data.action': 'new_message',
+          'data.chatId': consultationId,
+        });
+        // Also try with consultationId in data
+        await Notification.deleteMany({
+          user: userId,
+          type: 'consultation',
+          'data.action': 'new_message',
+          'data.consultationId': consultationId,
+        });
+        console.log('🗑️ Chat notifications auto-removed for user:', userId, 'chat:', consultationId);
+      } catch (notifErr) {
+        console.error('⚠️ Failed to auto-remove chat notifications:', notifErr.message);
       }
 
       // ENHANCED: Clear notifications for the user who read the messages

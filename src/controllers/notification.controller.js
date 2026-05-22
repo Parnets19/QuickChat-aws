@@ -8,7 +8,11 @@ const getNotifications = async (req, res, next) => {
   try {
     const { page = 1, limit = 20, isRead } = req.query;
 
-    const query = { user: req.user?._id };
+    const query = {
+      user: req.user?._id,
+      // Exclude chat message notifications — they belong in Chat tab
+      'data.action': { $ne: 'new_message' },
+    };
     if (isRead !== undefined) {
       query.isRead = isRead === 'true';
     }
@@ -22,6 +26,7 @@ const getNotifications = async (req, res, next) => {
     const unreadCount = await Notification.countDocuments({
       user: req.user?._id,
       isRead: false,
+      'data.action': { $ne: 'new_message' },
     });
 
     res.status(200).json({
@@ -120,6 +125,8 @@ const getUnreadCount = async (req, res, next) => {
     const count = await Notification.countDocuments({
       user: req.user?._id,
       isRead: false,
+      // Exclude chat message notifications — they belong in Chat tab
+      'data.action': { $ne: 'new_message' },
     });
 
     res.status(200).json({
