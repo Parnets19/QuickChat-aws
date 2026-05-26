@@ -1455,23 +1455,40 @@ const endConsultation = async (req, res) => {
 
     if (consultation.bothSidesAcceptedAt && consultation.billingStarted) {
       // BILLING SAFETY: Use webrtcConnectedAt if available — this is the moment
-      // WebRTC actually established a media connection. If it's not set, it means
-      // WebRTC never connected (call failed) and we should NOT charge the client.
-      const billingStartTime = consultation.webrtcConnectedAt || null;
+      // WebRTC actually established a media connection.
+      // FALLBACK: If webrtcConnectedAt is missing but call lasted > 60s, use bothSidesAcceptedAt
+      // (the webrtc:connected event may have been lost due to network issues)
+      let billingStartTime = consultation.webrtcConnectedAt || null;
 
       if (!billingStartTime) {
-        console.log(
-          `⚠️ NO WEBRTC CONNECTION RECORDED for ${consultationId} — NO CHARGE APPLIED`,
-          {
-            bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
-            webrtcConnectedAt: consultation.webrtcConnectedAt,
-            reason: "WebRTC never confirmed connected — protecting client from ghost charge",
-          }
+        const callDurationFromAccept = Math.floor(
+          (consultation.endTime - consultation.bothSidesAcceptedAt) / 1000
         );
-        finalDuration = 0;
-        finalAmount = 0;
-        consultation.endReason = consultation.endReason || "no_webrtc_connection";
-      } else {
+        
+        // If call lasted more than 60 seconds without webrtcConnectedAt, it was clearly a real call
+        // Use bothSidesAcceptedAt as fallback billing start time
+        if (callDurationFromAccept > 60) {
+          console.log(
+            `⚠️ webrtcConnectedAt missing but call lasted ${callDurationFromAccept}s — using bothSidesAcceptedAt as fallback`
+          );
+          billingStartTime = consultation.bothSidesAcceptedAt;
+        } else {
+          console.log(
+            `⚠️ NO WEBRTC CONNECTION RECORDED for ${consultationId} — NO CHARGE APPLIED`,
+            {
+              bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+              webrtcConnectedAt: consultation.webrtcConnectedAt,
+              callDurationFromAccept,
+              reason: "WebRTC never confirmed connected and call too short — protecting client from ghost charge",
+            }
+          );
+          finalDuration = 0;
+          finalAmount = 0;
+          consultation.endReason = consultation.endReason || "no_webrtc_connection";
+        }
+      }
+      
+      if (billingStartTime) {
       // Calculate EXACT duration in seconds first
       const durationInSeconds = Math.floor(
         (consultation.endTime - billingStartTime) / 1000
