@@ -1685,6 +1685,59 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
     consultation.duration = finalDuration;
     consultation.totalAmount = finalAmount;
 
+    // CRITICAL FIX: Actually process the payment (charge what user can afford)
+    if (finalAmount > 0) {
+      const isGuest = consultation.userType === "Guest";
+      const UserModel = isGuest ? Guest : User;
+      const user = await UserModel.findById(consultation.user);
+      const provider = await User.findById(consultation.provider);
+
+      if (user && provider) {
+        // Charge what user can afford (partial billing)
+        let chargeAmount = finalAmount;
+        if (user.wallet < finalAmount) {
+          chargeAmount = Math.floor(user.wallet * 100) / 100; // Round down
+          console.log(`💰 PARTIAL CHARGE: User has ₹${user.wallet}, charging ₹${chargeAmount} instead of ₹${finalAmount}`);
+        }
+
+        if (chargeAmount >= 0.01) {
+          // Calculate commission
+          const platformCommission = Math.round(chargeAmount * 0.10 * 100) / 100; // 10%
+          const providerEarnings = Math.round((chargeAmount - platformCommission) * 100) / 100;
+
+          // Deduct from client
+          user.wallet -= chargeAmount;
+          await user.save();
+          console.log(`💸 DEDUCTED ₹${chargeAmount} from client. New balance: ₹${user.wallet}`);
+
+          // Credit provider
+          provider.wallet += providerEarnings;
+          provider.earnings = (provider.earnings || 0) + providerEarnings;
+          await provider.save();
+          console.log(`💰 CREDITED ₹${providerEarnings} to provider. New balance: ₹${provider.wallet}`);
+
+          // Update consultation with actual charged amount
+          consultation.totalAmount = chargeAmount;
+          
+          // Create transaction records
+          await createBillingTransactions(
+            consultation,
+            user,
+            provider,
+            chargeAmount,
+            platformCommission,
+            providerEarnings,
+            isGuest
+          );
+
+          console.log(`✅ PAYMENT PROCESSED: Client charged ₹${chargeAmount}, Provider earned ₹${providerEarnings}`);
+        } else {
+          consultation.totalAmount = 0;
+          console.log(`⚠️ User balance too low (₹${user.wallet}), no charge applied`);
+        }
+      }
+    }
+
     await consultation.save();
 
     console.log("💸 CONSULTATION ENDED - INSUFFICIENT FUNDS:", {
