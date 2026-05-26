@@ -2176,6 +2176,16 @@ const startServerSideWalletMonitoring = () => {
               "consultation:auto-terminated",
               terminationData
             );
+            // Also emit to consultation room (mobile app joins this room)
+            io.to(`consultation:${consultation._id}`).emit(
+              "consultation:auto-terminated",
+              terminationData
+            );
+            io.to(`billing:${consultation._id}`).emit(
+              "consultation:auto-terminated",
+              terminationData
+            );
+            console.log(`📡 Auto-termination emitted to all rooms for ${consultation._id}`);
           }
         }
       }
