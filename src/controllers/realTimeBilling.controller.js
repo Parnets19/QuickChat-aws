@@ -7,6 +7,75 @@ const setSocketIO = (socketInstance) => {
   io = socketInstance;
 };
 
+// Store active call termination timers (consultationId -> timeout)
+const activeCallTimers = new Map();
+
+// Cancel a call timer (called when call is manually ended)
+const cancelCallTimer = (consultationId) => {
+  const timerId = activeCallTimers.get(consultationId);
+  if (timerId) {
+    clearTimeout(timerId);
+    activeCallTimers.delete(consultationId);
+    console.log(`⏰ Call timer cancelled for ${consultationId}`);
+  }
+};
+
+// Set a pre-calculated call termination timer
+const setCallTerminationTimer = async (consultationId, maxDurationSeconds, userBalance, ratePerMinute) => {
+  // Cancel any existing timer for this consultation
+  cancelCallTimer(consultationId);
+
+  console.log(`⏰ Setting call termination timer:`, {
+    consultationId,
+    maxDurationSeconds,
+    maxDurationMinutes: (maxDurationSeconds / 60).toFixed(1),
+    userBalance,
+    ratePerMinute,
+  });
+
+  const timerId = setTimeout(async () => {
+    try {
+      console.log(`⏰ TIMER FIRED: Auto-terminating consultation ${consultationId} (max duration reached)`);
+      
+      // Verify consultation is still ongoing before terminating
+      const consultation = await Consultation.findById(consultationId);
+      if (!consultation || consultation.status !== 'ongoing') {
+        console.log(`⏰ Consultation ${consultationId} already ended, skipping timer termination`);
+        activeCallTimers.delete(consultationId);
+        return;
+      }
+
+      // End the consultation
+      await endConsultationDueToInsufficientFunds(consultationId);
+
+      // Emit termination events to all rooms
+      if (io) {
+        const terminationData = {
+          consultationId,
+          reason: "insufficient_funds",
+          message: "Call ended - wallet balance exhausted",
+          userBalance: 0,
+          requiredAmount: ratePerMinute,
+          timestamp: new Date(),
+        };
+
+        io.to(`user:${consultation.user}`).emit("consultation:auto-terminated", terminationData);
+        io.to(`user:${consultation.provider}`).emit("consultation:auto-terminated", terminationData);
+        io.to(`consultation:${consultationId}`).emit("consultation:auto-terminated", terminationData);
+        io.to(`billing:${consultationId}`).emit("consultation:auto-terminated", terminationData);
+        console.log(`⏰ Auto-termination emitted for ${consultationId}`);
+      }
+
+      activeCallTimers.delete(consultationId);
+    } catch (error) {
+      console.error(`❌ Error in call termination timer for ${consultationId}:`, error);
+      activeCallTimers.delete(consultationId);
+    }
+  }, maxDurationSeconds * 1000);
+
+  activeCallTimers.set(consultationId, timerId);
+};
+
 // Helper function to emit billing updates
 const emitBillingUpdate = (consultationId, data) => {
   if (io) {
@@ -662,6 +731,38 @@ const acceptCall = async (req, res) => {
 
     await consultation.save();
 
+    // START PRE-CALCULATED TERMINATION TIMER
+    // Calculate max call duration based on wallet balance
+    if (consultation.clientAccepted && consultation.providerAccepted && consultation.rate > 0) {
+      try {
+        const isGuest = consultation.userType === "Guest";
+        const UserModel = isGuest ? Guest : User;
+        const clientUser = await UserModel.findById(consultation.user).select("wallet");
+        
+        if (clientUser) {
+          const maxMinutes = Math.floor(clientUser.wallet / consultation.rate);
+          const maxDurationSeconds = maxMinutes * 60;
+          
+          if (maxDurationSeconds > 0) {
+            await setCallTerminationTimer(
+              consultation._id.toString(),
+              maxDurationSeconds,
+              clientUser.wallet,
+              consultation.rate
+            );
+            console.log(`⏰ Call will auto-terminate in ${maxMinutes} minutes (₹${clientUser.wallet} / ₹${consultation.rate}/min)`);
+          } else {
+            // Can't even afford 1 minute — terminate immediately
+            console.log(`🚨 User can't afford even 1 minute — terminating immediately`);
+            setTimeout(() => endConsultationDueToInsufficientFunds(consultation._id.toString()), 5000);
+          }
+        }
+      } catch (timerError) {
+        console.error("⚠️ Error setting call timer (non-critical):", timerError);
+        // Server monitor will still catch this as a safety net
+      }
+    }
+
     // CRITICAL FIX: Emit call acceptance event via socket
     if (io) {
       const acceptanceData = {
@@ -1226,6 +1327,9 @@ const endConsultation = async (req, res) => {
     const { consultationId } = req.body;
     const userId = req.user.id || req.user._id;
 
+    // Cancel the pre-calculated termination timer since call is being manually ended
+    cancelCallTimer(consultationId);
+
     console.log("🛑 BILLING CONTROLLER - ENDING CONSULTATION:", {
       consultationId,
       userId,
@@ -1648,6 +1752,9 @@ const endConsultation = async (req, res) => {
  */
 const endConsultationDueToInsufficientFunds = async (consultationId) => {
   try {
+    // Cancel any existing timer for this consultation
+    cancelCallTimer(consultationId);
+
     const consultation = await Consultation.findById(consultationId);
     if (!consultation) return;
 
