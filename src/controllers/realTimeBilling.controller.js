@@ -1460,31 +1460,39 @@ const endConsultation = async (req, res) => {
         return res.status(404).json({ message: "User or provider not found" });
       }
 
-      // 🚨 ENHANCED VALIDATION: Verify user has sufficient balance
+      // 🚨 ENHANCED VALIDATION: If user has insufficient balance, charge what they can afford
       if (user.wallet < finalAmount) {
-        console.log("⚠️ INSUFFICIENT FUNDS FOR FINAL BILLING:", {
+        console.log("⚠️ INSUFFICIENT FUNDS FOR FULL BILLING - charging partial:", {
           required: finalAmount,
           available: user.wallet,
-          message:
-            "Ending consultation without charge due to insufficient funds",
+          message: "Charging available balance instead of full amount",
         });
 
-        // End consultation without billing
-        consultation.totalAmount = 0;
-        consultation.endReason = "insufficient_funds";
-        await consultation.save();
+        // Charge what the user has (partial billing)
+        finalAmount = Math.floor(user.wallet * 100) / 100; // Round down to 2 decimal places
+        
+        // If user has less than ₹0.01, don't charge anything
+        if (finalAmount < 0.01) {
+          consultation.totalAmount = 0;
+          consultation.endReason = "insufficient_funds";
+          await consultation.save();
 
-        return res.json({
-          success: true,
-          data: {
-            consultationId,
-            duration: finalDuration,
-            totalAmount: 0,
-            endTime: consultation.endTime,
-            message: "Consultation ended - insufficient funds for billing",
-            insufficientFunds: true,
-          },
-        });
+          return res.json({
+            success: true,
+            data: {
+              consultationId,
+              duration: finalDuration,
+              totalAmount: 0,
+              endTime: consultation.endTime,
+              message: "Consultation ended - no balance available",
+              insufficientFunds: true,
+            },
+          });
+        }
+        
+        // Recalculate duration based on what they can afford
+        finalDuration = Math.floor(finalAmount / consultation.rate);
+        consultation.endReason = "insufficient_funds_partial";
       }
 
       // Calculate commission split with PRECISE decimal handling
@@ -2110,6 +2118,15 @@ const startServerSideWalletMonitoring = () => {
         const userWallet = freshUser.wallet || 0;
         const ratePerMinute = consultation.rate;
 
+        // Calculate how much the call has cost SO FAR
+        const billableMinutesSoFar = Math.ceil(callDurationSeconds / 60);
+        const totalCostSoFar = billableMinutesSoFar * ratePerMinute;
+        // Check if user can afford the NEXT minute (total cost + 1 more minute)
+        const costForNextMinute = totalCostSoFar + ratePerMinute;
+        const canAffordNextMinute = userWallet >= costForNextMinute;
+        // Also check if current cost already exceeds wallet
+        const currentCostExceedsWallet = totalCostSoFar > userWallet;
+
         console.log(`💰 SERVER MONITOR: Wallet check for consultation ${consultation._id}:`, {
           userId: freshUser._id,
           userName: freshUser.fullName || freshUser.name,
@@ -2117,11 +2134,15 @@ const startServerSideWalletMonitoring = () => {
           ratePerMinute,
           callDurationSeconds,
           callDurationMinutes: callDurationMinutes.toFixed(2),
-          hasSufficientFunds: userWallet >= ratePerMinute,
+          billableMinutesSoFar,
+          totalCostSoFar,
+          costForNextMinute,
+          canAffordNextMinute,
+          currentCostExceedsWallet,
         });
 
-        // Only terminate if wallet is truly insufficient
-        if (userWallet < ratePerMinute) {
+        // Terminate if: current cost exceeds wallet OR can't afford next minute
+        if (currentCostExceedsWallet || !canAffordNextMinute) {
           console.log(`🚨 SERVER MONITOR: Insufficient balance detected`);
           console.log(`   User: ${freshUser.fullName || freshUser.name || "Unknown"}`);
           console.log(`   Balance: ₹${userWallet}`);
