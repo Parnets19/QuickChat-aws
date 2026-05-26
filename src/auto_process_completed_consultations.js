@@ -9,9 +9,12 @@ async function autoProcessCompletedConsultations() {
     );
 
     // Find completed consultations that have no transactions
+    // Only process consultations from the last 2 hours to avoid retroactive charging
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const completedConsultations = await Consultation.find({
       status: "completed",
-      totalAmount: { $gt: 0 }, // Has an amount to process
+      totalAmount: { $gt: 0 },
+      endTime: { $gte: twoHoursAgo },
     });
 
     console.log(
