@@ -1716,8 +1716,9 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
           await provider.save();
           console.log(`💰 CREDITED ₹${providerEarnings} to provider. New balance: ₹${provider.wallet}`);
 
-          // Update consultation with actual charged amount
+          // Update consultation with actual charged amount and correct duration
           consultation.totalAmount = chargeAmount;
+          consultation.duration = Math.floor(chargeAmount / consultation.rate) || 1;
           
           // Create transaction records
           await createBillingTransactions(
