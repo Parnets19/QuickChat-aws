@@ -193,7 +193,6 @@ const register = async (req, res, next) => {
       consultationModes,
       rates,
       availability,
-      aadharNumber,
       profilePhoto,
       aadharDocuments,
       portfolioMedia,
@@ -249,7 +248,7 @@ const register = async (req, res, next) => {
       );
     }
 
-    const existingUserByEmail = await User.findOne({ email });
+    const existingUserByEmail = email ? await User.findOne({ email }) : null;
     if (existingUserByEmail) {
       return next(
         new AppError(
@@ -268,10 +267,10 @@ const register = async (req, res, next) => {
     const userData = {
       fullName,
       mobile,
-      email,
+      email: email || undefined, // undefined so sparse unique index ignores missing emails
       password,
       isMobileVerified: true,
-      isEmailVerified: false, // Will be verified later
+      isEmailVerified: false,
       isServiceProvider: isServiceProvider || false,
     };
 
@@ -292,7 +291,6 @@ const register = async (req, res, next) => {
     if (languagesKnown && languagesKnown.length > 0)
       userData.languagesKnown = languagesKnown;
     if (bio) userData.bio = bio;
-    if (aadharNumber) userData.aadharNumber = aadharNumber;
     if (profilePhoto) userData.profilePhoto = profilePhoto;
     if (aadharDocuments) userData.aadharDocuments = aadharDocuments;
     if (portfolioMedia && portfolioMedia.length > 0)
@@ -314,26 +312,33 @@ const register = async (req, res, next) => {
       chat: true,
       audio: true,
       video: true,
+      live: true,
     };
 
-    // Set default rates (chat is free, audio/video default to ₹3/min)
-    userData.rates = rates || {
-      chargeType: "per-minute",
-      chat: 0,
+    // Set rates - support individual rates or same rate for all
+    const chatRate = rates?.chatRate ?? rates?.chat ?? 0; // Chat is always free
+    const audioRate = rates?.audioRate ?? rates?.audio ?? rates?.callRate ?? 3;
+    const videoRate = rates?.videoRate ?? rates?.video ?? rates?.callRate ?? 3;
+    const liveRate = rates?.liveRate ?? rates?.live ?? rates?.callRate ?? 3;
+
+    userData.rates = {
+      chargeType: rates?.chargeType || "per-minute",
+      chat: chatRate,
       perMinute: {
-        audioVideo: rates?.callRate || rates?.audio || rates?.video || 3, // Default ₹3/min
-        audio: rates?.callRate || rates?.audio || 3, // Default ₹3/min
-        video: rates?.callRate || rates?.video || 3, // Default ₹3/min
+        audioVideo: audioRate,
+        audio: audioRate,
+        video: videoRate,
       },
       perHour: {
         audioVideo: 0,
         audio: 0,
         video: 0,
       },
-      defaultChargeType: "per-minute",
+      defaultChargeType: rates?.chargeType || "per-minute",
       // Legacy fields for backward compatibility
-      audio: rates?.callRate || rates?.audio || 3, // Default ₹3/min
-      video: rates?.callRate || rates?.video || 3, // Default ₹3/min
+      audio: audioRate,
+      video: videoRate,
+      live: liveRate,
     };
     if (availability && availability.length > 0)
       userData.availability = availability;

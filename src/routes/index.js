@@ -25,6 +25,7 @@ const freeMinuteRoutes = require("./freeMinute.routes");
 const freeTrialRoutes = require("./freeTrial.routes");
 const blockRoutes = require("./block.routes");
 const phonePeRoutes = require("./phonepe.routes");
+const followRoutes = require("./follow.routes");
 const reportRoutes = require("./report.routes");
 const supportRoutes = require("./support.routes");
 
@@ -55,7 +56,8 @@ router.use("/chat", chatRoutes); // Chat system
 router.use("/analytics", analyticsRoutes); // Analytics and reports
 router.use("/users", blockRoutes); // Block and Report functionality
 router.use("/phonepe", phonePeRoutes); // PhonePe payment integration
-router.use("/reports", reportRoutes); // Report and Block system
-router.use("/support", supportRoutes); // Support chat system
+router.use("/follow", followRoutes);     // Follow / unfollow system
+router.use("/reports", reportRoutes);
+router.use("/support", supportRoutes);
 
 module.exports = router;

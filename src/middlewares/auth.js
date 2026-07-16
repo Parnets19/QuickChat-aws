@@ -48,6 +48,7 @@ const protect = async (req, res, next) => {
         req.user = {
           ...admin.toObject(),
           isAdmin: true,
+          isAdminAccount: true, // TRUE only for the real Admin-model account
           id: admin._id,
         };
         return next();
@@ -110,8 +111,9 @@ const protect = async (req, res, next) => {
 // Grant access to specific roles
 const authorize = (...roles) => {
   return (req, res, next) => {
-    // For admin role check
-    if (roles.includes("admin") && req.user?.email?.includes("@admin")) {
+    // For admin role check — ONLY the real Admin-model account (set by protect).
+    // The previous email-substring check ("@admin") was a security hole.
+    if (roles.includes("admin") && req.user?.isAdminAccount === true) {
       return next();
     }
 
@@ -145,21 +147,15 @@ const isAadharVerified = async (req, res, next) => {
 };
 
 // Check if user is admin
+// HARD RULE: there is exactly ONE admin — the Admin-model account that logs in
+// via /admin-auth/login. A regular User can NEVER be an admin, even if a legacy
+// `isAdmin` flag exists on their User document. We therefore require the
+// `isAdminAccount` marker that `protect` sets ONLY for Admin-model logins.
 const adminOnly = async (req, res, next) => {
-  console.log("🔧 ADMIN CHECK - User:", {
-    email: req.user?.email,
-    id: req.user?._id?.toString() || req.user?.id,
-    isAdmin: req.user?.isAdmin,
-    role: req.user?.role,
-  });
-
-  // Check if user is authenticated admin
-  if (!req.user?.isAdmin) {
-    console.log("🔧 ADMIN CHECK - Access denied: Not an admin");
+  if (req.user?.isAdminAccount !== true) {
+    console.log("🔧 ADMIN CHECK - Access denied: not the admin account");
     return next(new AppError("Admin access required", 403));
   }
-
-  console.log("🔧 ADMIN CHECK - Access granted");
   next();
 };
 

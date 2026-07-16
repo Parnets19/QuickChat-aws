@@ -941,8 +941,13 @@ const processRealTimeBilling = async (req, res) => {
     });
 
     // CRITICAL FIX 3: Calculate precise elapsed time
+    // BILLING CLOCK = WEBRTC CONNECTION TIME. Per-minute billing is already gated
+    // above on webrtcConnectedAt being set, so we measure elapsed time from the
+    // moment media connected (both sides can talk) — NOT from accept/ringing.
     const currentTime = new Date();
-    const elapsedMs = currentTime - consultation.startTime;
+    const billingStartTime =
+      consultation.webrtcConnectedAt || consultation.startTime;
+    const elapsedMs = currentTime - billingStartTime;
     const elapsedSeconds = Math.floor(elapsedMs / 1000);
     const elapsedMinutes = Math.ceil(elapsedSeconds / 60);
 
@@ -964,26 +969,34 @@ const processRealTimeBilling = async (req, res) => {
     if (elapsedSeconds >= maxAffordableSeconds) {
       console.log("🚨 TIME EXCEEDED - ENDING CONSULTATION");
       console.log(
-        `💰 User had ₹${currentWallet}, could afford ${maxAffordableMinutes} complete minutes`
+        `💰 User had ₹${currentWallet}, could afford ${maxAffordableMinutes} more complete minute(s)`
       );
 
-      // Calculate final billing - charge for complete minutes only with PRECISE calculation
-      const finalMinutes = maxAffordableMinutes; // Use complete minutes, not partial
-      const finalAmount = preciseMoneyCalculation(
-        finalMinutes,
+      // INCREMENTAL billing: per-minute billing may have already charged earlier
+      // minutes for this call. maxAffordableMinutes is based on the CURRENT
+      // (remaining) wallet, so it represents the ADDITIONAL minutes still affordable.
+      // We must ADD to the existing duration/totalAmount and record a transaction —
+      // NOT overwrite (which would lose the per-minute history and leave the
+      // provider's earnings ledger short).
+      const additionalMinutes = maxAffordableMinutes;
+      const additionalAmount = preciseMoneyCalculation(
+        additionalMinutes,
         ratePerMinute,
         "multiply"
       );
 
-      // Deduct exact amount from CLIENT with PRECISE calculation
+      const previouslyBilledMinutes = consultation.duration || 0;
+      const previouslyBilledAmount = consultation.totalAmount || 0;
+
+      // Deduct the additional amount from CLIENT with PRECISE calculation
       const newClientWallet = preciseMoneyCalculation(
         clientUser.wallet,
-        finalAmount,
+        additionalAmount,
         "subtract"
       );
       const newClientTotalSpent = preciseMoneyCalculation(
         clientUser.totalSpent || 0,
-        finalAmount,
+        additionalAmount,
         "add"
       );
 
@@ -991,42 +1004,91 @@ const processRealTimeBilling = async (req, res) => {
       clientUser.totalSpent = newClientTotalSpent;
       await clientUser.save();
 
-      // Update consultation
+      // Update consultation — ACCUMULATE, don't overwrite
+      const cumulativeMinutes = previouslyBilledMinutes + additionalMinutes;
+      const cumulativeAmount = preciseMoneyCalculation(
+        previouslyBilledAmount,
+        additionalAmount,
+        "add"
+      );
       consultation.status = "completed";
       consultation.endTime = currentTime;
-      consultation.duration = finalMinutes;
-      consultation.totalAmount = finalAmount;
+      consultation.duration = cumulativeMinutes;
+      consultation.totalAmount = cumulativeAmount;
+      consultation.lastBillingTime = currentTime;
       consultation.endReason = "wallet_exhausted";
       await consultation.save();
 
-      // Add earnings to provider with PRECISE calculations
+      // Add earnings to provider for the ADDITIONAL amount and record transactions
       const provider = await User.findById(consultation.provider);
-      if (provider) {
+      if (provider && additionalAmount > 0) {
         const platformCommission = preciseMoneyCalculation(
-          finalAmount,
+          additionalAmount,
           PLATFORM_COMMISSION_RATE,
           "multiply"
         );
         const providerEarnings = preciseMoneyCalculation(
-          finalAmount,
+          additionalAmount,
           platformCommission,
           "subtract"
         );
 
-        const newProviderEarnings = preciseMoneyCalculation(
+        const previousProviderWallet = provider.wallet || 0;
+        provider.earnings = preciseMoneyCalculation(
           provider.earnings || 0,
           providerEarnings,
           "add"
         );
-        const newProviderWallet = preciseMoneyCalculation(
-          provider.wallet || 0,
+        provider.wallet = preciseMoneyCalculation(
+          previousProviderWallet,
           providerEarnings,
           "add"
         );
-
-        provider.earnings = newProviderEarnings;
-        provider.wallet = newProviderWallet;
         await provider.save();
+
+        // Record transactions so the ledger matches the wallet movements and
+        // endConsultation's reconciliation sees the full charged amount.
+        await Transaction.create([
+          {
+            user: clientUser._id,
+            userType: isGuest ? "Guest" : "User",
+            consultationId: consultation._id,
+            type: "debit",
+            category: "consultation",
+            amount: additionalAmount,
+            balance: clientUser.wallet,
+            description: `Call charge (final) - ${additionalMinutes} minute(s) @ ₹${ratePerMinute}/min with ${provider.fullName}`,
+            status: "completed",
+            paymentMethod: "wallet",
+            metadata: {
+              providerId: provider._id,
+              providerName: provider.fullName,
+              duration: additionalMinutes,
+              rate: ratePerMinute,
+              reason: "wallet_exhausted",
+            },
+          },
+          {
+            user: provider._id,
+            userType: "User",
+            consultationId: consultation._id,
+            type: "credit",
+            category: "consultation",
+            amount: providerEarnings,
+            balance: provider.wallet,
+            description: `Earnings from call (final) - ${additionalMinutes} minute(s) @ ₹${ratePerMinute}/min`,
+            status: "completed",
+            paymentMethod: "wallet",
+            metadata: {
+              clientId: clientUser._id,
+              duration: additionalMinutes,
+              rate: ratePerMinute,
+              grossAmount: additionalAmount,
+              platformCommission,
+              netAmount: providerEarnings,
+            },
+          },
+        ]);
       }
 
       // CRITICAL FIX 6: Emit to CLIENT (not provider)
@@ -1035,8 +1097,8 @@ const processRealTimeBilling = async (req, res) => {
           reason: "wallet_exhausted",
           message: "Call ended - wallet balance exhausted",
           showRatingModal: true,
-          finalAmount,
-          duration: finalMinutes,
+          finalAmount: cumulativeAmount,
+          duration: cumulativeMinutes,
           finalBalance: clientUser.wallet,
         });
       }
@@ -1047,9 +1109,10 @@ const processRealTimeBilling = async (req, res) => {
         message: "Consultation ended - wallet exhausted",
         showRatingModal: true,
         data: {
-          finalAmount,
-          duration: finalMinutes,
+          finalAmount: cumulativeAmount,
+          duration: cumulativeMinutes,
           remainingBalance: clientUser.wallet,
+          canContinue: false,
           reason: "wallet_exhausted",
         },
       });
@@ -1059,8 +1122,8 @@ const processRealTimeBilling = async (req, res) => {
     if (currentWallet < ratePerMinute) {
       console.log("🚨 INSUFFICIENT FUNDS FOR CURRENT MINUTE");
 
-      // Calculate duration up to this point
-      const durationInSeconds = Math.floor((currentTime - consultation.startTime) / 1000);
+      // Calculate duration up to this point (from connection time)
+      const durationInSeconds = Math.floor((currentTime - billingStartTime) / 1000);
       const durationMinutes = Math.floor(durationInSeconds / 60);
 
       // End consultation immediately
@@ -1098,9 +1161,15 @@ const processRealTimeBilling = async (req, res) => {
     const billableMinutesRoundedUp = Math.ceil(elapsedSeconds / 60); // Round UP to next minute
     const minutesToBill = billableMinutesRoundedUp - (consultation.duration || 0);
 
+    // Declared in the outer scope so the success response can safely reference it
+    // even when minutesToBill === 0 (otherwise the response throws a ReferenceError
+    // AFTER the wallet was already deducted -> client/provider get charged but the
+    // request returns 500).
+    let amountToBill = 0;
+
     if (minutesToBill > 0) {
       // PRECISE MONEY CALCULATION for billing amount
-      const amountToBill = preciseMoneyCalculation(
+      amountToBill = preciseMoneyCalculation(
         minutesToBill,
         ratePerMinute,
         "multiply"
@@ -1373,17 +1442,24 @@ const endConsultation = async (req, res) => {
     }
 
     // 🚨 ENHANCED VALIDATION: Check for existing transactions to prevent ghost billing
+    // and DOUBLE billing. The per-minute path (processRealTimeBilling) writes
+    // type "debit"/"credit" (category "consultation"), while the final-settlement
+    // path (createBillingTransactions) writes "consultation_payment"/"earning".
+    // The guard MUST recognise BOTH, otherwise per-minute charges go undetected and
+    // the full amount is billed AGAIN at call end (client double-charged, provider
+    // double-credited). Scoped by consultationId so the generic debit/credit types
+    // can only match this consultation's records.
     const existingClientPayment = await Transaction.findOne({
       user: consultation.user,
       consultationId: consultationId,
-      type: { $in: ["consultation_payment", "consultation"] },
+      type: { $in: ["consultation_payment", "consultation", "debit"] },
       amount: { $gt: 0 },
     });
 
     const existingProviderEarning = await Transaction.findOne({
       user: consultation.provider,
       consultationId: consultationId,
-      type: "earning",
+      type: { $in: ["earning", "credit"] },
       amount: { $gt: 0 },
     });
 
@@ -1454,109 +1530,79 @@ const endConsultation = async (req, res) => {
     let finalAmount = 0;
 
     if (consultation.bothSidesAcceptedAt && consultation.billingStarted) {
-      // BILLING SAFETY: Use webrtcConnectedAt if available — this is the moment
-      // WebRTC actually established a media connection.
-      // FALLBACK: If webrtcConnectedAt is missing but call lasted > 60s, use bothSidesAcceptedAt
-      // (the webrtc:connected event may have been lost due to network issues)
+      // BILLING CLOCK = WEBRTC CONNECTION TIME (webrtcConnectedAt). We charge ONLY
+      // for talk time after the media actually connected (both sides can talk).
+      // Ringing, accept, and the WebRTC handshake are NOT charged.
       let billingStartTime = consultation.webrtcConnectedAt || null;
 
+      const callDurationFromAccept = Math.floor(
+        (consultation.endTime - consultation.bothSidesAcceptedAt) / 1000
+      );
+
       if (!billingStartTime) {
-        const callDurationFromAccept = Math.floor(
-          (consultation.endTime - consultation.bothSidesAcceptedAt) / 1000
-        );
-        
-        // If call lasted more than 60 seconds without webrtcConnectedAt, it was clearly a real call
-        // Use bothSidesAcceptedAt as fallback billing start time
+        // webrtc:connected was never recorded. If the call clearly ran a while
+        // (> 60s from accept) the event was probably lost on a flaky network, so
+        // fall back to accept time so a real call still gets billed. Otherwise
+        // (short AND never connected) it was ringing/failed — charge nothing.
         if (callDurationFromAccept > 60) {
           console.log(
-            `⚠️ webrtcConnectedAt missing but call lasted ${callDurationFromAccept}s — using bothSidesAcceptedAt as fallback`
+            `webrtcConnectedAt missing but call lasted ${callDurationFromAccept}s - using bothSidesAcceptedAt as fallback`
           );
           billingStartTime = consultation.bothSidesAcceptedAt;
         } else {
           console.log(
-            `⚠️ NO WEBRTC CONNECTION RECORDED for ${consultationId} — NO CHARGE APPLIED`,
+            `NO WEBRTC CONNECTION RECORDED for ${consultationId} - NO CHARGE APPLIED`,
             {
               bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
               webrtcConnectedAt: consultation.webrtcConnectedAt,
               callDurationFromAccept,
-              reason: "WebRTC never confirmed connected and call too short — protecting client from ghost charge",
+              reason:
+                "Never connected and call too short - protecting client (ringing/failed call)",
             }
           );
           finalDuration = 0;
           finalAmount = 0;
-          consultation.endReason = consultation.endReason || "no_webrtc_connection";
+          consultation.endReason =
+            consultation.endReason || "no_webrtc_connection";
         }
       }
-      
+
       if (billingStartTime) {
-      // Calculate EXACT duration in seconds first
-      const durationInSeconds = Math.floor(
-        (consultation.endTime - billingStartTime) / 1000
-      );
-
-      console.log("⏱️ DURATION CALCULATION:", {
-        bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
-        endTime: consultation.endTime,
-        durationInSeconds,
-        durationInMinutes: (durationInSeconds / 60).toFixed(2),
-      });
-
-      // ── MINIMUM DURATION GUARD ────────────────────────────────────────────
-      // If both sides accepted but the call ended in under 30 seconds,
-      // WebRTC most likely never established a real media connection
-      // (e.g. second call where peer connection failed to negotiate).
-      // In that case we do NOT charge the client.
-      const MINIMUM_BILLABLE_SECONDS = 30;
-      if (durationInSeconds < MINIMUM_BILLABLE_SECONDS) {
-        console.log(
-          `⚠️ CALL TOO SHORT (${durationInSeconds}s < ${MINIMUM_BILLABLE_SECONDS}s) — NO CHARGE APPLIED`,
-          {
-            consultationId: consultation._id,
-            durationInSeconds,
-            bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
-            endTime: consultation.endTime,
-            reason: "WebRTC likely never connected — protecting client from ghost charge",
-          }
+        // Duration measured from the ACCEPT moment.
+        const durationInSeconds = Math.floor(
+          (consultation.endTime - billingStartTime) / 1000
         );
-        finalDuration = 0;
-        finalAmount = 0;
-        consultation.endReason = consultation.endReason || "no_media_connection";
-        // Skip billing entirely — fall through to save & respond
-      } else {
 
-      // STRICT PREPAID MODEL - NO FREE MINUTES
-      // Round UP: 2min 30sec = 3 minutes charged
-      const billableMinutes = Math.ceil(durationInSeconds / 60);
-      const ratePerMinute = consultation.rate || 0;
-      
-      console.log("💵 RATE CHECK:", {
-        consultationRate: consultation.rate,
-        ratePerMinute,
-        isZero: ratePerMinute === 0,
-        type: typeof ratePerMinute,
-      });
-      
-      // PRECISE CALCULATION using integer arithmetic
-      const rateInCents = Math.round(ratePerMinute * 100);
-      const totalAmountInCents = billableMinutes * rateInCents;
-      finalAmount = Math.round(totalAmountInCents) / 100;
-      finalDuration = billableMinutes;
+        console.log("DURATION CALCULATION:", {
+          bothSidesAcceptedAt: consultation.bothSidesAcceptedAt,
+          endTime: consultation.endTime,
+          durationInSeconds,
+          durationInMinutes: (durationInSeconds / 60).toFixed(2),
+        });
 
-      console.log("💰 FINAL BILLING CALCULATION:", {
-        durationInSeconds,
-        billableMinutes,
-        ratePerMinute,
-        rateInCents,
-        totalAmountInCents,
-        finalAmount,
-        finalDuration,
-        calculation: `${billableMinutes} minutes × ₹${ratePerMinute} = ₹${finalAmount}`,
-      });
-      } // end else (durationInSeconds >= MINIMUM_BILLABLE_SECONDS)
-      } // end else (billingStartTime exists — WebRTC confirmed connected)
+        // STRICT PREPAID MODEL - round UP, MINIMUM 1 minute for any real call.
+        // The webrtcConnectedAt gate above already blocked ghost calls (accepted
+        // but media never connected). Any call that reaches here is a real call,
+        // so a 20s or 45s call is billed as a full 1 minute.
+        const billableMinutes = Math.ceil(durationInSeconds / 60);
+        const ratePerMinute = consultation.rate || 0;
+        const rateInCents = Math.round(ratePerMinute * 100);
+        const totalAmountInCents = billableMinutes * rateInCents;
+        finalAmount = Math.round(totalAmountInCents) / 100;
+        finalDuration = billableMinutes;
+
+        console.log("FINAL BILLING CALCULATION:", {
+          durationInSeconds,
+          billableMinutes,
+          ratePerMinute,
+          finalAmount,
+          finalDuration,
+          calculation: `${billableMinutes} min x Rs.${ratePerMinute} = Rs.${finalAmount}`,
+        });
+      }
     } else {
       console.log(
-        "⚠️ No billing occurred - consultation ended before both sides accepted"
+        "No billing occurred - consultation ended before both sides accepted"
       );
     }
 
@@ -1686,12 +1732,125 @@ const endConsultation = async (req, res) => {
       }
     } else if (existingClientPayment || existingProviderEarning) {
       console.log(
-        "⚠️ BILLING ALREADY PROCESSED - Using existing transaction amounts"
+        "⚠️ BILLING PARTIALLY PROCESSED (per-minute) - settling final partial minute"
       );
 
-      // Use existing transaction amounts
-      if (existingClientPayment) {
-        consultation.totalAmount = existingClientPayment.amount;
+      // Per-minute billing already charged the COMPLETED minutes. But the final
+      // partial minute (round-up) is usually still unbilled — e.g. a 1m5s call at
+      // ₹2/min: per-minute charged ₹2 (1 min) but the rounded-up total is ₹4
+      // (2 min). finalAmount above is the TRUE rounded-up total (from connection
+      // time). Charge ONLY the difference so we honor round-up without
+      // double-charging the minutes already billed.
+      const clientCharges = await Transaction.aggregate([
+        {
+          $match: {
+            user: consultation.user,
+            consultationId: consultation._id,
+            type: { $in: ["consultation_payment", "consultation", "debit"] },
+            amount: { $gt: 0 },
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]);
+
+      const alreadyCharged =
+        clientCharges.length > 0
+          ? Math.round(clientCharges[0].total * 100) / 100
+          : 0;
+      const outstandingAmount =
+        Math.round((finalAmount - alreadyCharged) * 100) / 100;
+
+      console.log("🧾 RECONCILE:", {
+        consultationId,
+        roundedUpTotal: finalAmount,
+        alreadyCharged,
+        outstandingAmount,
+      });
+
+      if (outstandingAmount >= 0.01) {
+        const isGuest = consultation.userType === "Guest";
+        const UserModel = isGuest ? Guest : User;
+        const user = await UserModel.findById(consultation.user);
+        const provider = await User.findById(consultation.provider);
+
+        if (user && provider) {
+          // Cap to what the client can actually afford
+          let chargeAmount = outstandingAmount;
+          if (user.wallet < outstandingAmount) {
+            chargeAmount = Math.floor(user.wallet * 100) / 100;
+          }
+
+          if (chargeAmount >= 0.01) {
+            const platformCommission = preciseMoneyCalculation(
+              chargeAmount,
+              PLATFORM_COMMISSION_RATE,
+              "multiply"
+            );
+            const providerEarnings = preciseMoneyCalculation(
+              chargeAmount,
+              platformCommission,
+              "subtract"
+            );
+
+            user.wallet = Math.max(
+              0,
+              preciseMoneyCalculation(user.wallet, chargeAmount, "subtract")
+            );
+            await user.save();
+
+            provider.wallet = preciseMoneyCalculation(
+              provider.wallet || 0,
+              providerEarnings,
+              "add"
+            );
+            provider.earnings = preciseMoneyCalculation(
+              provider.earnings || 0,
+              providerEarnings,
+              "add"
+            );
+            await provider.save();
+
+            await createBillingTransactions(
+              consultation,
+              user,
+              provider,
+              chargeAmount,
+              platformCommission,
+              providerEarnings,
+              isGuest
+            );
+
+            consultation.totalAmount =
+              Math.round((alreadyCharged + chargeAmount) * 100) / 100;
+            consultation.duration =
+              consultation.rate > 0
+                ? Math.round(consultation.totalAmount / consultation.rate)
+                : finalDuration;
+
+            console.log(
+              `✅ FINAL PARTIAL MINUTE SETTLED: +₹${chargeAmount} (client total ₹${consultation.totalAmount}, provider +₹${providerEarnings})`
+            );
+          } else {
+            consultation.totalAmount = alreadyCharged;
+          }
+        }
+      } else {
+        // Nothing outstanding — per-minute already covered the full rounded total.
+        consultation.totalAmount =
+          alreadyCharged > 0
+            ? alreadyCharged
+            : existingClientPayment
+            ? existingClientPayment.amount
+            : consultation.totalAmount;
+        consultation.duration =
+          consultation.rate > 0
+            ? Math.round(consultation.totalAmount / consultation.rate)
+            : finalDuration;
+        console.log("📊 RECONCILED (no extra charge needed):", {
+          consultationId,
+          total: consultation.totalAmount,
+          duration: consultation.duration,
+        });
       }
     } else {
       console.log("🆓 NO BILLING NEEDED - Free consultation or zero amount");
@@ -1775,6 +1934,18 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
     const consultation = await Consultation.findById(consultationId);
     if (!consultation) return;
 
+    // 🚨 CONCURRENCY GUARD: This function can be invoked by several independent
+    // safety nets at once (pre-calc termination timer, 30s server monitor) and may
+    // race with a manual endConsultation. If the consultation is already completed,
+    // do NOT charge again — that would double-deduct the client and double-credit
+    // the provider.
+    if (consultation.status === "completed") {
+      console.log(
+        `⏭️ endConsultationDueToInsufficientFunds: ${consultationId} already completed — skipping to avoid double billing`
+      );
+      return;
+    }
+
     consultation.status = "completed";
     consultation.endTime = new Date();
     consultation.endReason = "insufficient_funds";
@@ -1784,9 +1955,15 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
     let finalAmount = 0;
 
     if (consultation.bothSidesAcceptedAt && consultation.billingStarted) {
+      // BILLING CLOCK = WEBRTC CONNECTION TIME (webrtcConnectedAt). Only talk time
+      // after media connected is charged; ringing/accept/handshake is not. Falls
+      // back to accept time only if the connect event was never recorded.
+      const billingStartTime =
+        consultation.webrtcConnectedAt || consultation.bothSidesAcceptedAt;
+
       // Calculate EXACT duration in seconds
       const durationInSeconds = Math.floor(
-        (consultation.endTime - consultation.bothSidesAcceptedAt) / 1000
+        (consultation.endTime - billingStartTime) / 1000
       );
 
       // FIXED: Use per-minute billing (round up to full minutes)
@@ -1809,19 +1986,51 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
     consultation.duration = finalDuration;
     consultation.totalAmount = finalAmount;
 
+    // 🚨 DOUBLE-BILLING GUARD: per-minute billing (processRealTimeBilling) may have
+    // already charged most/all of this call. Only charge the REMAINING unbilled
+    // amount, never the full finalAmount again.
+    const priorClientCharges = await Transaction.aggregate([
+      {
+        $match: {
+          user: consultation.user,
+          consultationId: consultation._id,
+          type: { $in: ["consultation_payment", "consultation", "debit"] },
+          amount: { $gt: 0 },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+    const alreadyCharged =
+      priorClientCharges.length > 0
+        ? Math.round(priorClientCharges[0].total * 100) / 100
+        : 0;
+
+    // Outstanding amount still owed after subtracting what was already billed
+    const outstandingAmount =
+      Math.round((finalAmount - alreadyCharged) * 100) / 100;
+
+    if (alreadyCharged > 0) {
+      console.log("🧾 PRIOR PER-MINUTE CHARGES DETECTED:", {
+        consultationId,
+        finalAmount,
+        alreadyCharged,
+        outstandingAmount,
+      });
+    }
+
     // CRITICAL FIX: Actually process the payment (charge what user can afford)
-    if (finalAmount > 0) {
+    if (outstandingAmount > 0) {
       const isGuest = consultation.userType === "Guest";
       const UserModel = isGuest ? Guest : User;
       const user = await UserModel.findById(consultation.user);
       const provider = await User.findById(consultation.provider);
 
       if (user && provider) {
-        // Charge what user can afford (partial billing)
-        let chargeAmount = finalAmount;
-        if (user.wallet < finalAmount) {
+        // Charge what user can afford (partial billing), capped to the outstanding
+        let chargeAmount = outstandingAmount;
+        if (user.wallet < outstandingAmount) {
           chargeAmount = Math.floor(user.wallet * 100) / 100; // Round down
-          console.log(`💰 PARTIAL CHARGE: User has ₹${user.wallet}, charging ₹${chargeAmount} instead of ₹${finalAmount}`);
+          console.log(`💰 PARTIAL CHARGE: User has ₹${user.wallet}, charging ₹${chargeAmount} instead of ₹${outstandingAmount}`);
         }
 
         if (chargeAmount >= 0.01) {
@@ -1840,10 +2049,14 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
           await provider.save();
           console.log(`💰 CREDITED ₹${providerEarnings} to provider. New balance: ₹${provider.wallet}`);
 
-          // Update consultation with actual charged amount and correct duration
-          consultation.totalAmount = chargeAmount;
-          consultation.duration = Math.floor(chargeAmount / consultation.rate) || 1;
-          
+          // Record TRUE total charged for this consultation (prior + this final charge)
+          consultation.totalAmount =
+            Math.round((alreadyCharged + chargeAmount) * 100) / 100;
+          consultation.duration =
+            consultation.rate > 0
+              ? Math.round(consultation.totalAmount / consultation.rate)
+              : finalDuration;
+
           // Create transaction records
           await createBillingTransactions(
             consultation,
@@ -1857,10 +2070,19 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
 
           console.log(`✅ PAYMENT PROCESSED: Client charged ₹${chargeAmount}, Provider earned ₹${providerEarnings}`);
         } else {
-          consultation.totalAmount = 0;
-          console.log(`⚠️ User balance too low (₹${user.wallet}), no charge applied`);
+          // Nothing more could be collected; keep the already-charged total
+          consultation.totalAmount = alreadyCharged;
+          console.log(`⚠️ User balance too low (₹${user.wallet}), no additional charge applied`);
         }
       }
+    } else if (alreadyCharged > 0) {
+      // Fully covered by per-minute billing — no additional charge
+      consultation.totalAmount = alreadyCharged;
+      consultation.duration =
+        consultation.rate > 0
+          ? Math.round(alreadyCharged / consultation.rate)
+          : finalDuration;
+      console.log(`✅ Already fully billed via per-minute (₹${alreadyCharged}) — no extra charge`);
     }
 
     await consultation.save();

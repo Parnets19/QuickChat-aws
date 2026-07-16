@@ -307,7 +307,10 @@ const takeActionOnReport = async (req, res, next) => {
 
     // Update report
     report.status = action === 'dismissed' ? 'dismissed' : 'resolved';
-    report.actionTaken = action;
+    // NOTE: actionTaken enum is [none, warning, suspended, banned]. "dismissed" is
+    // a status, not an action — recording it in actionTaken throws a Mongoose
+    // validation error. Map dismiss to "none".
+    report.actionTaken = action === 'dismissed' ? 'none' : action;
     report.adminNotes = adminNotes;
     report.reviewedBy = adminId;
     report.reviewedAt = new Date();

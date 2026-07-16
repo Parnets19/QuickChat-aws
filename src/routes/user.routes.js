@@ -12,6 +12,7 @@ const {
   updateBankDetails,
   searchProviders,
   getLocations,
+  getFilterOptions,
   getUserDocuments,
   updateDocument,
   deleteDocument,
@@ -22,7 +23,7 @@ const {
   requestAccountDeletion,
 } = require('../controllers/user.controller');
 const { protect, isServiceProvider } = require('../middlewares/auth');
-const { uploadImage, upload } = require('../middlewares/upload');
+const { uploadImage, uploadMedia, upload } = require('../middlewares/upload');
 
 const router = express.Router();
 
@@ -30,6 +31,7 @@ const router = express.Router();
 router.get('/profile/:id', getUserProfile);
 router.get('/search', searchProviders);
 router.get('/locations', getLocations);
+router.get('/filter-options', getFilterOptions);
 
 // Test route to verify public access
 router.get('/test-public', (req, res) => {
@@ -46,13 +48,15 @@ router.post(
   ]),
   uploadAadhar
 );
+// Public portfolio upload (used during registration — no auth token yet)
+router.post('/upload-portfolio-public', uploadMedia.single('photo'), uploadPortfolio);
 
 // Private routes
 router.use(protect);
 
 // Authenticated file upload routes
 router.post('/profile-photo', uploadImage.single('photo'), uploadProfilePhoto);
-router.post('/portfolio', uploadImage.single('photo'), uploadPortfolio);
+router.post('/portfolio', uploadMedia.single('photo'), uploadPortfolio);
 router.post(
   '/aadhar-upload',
   upload.fields([

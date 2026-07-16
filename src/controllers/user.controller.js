@@ -162,12 +162,7 @@ const uploadProfilePhoto = async (req, res, next) => {
 // @access  Private
 const uploadAadhar = async (req, res, next) => {
   try {
-    const { aadharNumber } = req.body;
     const files = req.files;
-
-    if (!aadharNumber) {
-      return next(new AppError("Aadhar number is required", 400));
-    }
 
     if (!files || !files.front) {
       return next(new AppError("Please upload Aadhar card document", 400));
@@ -198,7 +193,6 @@ const uploadAadhar = async (req, res, next) => {
       user = await User.findByIdAndUpdate(
         req.user._id,
         {
-          aadharNumber,
           aadharDocuments: {
             front: frontResult.url,
             back: backResult ? backResult.url : "",
@@ -217,7 +211,6 @@ const uploadAadhar = async (req, res, next) => {
       success: true,
       message: "Aadhar documents uploaded successfully. Verification pending.",
       data: {
-        aadharNumber,
         aadharDocuments: user?.aadharDocuments || aadharDocuments,
         front: frontResult.url, // Ensure both formats are available
         back: backResult ? backResult.url : "",
@@ -903,6 +896,9 @@ const searchProviders = async (req, res, next) => {
       maxPrice,
       consultationType,
       recommended,
+      lat,        // user latitude for proximity sort
+      lng,        // user longitude for proximity sort
+      sortByDistance,
       page = 1,
       limit = 20,
     } = req.query;
@@ -997,12 +993,50 @@ const searchProviders = async (req, res, next) => {
       query.isRecommended = true;
     }
 
-    const providers = await User.find(query)
-      .select("-wallet -earnings -bankDetails -password")
-      .populate("serviceCategories")
-      .sort({ "rating.average": -1, isOnline: -1 })
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .limit(parseInt(limit));
+    let providers;
+
+    if (sortByDistance === 'true' && lat && lng) {
+      // ── Proximity sort: fetch all matching, then sort by distance in JS ──
+      // (MongoDB $near requires a 2dsphere index — JS sort is simpler for now)
+      const userLat = parseFloat(lat);
+      const userLng = parseFloat(lng);
+
+      const calcDist = (p) => {
+        const pLat = p.place?.coordinates?.lat;
+        const pLng = p.place?.coordinates?.lng;
+        if (!pLat || !pLng) return 999999;
+        const dLat = (pLat - userLat) * 111000;
+        const dLng = (pLng - userLng) * 111000 * Math.cos((userLat * Math.PI) / 180);
+        return Math.sqrt(dLat * dLat + dLng * dLng);
+      };
+
+      const allMatching = await User.find(query)
+        .select('-wallet -earnings -bankDetails -password')
+        .populate('serviceCategories')
+        .limit(500); // cap to avoid memory issues
+
+      // Sort by distance, then by rating for equal distances
+      allMatching.sort((a, b) => {
+        const dA = calcDist(a);
+        const dB = calcDist(b);
+        if (Math.abs(dA - dB) < 1000) { // within 1km — sort by rating
+          return (b.rating?.average || 0) - (a.rating?.average || 0);
+        }
+        return dA - dB;
+      });
+
+      // Paginate after sorting
+      const startIdx = (parseInt(page) - 1) * parseInt(limit);
+      providers = allMatching.slice(startIdx, startIdx + parseInt(limit));
+    } else {
+      // ── Default sort: rating desc ──
+      providers = await User.find(query)
+        .select('-wallet -earnings -bankDetails -password')
+        .populate('serviceCategories')
+        .sort({ 'rating.average': -1, isOnline: -1 })
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .limit(parseInt(limit));
+    }
 
     const total = await User.countDocuments(query);
 
@@ -1038,7 +1072,7 @@ const getUserDocuments = async (req, res, next) => {
     const ensureFullUrl = (url) => {
       if (!url) return null;
       if (url.startsWith("http")) return url;
-      const baseUrl = process.env.BASE_URL || "https://quickchatindia.com";
+      const baseUrl = process.env.BASE_URL || "http://192.168.1.32:5001";
       return url.startsWith("/") ? `${baseUrl}${url}` : `${baseUrl}/${url}`;
     };
 
@@ -1590,6 +1624,56 @@ const getLocations = async (req, res, next) => {
   }
 };
 
+// @desc    Get all distinct filter options (professions, skills, languages) from ALL verified providers
+// @route   GET /api/users/filter-options
+// @access  Public
+const getFilterOptions = async (req, res, next) => {
+  try {
+    const baseMatch = {
+      isServiceProvider: true,
+      isProfileHidden: false,
+      status: 'active',
+      providerVerificationStatus: 'verified',
+    };
+
+    const [professions, skills, languages] = await Promise.all([
+      // Distinct professions
+      User.aggregate([
+        { $match: { ...baseMatch, profession: { $exists: true, $ne: '', $ne: null } } },
+        { $group: { _id: { $toLower: { $trim: { input: '$profession' } } }, display: { $first: { $trim: { input: '$profession' } } } } },
+        { $sort: { display: 1 } },
+      ]),
+      // Distinct skills
+      User.aggregate([
+        { $match: baseMatch },
+        { $unwind: '$skills' },
+        { $match: { skills: { $exists: true, $ne: '', $ne: null } } },
+        { $group: { _id: { $toLower: { $trim: { input: '$skills' } } }, display: { $first: { $trim: { input: '$skills' } } } } },
+        { $sort: { display: 1 } },
+      ]),
+      // Distinct languages
+      User.aggregate([
+        { $match: baseMatch },
+        { $unwind: '$languagesKnown' },
+        { $match: { languagesKnown: { $exists: true, $ne: '', $ne: null } } },
+        { $group: { _id: { $toLower: { $trim: { input: '$languagesKnown' } } }, display: { $first: { $trim: { input: '$languagesKnown' } } } } },
+        { $sort: { display: 1 } },
+      ]),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        profession: professions.map(p => p.display).filter(Boolean),
+        skill:      skills.map(s => s.display).filter(Boolean),
+        language:   languages.map(l => l.display).filter(Boolean),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateProfile,
@@ -1603,6 +1687,7 @@ module.exports = {
   updateBankDetails,
   searchProviders,
   getLocations,
+  getFilterOptions,
   getUserDocuments,
   updateDocument,
   deleteDocument,

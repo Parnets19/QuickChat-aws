@@ -67,8 +67,31 @@ const uploadImage = multer({
   },
 });
 
+// Media filter (images + videos)
+const mediaFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp|mp4|mov|avi|mkv|3gp|webm/;
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedTypes.test(file.mimetype) || file.mimetype.startsWith('video/') || file.mimetype.startsWith('image/');
+
+  if (extname && mimetype) {
+    return cb(null, true);
+  } else {
+    cb(new AppError('Invalid file type. Only images and videos are allowed.', 400));
+  }
+};
+
+// Media upload middleware
+const uploadMedia = multer({
+  storage,
+  fileFilter: mediaFilter,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB max for videos
+  },
+});
+
 module.exports = {
   upload,
   uploadImage,
+  uploadMedia,
 };
 

@@ -5,9 +5,6 @@ const adminGuestController = require('../controllers/adminGuest.controller');
 const broadcastController = require('../controllers/broadcastNotification.controller');
 const { protect, adminOnly } = require('../middlewares/auth');
 
-// Public route to create admin user (no authentication required)
-router.post('/create-admin', adminController.createAdminUser);
-
 // Test route (no authentication required)
 router.get('/test', (req, res) => {
   res.json({
@@ -17,24 +14,10 @@ router.get('/test', (req, res) => {
   });
 });
 
-// Debug route to check authentication status
-router.get('/debug-auth', protect, (req, res) => {
-  res.json({
-    success: true,
-    user: {
-      id: req.user._id,
-      email: req.user.email,
-      fullName: req.user.fullName,
-      isServiceProvider: req.user.isServiceProvider,
-      isAdmin: req.user.isAdmin,
-      status: req.user.status
-    },
-    message: 'Authentication successful'
-  });
-});
-
-// Temporary route to make current user admin (only requires authentication)
-router.post('/make-me-admin', protect, adminController.makeCurrentUserAdmin);
+// SECURITY: The previous /create-admin, /make-me-admin, and /debug-auth routes
+// were removed. There is exactly ONE admin (the Admin-model account managed via
+// /api/admin-auth/setup + /api/admin-auth/login). No regular user can become an
+// admin, so self-service admin creation/promotion endpoints must not exist.
 
 // Apply authentication and admin-only middleware to all other routes
 router.use(protect);

@@ -15,8 +15,8 @@ const CLIENT_ID     = process.env.PHONEPE_CLIENT_ID     || "SU260227171022336142
 const CLIENT_SECRET = process.env.PHONEPE_CLIENT_SECRET || "a0755144-e7c6-4e0d-a71f-42681b4faf0b";
 const CLIENT_VER    = process.env.PHONEPE_CLIENT_VERSION || "1";
 
-const CALLBACK_URL  = process.env.PHONEPE_CALLBACK_URL  || "https://quickchatindia.com";
-const BACKEND_URL   = process.env.BACKEND_URL           || "https://quickchatindia.com";
+const CALLBACK_URL  = process.env.PHONEPE_CALLBACK_URL  || "http://192.168.1.32:5001";
+const BACKEND_URL   = process.env.BACKEND_URL           || "http://192.168.1.32:5001";
 const MERCHANT_ID   = process.env.PHONEPE_MERCHANT_ID   || "M2352B2GR2M1V";
 
 const PAY_URL = IS_PROD

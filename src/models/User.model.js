@@ -11,10 +11,10 @@ const UserSchema = new mongoose.Schema(
     },
     email: {
       type: String,
-      required: [true, "Email is required"],
       trim: true,
       lowercase: true,
       unique: true,
+      sparse: true,
     },
     mobile: {
       type: String,
@@ -37,6 +37,10 @@ const UserSchema = new mongoose.Schema(
       city: String,
       state: String,
       country: String,
+      coordinates: {
+        lat: { type: Number, default: null },
+        lng: { type: Number, default: null },
+      },
     },
     profession: String,
     education: String,
@@ -87,6 +91,10 @@ const UserSchema = new mongoose.Schema(
         default: true,
       },
       video: {
+        type: Boolean,
+        default: true,
+      },
+      live: {
         type: Boolean,
         default: true,
       },
@@ -161,6 +169,10 @@ const UserSchema = new mongoose.Schema(
         default: 0,
       },
       video: {
+        type: Number,
+        default: 0,
+      },
+      live: {
         type: Number,
         default: 0,
       },
@@ -386,6 +398,20 @@ const UserSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Follow system
+    following: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    followers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+
     // Block and Report functionality
     blockedUsers: [
       {
@@ -443,6 +469,7 @@ const UserSchema = new mongoose.Schema(
 
 // Index for better query performance (unique indexes handled by schema)
 UserSchema.index({ "place.city": 1 });
+UserSchema.index({ "place.coordinates.lat": 1, "place.coordinates.lng": 1 });
 UserSchema.index({ skills: 1 });
 UserSchema.index({ isServiceProvider: 1 });
 UserSchema.index({ "rating.average": -1 });

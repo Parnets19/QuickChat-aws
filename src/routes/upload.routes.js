@@ -4,7 +4,7 @@ const {
   uploadAadhar,
   uploadPortfolio,
 } = require('../controllers/user.controller');
-const { uploadImage, upload } = require('../middlewares/upload');
+const { uploadImage, uploadMedia, upload } = require('../middlewares/upload');
 
 const router = express.Router();
 
@@ -18,7 +18,7 @@ router.post(
   ]),
   uploadAadhar
 );
-router.post('/portfolio', uploadImage.single('photo'), uploadPortfolio);
+router.post('/portfolio', uploadMedia.single('photo'), uploadPortfolio);
 
 // Test route
 router.get('/test', (req, res) => {
