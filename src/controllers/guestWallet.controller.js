@@ -47,8 +47,8 @@ const addMoneyToWallet = async (req, res, next) => {
       return next(new AppError("Please provide a valid amount", 400));
     }
 
-    if (amount < 10) {
-      return next(new AppError("Minimum amount to add is ₹10", 400));
+    if (amount < 1) {
+      return next(new AppError("Minimum amount to add is ₹1", 400));
     }
 
     if (amount > 50000) {

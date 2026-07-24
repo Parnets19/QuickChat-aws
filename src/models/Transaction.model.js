@@ -55,6 +55,7 @@ const TransactionSchema = new mongoose.Schema(
         "fee",
         "adjustment",
         "transfer",
+        "live-stream",
       ],
       required: true,
     },

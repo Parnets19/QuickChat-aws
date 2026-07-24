@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
-const { User, Guest, Consultation } = require("../models");
-const { logger } = require("../utils/logger");
+const { User, Guest, Consultation } = require('../models');
+const { logger } = require('../utils/logger');
+const liveStreamSocket = require('./liveStreamSocket');
 
 const onlineUsers = new Map(); // userId -> socketIds[]
 const callTimeouts = new Map(); // consultationId -> timeoutId
@@ -244,6 +245,9 @@ const initializeSocket = (io) => {
 
         // Only notify others if this is a new join and there are other participants
         if (participantCount > 1) {
+          // Get participant name for display
+          const joiningUser = await User.findById(userId).select('fullName profilePhoto');
+          
           socket
             .to(`consultation:${data.consultationId}`)
             .emit("participant:joined", {
@@ -251,6 +255,17 @@ const initializeSocket = (io) => {
               isProvider: isProvider,
               participantCount: participantCount,
             });
+
+          // If 3rd+ participant joining — emit participant:added so ALL existing users can show them
+          if (participantCount >= 3) {
+            io.to(`consultation:${data.consultationId}`).emit("participant:added", {
+              participantId: userId,
+              participantName: joiningUser?.fullName || 'Adviser',
+              participantPhoto: joiningUser?.profilePhoto || null,
+              joinedAt: Date.now(),
+              consultationId: data.consultationId,
+            });
+          }
         }
 
         logger.info(
@@ -485,53 +500,62 @@ const initializeSocket = (io) => {
           notificationData
         );
 
-        // 🔔 ALWAYS SEND PUSH NOTIFICATION FOR CHAT MESSAGES
-        // Let the mobile app decide whether to show it based on foreground state
-        // This ensures notifications work even if app is in background or device is locked
-        console.log(`📱 Sending push notification for chat message to user ${otherUserId}`);
-        console.log(`📊 User status: online=${isOtherUserOnline}, inThisChat=${isOtherUserInThisChat}`);
-        
-        try {
-          const notificationTemplates = require('../utils/notificationTemplates');
-          
-          // Determine user type
-          let userType = 'user';
-          const Guest = require('../models/Guest.model');
-          const isGuest = await Guest.findById(otherUserId);
-          if (isGuest) {
-            userType = 'guest';
-            console.log(`👤 User ${otherUserId} is a GUEST`);
-          } else {
-            console.log(`👤 User ${otherUserId} is a REGULAR USER`);
-          }
-          
-          console.log(`📤 Sending notification to ${userType}:`, {
-            userId: otherUserId,
-            title: `New message from ${senderName}`,
-            message: data.message.substring(0, 50),
-            consultationId: data.consultationId
+        // 🔔 Send push notification only if the other user is NOT actively viewing this chat
+        // If both users are in the same chat room, no notification needed — they can see the message directly
+        if (otherUserId === userId) {
+          // Sender and receiver are the same user — skip (shouldn't happen but guard it)
+          console.log(`⚠️ Sender === receiver, skipping notification`);
+        } else if (isOtherUserInThisChat) {
+          console.log(`💬 Both users in same chat room — skipping push notification`);
+        } else {
+          // Non-blocking: fire and forget so the message response isn't held up
+          Promise.resolve().then(async () => {
+            try {
+              const notificationTemplates = require('../utils/notificationTemplates');
+              const Guest = require('../models/Guest.model');
+              const isGuest = await Guest.findById(otherUserId);
+              const userType = isGuest ? 'guest' : 'user';
+
+              const result = await notificationTemplates.custom(
+                otherUserId,
+                userType,
+                `New message from ${senderName}`,
+                data.message.length > 50 ? data.message.substring(0, 50) + '...' : data.message,
+                'consultation',
+                {
+                  consultationId: data.consultationId,
+                  senderId: userId,
+                  senderName: senderName,
+                  messageType: data.type || 'text',
+                  action: 'new_message'
+                },
+                io,
+                { saveToDatabase: false }
+              );
+
+              // Push delivered → show double tick on sender's screen
+              // The receiver got the notification (message was delivered to their device)
+              if (savedMessage?._id) {
+                // Emit to consultation room AND sender's personal room for reliability
+                io.to(`consultation:${data.consultationId}`).emit('consultation:messageStatus', {
+                  messageId: savedMessage._id,
+                  status: 'delivered',
+                });
+                io.to(`user:${userId}`).emit('consultation:messageStatus', {
+                  messageId: savedMessage._id,
+                  status: 'delivered',
+                });
+                // Update DB
+                const savedMsg = consultation.messages.id(savedMessage._id);
+                if (savedMsg && savedMsg.status !== 'read') {
+                  savedMsg.status = 'delivered';
+                  await consultation.save();
+                }
+              }
+            } catch (notifError) {
+              console.error('❌ Failed to send chat push notification:', notifError.message);
+            }
           });
-          
-          // Send custom notification for chat message
-          await notificationTemplates.custom(
-            otherUserId,
-            userType,
-            `New message from ${senderName}`,
-            data.message.length > 50 ? data.message.substring(0, 50) + '...' : data.message,
-            'consultation',
-            {
-              consultationId: data.consultationId,
-              senderId: userId,
-              senderName: senderName,
-              messageType: data.type || 'text',
-              action: 'new_message'
-            },
-            io
-          );
-          console.log(`✅ Push notification sent to user ${otherUserId}`);
-        } catch (notifError) {
-          console.error('❌ Failed to send chat push notification:', notifError);
-          console.error('❌ Error details:', notifError.stack);
         }
 
         logger.info(
@@ -1077,6 +1101,30 @@ const initializeSocket = (io) => {
 
     socket.on("webrtc:ice-candidate", handleWebRTCIceCandidate); // Mobile format
     socket.on("ice-candidate", handleWebRTCIceCandidate); // Web format
+
+    // BILLING SAFETY: Record the exact moment WebRTC actually connected.
+    // This is used as the TRUE billing start time in endConsultation.
+    // If this event never arrives (call failed to connect), webrtcConnectedAt
+    // stays null and endConsultation charges nothing — protecting the client.
+    socket.on("webrtc:connected", async (data) => {
+      try {
+        const { consultationId, connectedAt } = data;
+        if (!consultationId) return;
+
+        const Consultation = require('../models/Consultation.model');
+        const consultation = await Consultation.findById(consultationId);
+        if (!consultation) return;
+
+        // Only set once — don't overwrite if already set
+        if (!consultation.webrtcConnectedAt) {
+          consultation.webrtcConnectedAt = connectedAt ? new Date(connectedAt) : new Date();
+          await consultation.save();
+          console.log(`✅ BILLING: webrtcConnectedAt recorded for ${consultationId}:`, consultation.webrtcConnectedAt);
+        }
+      } catch (err) {
+        console.error('❌ Error recording webrtcConnectedAt:', err?.message);
+      }
+    });
 
     // CRITICAL FIX: Handle ready-to-receive signal from answerer
     socket.on("webrtc:ready-to-receive", (data) => {
@@ -1955,52 +2003,10 @@ const initializeSocket = (io) => {
         success: true,
       });
       
-      // CRITICAL FIX: When user joins chat, mark their unread messages as read
-      // This triggers blue ticks for the sender
-      try {
-        const ChatMessage = require('../models/ChatMessage');
-        const Chat = require('../models/Chat');
-        
-        // Find the chat
-        const chat = await Chat.findById(chatId);
-        if (chat) {
-          // Find unread messages sent TO this user (not sent BY this user)
-          const unreadMessages = await ChatMessage.find({
-            chat: chatId,
-            sender: { $ne: userId },
-            status: { $in: ['sent', 'delivered'] },
-          });
-          
-          if (unreadMessages.length > 0) {
-            console.log(`📖 BACKEND: User ${userId} joined chat, marking ${unreadMessages.length} messages as read`);
-            
-            // Update all unread messages to 'read'
-            await ChatMessage.updateMany(
-              {
-                chat: chatId,
-                sender: { $ne: userId },
-                status: { $in: ['sent', 'delivered'] },
-              },
-              {
-                status: 'read',
-                readAt: new Date(),
-              }
-            );
-            
-            // Emit read status for each message to trigger blue ticks
-            unreadMessages.forEach((msg) => {
-              socket.to(roomName).emit("consultation:messageStatus", {
-                messageId: msg._id,
-                status: "read",
-              });
-            });
-            
-            console.log(`✅ BACKEND: Marked ${unreadMessages.length} messages as read and emitted blue tick updates`);
-          }
-        }
-      } catch (error) {
-        console.error('❌ BACKEND: Error marking messages as read on join:', error);
-      }
+      // NOTE: Do NOT auto-mark messages as read on room join.
+      // Messages should only be marked as read when the client explicitly
+      // sends 'chat:markAsRead' — this ensures unread badges work correctly
+      // when the user is not actively viewing the chat.
     });
 
     // Handle chat message sending
@@ -2214,7 +2220,36 @@ const initializeSocket = (io) => {
         console.log(`🛡️ Admin ${socket.data.userId} joined admin_support room`);
       }
     });
+
+    // Admin joins notification room
+    socket.on("join:admin_room", () => {
+      if (socket.data.user?.role === 'admin' || socket.data.user?.isAdmin) {
+        socket.join('admin_room');
+        console.log(`🔔 Admin ${socket.data.userId} joined admin_room for notifications`);
+      }
+    });
     // ===== END SUPPORT CHAT ROOM HANDLERS =====
+
+    // ===== LIVE STREAM SOCKET HANDLERS =====
+    const liveStreamHandlers = liveStreamSocket(io);
+    socket.on('live-stream:join', (data) => liveStreamHandlers.joinLiveStreamRoom(socket, data));
+    socket.on('live-stream:leave', (data) => liveStreamHandlers.leaveLiveStreamRoom(socket, data));
+    socket.on('live-stream:message', (data) => liveStreamHandlers.sendLiveStreamMessage(socket, data));
+    socket.on('live-stream:like', (data) => liveStreamHandlers.handleLike(socket, data));
+    // Forward WebRTC signaling for live-stream rooms when present
+    socket.on('webrtc:offer', (data) => {
+      if (data && data.liveStreamId) return liveStreamHandlers.handleWebRTCOffer(socket, data);
+    });
+    socket.on('webrtc:answer', (data) => {
+      if (data && data.liveStreamId) return liveStreamHandlers.handleWebRTCAnswer(socket, data);
+    });
+    socket.on('webrtc:ice-candidate', (data) => {
+      if (data && data.liveStreamId) return liveStreamHandlers.handleWebRTCIceCandidate(socket, data);
+    });
+    socket.on('webrtc:ready-to-receive', (data) => {
+      if (data && data.liveStreamId) return liveStreamHandlers.handleReadyToReceive(socket, data);
+    });
+    // ===== END LIVE STREAM SOCKET HANDLERS =====
 
     // Handle disconnect
     socket.on("disconnect", () => {

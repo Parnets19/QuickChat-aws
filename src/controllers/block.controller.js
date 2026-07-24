@@ -174,6 +174,15 @@ const checkBlockStatus = async (req, res, next) => {
     const currentUserId = req.user.id || req.user._id;
 
     const currentUser = await User.findById(currentUserId);
+
+    // Guest users are not in the User collection — no block relationships
+    if (!currentUser) {
+      return res.status(200).json({
+        success: true,
+        data: { isBlockedByMe: false, isBlockedByThem: false, isBlocked: false },
+      });
+    }
+
     const otherUser = await User.findById(userId);
 
     // If other user doesn't exist (deleted account), return safe defaults

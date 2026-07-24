@@ -2,6 +2,14 @@ const { User, Consultation, Review, Transaction } = require("../models");
 const Notification = require("../models/Notification.model");
 const { AppError } = require("../middlewares/errorHandler");
 const { uploadToCloudinary } = require("../utils/cloudinary");
+const fs = require("fs");
+const path = require("path");
+
+// Absolute path to uploads directory — avoids process.cwd() returning /root
+const UPLOADS_DIR = path.join(__dirname, "../../uploads");
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true, mode: 0o755 });
+}
 
 // @desc    Get user profile
 // @route   GET /api/users/profile/:id
@@ -34,6 +42,17 @@ const getUserProfile = async (req, res, next) => {
     // Don't show hidden profiles
     if (user.isProfileHidden) {
       return next(new AppError("Profile not available", 404));
+    }
+
+    // Don't show unverified provider profiles to others
+    if (user.isServiceProvider && user.providerVerificationStatus !== 'verified') {
+      return next(new AppError("This provider's profile is not yet available", 404));
+    }
+
+    // Increment profile views (don't count self-views)
+    const viewerId = req.user?._id?.toString();
+    if (user.isServiceProvider && viewerId !== req.params.id) {
+      User.findByIdAndUpdate(req.params.id, { $inc: { profileViews: 1 } }).catch(() => {});
     }
 
     res.status(200).json({
@@ -101,15 +120,6 @@ const uploadProfilePhoto = async (req, res, next) => {
     console.log("🔍 Upload Debug - File name:", req.file.filename);
     console.log("🔍 Upload Debug - Original name:", req.file.originalname);
 
-    // Ensure uploads directory exists
-    const fs = require("fs");
-    const path = require("path");
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      console.log("✅ Created uploads directory");
-    }
-
     const result = await uploadToCloudinary(req.file.path, "skillhub/profiles");
 
     console.log("🔍 Upload Debug - Result URL:", result.url);
@@ -152,24 +162,10 @@ const uploadProfilePhoto = async (req, res, next) => {
 // @access  Private
 const uploadAadhar = async (req, res, next) => {
   try {
-    const { aadharNumber } = req.body;
     const files = req.files;
-
-    if (!aadharNumber) {
-      return next(new AppError("Aadhar number is required", 400));
-    }
 
     if (!files || !files.front) {
       return next(new AppError("Please upload Aadhar card document", 400));
-    }
-
-    // Ensure uploads directory exists
-    const fs = require("fs");
-    const path = require("path");
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      console.log("✅ Created uploads directory");
     }
 
     const frontResult = await uploadToCloudinary(
@@ -197,7 +193,6 @@ const uploadAadhar = async (req, res, next) => {
       user = await User.findByIdAndUpdate(
         req.user._id,
         {
-          aadharNumber,
           aadharDocuments: {
             front: frontResult.url,
             back: backResult ? backResult.url : "",
@@ -216,7 +211,6 @@ const uploadAadhar = async (req, res, next) => {
       success: true,
       message: "Aadhar documents uploaded successfully. Verification pending.",
       data: {
-        aadharNumber,
         aadharDocuments: user?.aadharDocuments || aadharDocuments,
         front: frontResult.url, // Ensure both formats are available
         back: backResult ? backResult.url : "",
@@ -235,15 +229,6 @@ const uploadPortfolio = async (req, res, next) => {
   try {
     if (!req.file) {
       return next(new AppError("Please upload a file", 400));
-    }
-
-    // Ensure uploads directory exists
-    const fs = require("fs");
-    const path = require("path");
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      console.log("✅ Created uploads directory");
     }
 
     const result = await uploadToCloudinary(
@@ -364,6 +349,7 @@ const updateProviderSettings = async (req, res, next) => {
       "rates",
       "availability",
       "portfolioMedia",
+      "professionVideo",
     ];
 
     const updateData = {};
@@ -472,6 +458,10 @@ const updateProviderSettings = async (req, res, next) => {
               ? updateData.rates.perMinute?.audioVideo || 0
               : updateData.rates.perHour?.audioVideo || 0
             : currentRates.video || 0,
+        live:
+          updateData.rates.live !== undefined
+            ? updateData.rates.live
+            : currentRates.live || 0,
         chargeType:
           updateData.rates.chargeType ||
           updateData.rates.defaultChargeType ||
@@ -600,6 +590,60 @@ const getDashboard = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .limit(5);
 
+      // Enrich with Guest names when populate returns null (Mixed type field)
+      const Guest = require('../models/Guest.model');
+      const guestIds = providerConsultations
+        .filter(c => c.userType === 'Guest' && c.user && !c.user?.fullName)
+        .map(c => c.user.toString());
+      const uniqueGuestIds = [...new Set(guestIds)];
+      const guests = uniqueGuestIds.length > 0
+        ? await Guest.find({ _id: { $in: uniqueGuestIds } }).select('name mobile').lean()
+        : [];
+      const guestMap = {};
+      guests.forEach(g => { guestMap[g._id.toString()] = g; });
+
+      // Enrich with regular User names when populate fails (user stored as string)
+      const regularUserIds = providerConsultations
+        .filter(c => {
+          // If user is already populated (has fullName), skip
+          if (c.user && typeof c.user === 'object' && c.user.fullName) return false;
+          // If it's a guest, skip (handled above)
+          if (c.userType === 'Guest') return false;
+          // User field exists but wasn't populated
+          return !!c.user;
+        })
+        .map(c => typeof c.user === 'string' ? c.user : (c.user?._id || c.user).toString());
+      const uniqueRegularUserIds = [...new Set(regularUserIds)];
+      const regularUsers = uniqueRegularUserIds.length > 0
+        ? await User.find({ _id: { $in: uniqueRegularUserIds } }).select('fullName profilePhoto').lean()
+        : [];
+      const regularUserMap = {};
+      regularUsers.forEach(u => { regularUserMap[u._id.toString()] = u; });
+
+      const enrichedProviderConsultations = providerConsultations.map(c => {
+        const plain = c.toObject ? c.toObject() : c;
+        // Check if user is already populated with fullName
+        if (plain.user && typeof plain.user === 'object' && plain.user.fullName) {
+          return plain; // Already has name, skip
+        }
+        // User needs enrichment
+        const userIdStr = typeof plain.user === 'string' ? plain.user : (plain.user?._id || plain.user || '').toString();
+        if (plain.userType === 'Guest') {
+          const guest = guestMap[userIdStr];
+          if (guest) {
+            plain.user = { _id: guest._id, fullName: guest.name, profilePhoto: null, isGuest: true };
+          } else {
+            plain.user = { _id: userIdStr, fullName: 'Guest User', profilePhoto: null, isGuest: true };
+          }
+        } else if (userIdStr) {
+          const regularUser = regularUserMap[userIdStr];
+          if (regularUser) {
+            plain.user = { _id: regularUser._id, fullName: regularUser.fullName, profilePhoto: regularUser.profilePhoto };
+          }
+        }
+        return plain;
+      });
+
       const pendingWithdrawals = await Transaction.aggregate([
         { $match: { user: userId, type: "withdrawal", status: "pending" } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -608,7 +652,7 @@ const getDashboard = async (req, res, next) => {
       const profileViews = req.user?.profileViews || 0;
 
       providerStats = {
-        providerConsultations,
+        providerConsultations: enrichedProviderConsultations,
         pendingWithdrawals: pendingWithdrawals[0]?.total || 0,
         profileViews,
         monthlyEarnings: req.user?.monthlyEarnings || 0,
@@ -639,13 +683,33 @@ const getDashboard = async (req, res, next) => {
     ]);
 
     // Get consultations where user was the client (spent money)
-    const clientConsultations = await Consultation.find({
+    const clientConsultationsRaw = await Consultation.find({
       user: userIdString, // Use string format since database stores as strings
       status: "completed",
     })
-      .populate("provider", "fullName profilePhoto")
       .sort({ createdAt: -1 })
-      .limit(5);
+      .limit(5)
+      .lean(); // Use lean() for plain objects
+
+    // Manually enrich provider names (populate can fail on Mixed fields)
+    const clientProviderIds = clientConsultationsRaw
+      .map(c => (c.provider || '').toString())
+      .filter(id => id && id.length === 24);
+    const uniqueClientProviderIds = [...new Set(clientProviderIds)];
+    const clientProviderLookup = uniqueClientProviderIds.length > 0
+      ? await User.find({ _id: { $in: uniqueClientProviderIds } }).select('fullName profilePhoto').lean()
+      : [];
+    const clientProviderMap = {};
+    clientProviderLookup.forEach(p => { clientProviderMap[p._id.toString()] = p; });
+
+    const clientConsultations = clientConsultationsRaw.map(c => {
+      const provIdStr = (c.provider || '').toString();
+      const prov = clientProviderMap[provIdStr];
+      if (prov) {
+        c.provider = { _id: prov._id, fullName: prov.fullName, profilePhoto: prov.profilePhoto };
+      }
+      return c;
+    });
 
     const userStats = {
       userActivity,
@@ -837,6 +901,9 @@ const searchProviders = async (req, res, next) => {
       maxPrice,
       consultationType,
       recommended,
+      lat,        // user latitude for proximity sort
+      lng,        // user longitude for proximity sort
+      sortByDistance,
       page = 1,
       limit = 20,
     } = req.query;
@@ -895,7 +962,18 @@ const searchProviders = async (req, res, next) => {
     }
 
     if (city) {
-      query["place.city"] = new RegExp(city, "i");
+      // Search across all place sub-fields: village, town, city, state
+      const locationRegex = new RegExp(city, "i");
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { "place.village": locationRegex },
+          { "place.town":    locationRegex },
+          { "place.city":    locationRegex },
+          { "place.state":   locationRegex },
+          { "place.country": locationRegex },
+        ],
+      });
     }
 
     if (gender) {
@@ -920,12 +998,50 @@ const searchProviders = async (req, res, next) => {
       query.isRecommended = true;
     }
 
-    const providers = await User.find(query)
-      .select("-wallet -earnings -bankDetails -password")
-      .populate("serviceCategories")
-      .sort({ "rating.average": -1, isOnline: -1 })
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .limit(parseInt(limit));
+    let providers;
+
+    if (sortByDistance === 'true' && lat && lng) {
+      // ── Proximity sort: fetch all matching, then sort by distance in JS ──
+      // (MongoDB $near requires a 2dsphere index — JS sort is simpler for now)
+      const userLat = parseFloat(lat);
+      const userLng = parseFloat(lng);
+
+      const calcDist = (p) => {
+        const pLat = p.place?.coordinates?.lat;
+        const pLng = p.place?.coordinates?.lng;
+        if (!pLat || !pLng) return 999999;
+        const dLat = (pLat - userLat) * 111000;
+        const dLng = (pLng - userLng) * 111000 * Math.cos((userLat * Math.PI) / 180);
+        return Math.sqrt(dLat * dLat + dLng * dLng);
+      };
+
+      const allMatching = await User.find(query)
+        .select('-wallet -earnings -bankDetails -password')
+        .populate('serviceCategories')
+        .limit(500); // cap to avoid memory issues
+
+      // Sort by distance, then by rating for equal distances
+      allMatching.sort((a, b) => {
+        const dA = calcDist(a);
+        const dB = calcDist(b);
+        if (Math.abs(dA - dB) < 1000) { // within 1km — sort by rating
+          return (b.rating?.average || 0) - (a.rating?.average || 0);
+        }
+        return dA - dB;
+      });
+
+      // Paginate after sorting
+      const startIdx = (parseInt(page) - 1) * parseInt(limit);
+      providers = allMatching.slice(startIdx, startIdx + parseInt(limit));
+    } else {
+      // ── Default sort: rating desc ──
+      providers = await User.find(query)
+        .select('-wallet -earnings -bankDetails -password')
+        .populate('serviceCategories')
+        .sort({ 'rating.average': -1, isOnline: -1 })
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .limit(parseInt(limit));
+    }
 
     const total = await User.countDocuments(query);
 
@@ -996,9 +1112,9 @@ const getUserDocuments = async (req, res, next) => {
         // Otherwise, prepend 'uploads/'
         let fullPath;
         if (fileName.startsWith("uploads/")) {
-          fullPath = fileName;
+          fullPath = path.join(__dirname, "../../", fileName);
         } else {
-          fullPath = path.join("uploads", fileName);
+          fullPath = path.join(__dirname, "../../uploads", fileName);
         }
 
         console.log(
@@ -1333,6 +1449,236 @@ const getVerificationStatus = async (req, res, next) => {
   }
 };
 
+// ── Deactivate account (user-initiated) ──────────────────────────────────────
+const deactivateAccount = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          status: 'inactive',
+          // NOTE: isProfileHidden is NOT set here — admin controls visibility separately.
+          // status: 'inactive' already removes the user from search results.
+          isOnline: false,
+          consultationStatus: 'offline',
+          fcmTokens: [], // Clear push tokens so no notifications
+          deactivatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    if (!user) return next(new AppError('User not found', 404));
+
+    // Notify via socket if connected
+    if (req.io) {
+      req.io.to(`user:${userId}`).emit('account:deactivated');
+    }
+
+    // Notify admin panel
+    const { createAdminNotification } = require('../utils/notifications');
+    await createAdminNotification({
+      title: 'User Deactivated Account',
+      message: `${user.fullName} has deactivated their account.`,
+      type: 'account_deactivated',
+      triggeredBy: userId,
+      affectedUser: userId,
+      io: req.io,
+    }).catch(() => {});
+
+    res.status(200).json({
+      success: true,
+      message: 'Account deactivated successfully. Log in again to reactivate.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ── Reactivate account (user-initiated) ──────────────────────────────────────
+const reactivateAccount = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          status: 'active',
+          // NOTE: isProfileHidden is intentionally NOT reset here.
+          // The user may have hidden their profile before deactivating — preserve that choice.
+          deactivatedAt: null,
+          reactivatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    if (!user) return next(new AppError('User not found', 404));
+
+    res.status(200).json({
+      success: true,
+      message: 'Account reactivated successfully.',
+      data: { status: user.status },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ── Request account deletion ──────────────────────────────────────────────────
+const requestAccountDeletion = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { reason } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          status: 'inactive',
+          // NOTE: isProfileHidden is NOT set here — admin controls visibility separately.
+          isOnline: false,
+          consultationStatus: 'offline',
+          fcmTokens: [],
+          deletionRequested: true,
+          deletionRequestedAt: new Date(),
+          deletionReason: reason || '',
+        },
+      },
+      { new: true }
+    );
+
+    if (!user) return next(new AppError('User not found', 404));
+
+    // Notify admin via socket
+    if (req.io) {
+      req.io.emit('admin:deletion_request', {
+        userId: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        mobile: user.mobile,
+        reason: reason || '',
+        requestedAt: new Date(),
+      });
+    }
+
+    // Create admin notification
+    const { createAdminNotification } = require('../utils/notifications');
+    await createAdminNotification({
+      title: 'Account Deletion Request',
+      message: `${user.fullName} has requested account deletion.${reason ? ` Reason: ${reason}` : ''}`,
+      type: 'deletion_request',
+      triggeredBy: userId,
+      affectedUser: userId,
+      io: req.io,
+    }).catch(() => {});
+
+    res.status(200).json({
+      success: true,
+      message: 'Deletion request submitted. Admin will review within 48 hours.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get all distinct location values from verified providers
+// @route   GET /api/users/locations
+// @access  Public
+const getLocations = async (req, res, next) => {
+  try {
+    // Aggregate all non-empty place sub-fields from verified, active providers
+    const results = await User.aggregate([
+      {
+        $match: {
+          isServiceProvider: true,
+          isProfileHidden: false,
+          status: "active",
+          providerVerificationStatus: "verified",
+        },
+      },
+      {
+        $project: {
+          places: {
+            $filter: {
+              input: [
+                "$place.village",
+                "$place.town",
+                "$place.city",
+                "$place.state",
+              ],
+              as: "p",
+              cond: { $and: [{ $ne: ["$$p", null] }, { $ne: ["$$p", ""] }] },
+            },
+          },
+        },
+      },
+      { $unwind: "$places" },
+      { $group: { _id: { $toLower: "$places" }, display: { $first: "$places" } } },
+      { $sort: { display: 1 } },
+    ]);
+
+    const locations = results.map((r) => r.display).filter(Boolean);
+
+    res.status(200).json({ success: true, data: locations });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get all distinct filter options (professions, skills, languages) from ALL verified providers
+// @route   GET /api/users/filter-options
+// @access  Public
+const getFilterOptions = async (req, res, next) => {
+  try {
+    const baseMatch = {
+      isServiceProvider: true,
+      isProfileHidden: false,
+      status: 'active',
+      providerVerificationStatus: 'verified',
+    };
+
+    const [professions, skills, languages] = await Promise.all([
+      // Distinct professions
+      User.aggregate([
+        { $match: { ...baseMatch, profession: { $exists: true, $ne: '', $ne: null } } },
+        { $group: { _id: { $toLower: { $trim: { input: '$profession' } } }, display: { $first: { $trim: { input: '$profession' } } } } },
+        { $sort: { display: 1 } },
+      ]),
+      // Distinct skills
+      User.aggregate([
+        { $match: baseMatch },
+        { $unwind: '$skills' },
+        { $match: { skills: { $exists: true, $ne: '', $ne: null } } },
+        { $group: { _id: { $toLower: { $trim: { input: '$skills' } } }, display: { $first: { $trim: { input: '$skills' } } } } },
+        { $sort: { display: 1 } },
+      ]),
+      // Distinct languages
+      User.aggregate([
+        { $match: baseMatch },
+        { $unwind: '$languagesKnown' },
+        { $match: { languagesKnown: { $exists: true, $ne: '', $ne: null } } },
+        { $group: { _id: { $toLower: { $trim: { input: '$languagesKnown' } } }, display: { $first: { $trim: { input: '$languagesKnown' } } } } },
+        { $sort: { display: 1 } },
+      ]),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        profession: professions.map(p => p.display).filter(Boolean),
+        skill:      skills.map(s => s.display).filter(Boolean),
+        language:   languages.map(l => l.display).filter(Boolean),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateProfile,
@@ -1345,9 +1691,14 @@ module.exports = {
   getDashboard,
   updateBankDetails,
   searchProviders,
+  getLocations,
+  getFilterOptions,
   getUserDocuments,
   updateDocument,
   deleteDocument,
   updateConsultationStatus,
   getVerificationStatus,
+  deactivateAccount,
+  reactivateAccount,
+  requestAccountDeletion,
 };

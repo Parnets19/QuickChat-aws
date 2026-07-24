@@ -23,6 +23,7 @@ const createNotification = async (options) => {
       type = 'system',
       data = {},
       sendPush = true,
+      saveToDatabase = true,
       io
     } = options;
 
@@ -32,12 +33,13 @@ const createNotification = async (options) => {
       title,
       message: message.substring(0, 50),
       type,
-      sendPush
+      sendPush,
+      saveToDatabase
     });
 
-    // Create notification in database (only for users, not guests/admins for now)
+    // Create notification in database (skip for chat messages — they belong in chat list only)
     let notification;
-    if (userType === 'user') {
+    if (saveToDatabase && userType === 'user') {
       notification = new Notification({
         user: userId,
         title,
@@ -180,10 +182,15 @@ const createNotification = async (options) => {
  */
 const sendVerificationNotification = async (userId, status, notes = '', io = null) => {
   const isVerified = status === 'verified';
+  const isCorrectionRequested = status === 'correction_requested';
   
-  const title = isVerified ? 'Account Verified!' : 'Account Verification Failed';
+  const title = isVerified ? 'Account Verified!' 
+              : isCorrectionRequested ? 'Action Required: Profile Correction Needed'
+              : 'Account Verification Failed';
   const message = isVerified 
     ? 'Congratulations! Your account has been verified and you can now start providing consultations.'
+    : isCorrectionRequested
+    ? `Please update your profile. Admin notes: ${notes || 'Please review and correct your submitted information.'}`
     : `Your account verification was rejected. ${notes ? `Reason: ${notes}` : 'Please check your documents and try again.'}`;
 
   return await createNotification({
@@ -192,8 +199,10 @@ const sendVerificationNotification = async (userId, status, notes = '', io = nul
     message,
     type: 'admin',
     data: {
-      verificationStatus: status,
-      notes: notes || ''
+      verificationStatus: status === 'correction_requested' ? 'pending' : status,
+      correctionRequested: isCorrectionRequested,
+      notes: notes || '',
+      action: isCorrectionRequested ? 'kyc_correction' : 'kyc_result',
     },
     io
   });
@@ -256,9 +265,47 @@ const sendProfileVisibilityNotification = async (userId, isHidden, io = null) =>
   });
 };
 
+/**
+ * Create an admin panel notification (shown in admin bell icon)
+ */
+const createAdminNotification = async (options) => {
+  try {
+    const AdminNotification = require('../models/AdminNotification.model');
+    const { title, message, type, data = {}, triggeredBy, affectedUser, io } = options;
+
+    const notification = await AdminNotification.create({
+      title,
+      message,
+      type,
+      data,
+      triggeredBy,
+      affectedUser,
+    });
+
+    // Emit to admin socket room for real-time updates
+    if (io) {
+      io.to('admin_room').emit('admin:notification', {
+        _id: notification._id,
+        title,
+        message,
+        type,
+        data,
+        isRead: false,
+        createdAt: notification.createdAt,
+      });
+    }
+
+    console.log(`🔔 Admin notification created: ${type} - ${title}`);
+    return notification;
+  } catch (error) {
+    console.error('Error creating admin notification:', error);
+  }
+};
+
 module.exports = {
   createNotification,
   sendVerificationNotification,
   sendStatusChangeNotification,
-  sendProfileVisibilityNotification
+  sendProfileVisibilityNotification,
+  createAdminNotification,
 };

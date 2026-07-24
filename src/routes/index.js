@@ -25,8 +25,11 @@ const freeMinuteRoutes = require("./freeMinute.routes");
 const freeTrialRoutes = require("./freeTrial.routes");
 const blockRoutes = require("./block.routes");
 const phonePeRoutes = require("./phonepe.routes");
+const followRoutes = require("./follow.routes");
 const reportRoutes = require("./report.routes");
 const supportRoutes = require("./support.routes");
+const reelsRoutes = require("./reels.routes");
+const liveStreamRoutes = require("./liveStream.routes");
 
 const router = express.Router();
 
@@ -53,11 +56,12 @@ router.use("/billing", realTimeBillingRoutes); // Real-time billing system
 router.use("/wallet", walletRoutes); // Wallet balance API
 router.use("/chat", chatRoutes); // Chat system
 router.use("/analytics", analyticsRoutes); // Analytics and reports
-router.use("/free-minute", freeMinuteRoutes); // First Minute Free Trial system (legacy)
-router.use("/free-trial", freeTrialRoutes); // First Time Free Trial system (new)
 router.use("/users", blockRoutes); // Block and Report functionality
 router.use("/phonepe", phonePeRoutes); // PhonePe payment integration
-router.use("/reports", reportRoutes); // Report and Block system
-router.use("/support", supportRoutes); // Support chat system
+router.use("/follow", followRoutes);     // Follow / unfollow system
+router.use("/reports", reportRoutes);
+router.use("/support", supportRoutes);
+router.use("/reels", reelsRoutes);
+router.use("/live-streams", liveStreamRoutes);
 
 module.exports = router;

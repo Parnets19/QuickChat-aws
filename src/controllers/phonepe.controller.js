@@ -79,36 +79,43 @@ async function getToken() {
 // ─────────────────────────────────────────────────────────────────────────────
 async function creditWalletViaConfig(txn) {
   try {
-    const { User, Transaction } = require("../models");
+    const { User, Guest, Transaction } = require("../models");
 
-    const userId = txn.userId;
-    const amount  = parseFloat(txn.amount);
+    const userId   = txn.userId;
+    const userType = txn.userType || "User";
+    const amount   = parseFloat(txn.amount);
 
     if (!userId || !amount || amount <= 0) {
       console.warn("⚠️ creditWallet: invalid userId or amount", { userId, amount });
       return false;
     }
 
-    console.log("💰 Crediting wallet directly for userId:", userId, "amount:", amount);
+    console.log(`💰 Crediting ${userType} wallet for userId:`, userId, "amount:", amount);
 
-    const user = await User.findById(userId);
-    if (!user) {
-      console.error("❌ creditWallet: User not found:", userId);
+    let entity;
+    if (userType === "Guest") {
+      entity = await Guest.findById(userId);
+    } else {
+      entity = await User.findById(userId);
+    }
+
+    if (!entity) {
+      console.error(`❌ creditWallet: ${userType} not found:`, userId);
       return false;
     }
 
-    const previousBalance = user.wallet || 0;
-    user.wallet = previousBalance + amount;
-    await user.save();
+    const previousBalance = entity.wallet || 0;
+    entity.wallet = previousBalance + amount;
+    await entity.save();
 
     // Record the transaction
     await Transaction.create({
       user:           userId,
-      userType:       "User",
+      userType:       userType,
       type:           "deposit",
       category:       "deposit",
       amount:         amount,
-      balance:        user.wallet,
+      balance:        entity.wallet,
       description:    "Wallet Recharge via PhonePe",
       status:         "completed",
       paymentMethod:  "upi",
@@ -118,11 +125,11 @@ async function creditWalletViaConfig(txn) {
         phonePeTxnId:    txn._id.toString(),
         merchantOrderId: txn._id.toString(),
         previousBalance,
-        newBalance:      user.wallet,
+        newBalance:      entity.wallet,
       },
     });
 
-    console.log("✅ Wallet credited:", { userId, amount, previousBalance, newBalance: user.wallet });
+    console.log(`✅ ${userType} wallet credited:`, { userId, amount, previousBalance, newBalance: entity.wallet });
     return true;
   } catch (e) {
     console.error("❌ creditWallet error:", e.message);
@@ -136,10 +143,11 @@ class PhonePeController {
   // ── Initiate Payment ──────────────────────────────────────────────────────
   async addPaymentPhone(req, res) {
     try {
-      const { userId, username, Mobile, orderId, amount, config, platform } = req.body;
+      const { userId, username, Mobile, orderId, amount, config, platform, userType } = req.body;
 
       const txn = await phonePeTransactionModel.create({
         userId, username, Mobile, orderId, amount, config,
+        userType: userType || "User",
       });
 
       console.log("💳 Transaction created:", { id: txn._id, amount, userId, platform });
@@ -182,10 +190,12 @@ class PhonePeController {
         }
       }
 
-      // Web checkout flow (original code)
+      // Web checkout flow — route back to the correct page based on user type
       const redirectUrl = isMobile
         ? `${CALLBACK_URL}/payment-success?transactionId=${txn._id}&userID=${userId}&platform=mobile`
-        : `${CALLBACK_URL}/provider/earnings?transactionId=${txn._id}&userID=${userId}`;
+        : userType === "Guest"
+          ? `${CALLBACK_URL}/guest-wallet?transactionId=${txn._id}&userID=${userId}`
+          : `${CALLBACK_URL}/provider/earnings?transactionId=${txn._id}&userID=${userId}`;
 
       console.log("🔗 Redirect URL:", redirectUrl, "(mobile:", isMobile, ")");
 

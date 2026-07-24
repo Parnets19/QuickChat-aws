@@ -208,9 +208,10 @@ const sendMessage = async (req, res, next) => {
       const receiverInRoom = receiverRoom && receiverRoom.size > 1; // More than just sender
       
       if (receiverInRoom) {
-        console.log(`📨 CHAT CONTROLLER: Receiver is in room, progressing status: sent → delivered → read`);
+        console.log(`📨 CHAT CONTROLLER: Receiver is in room, marking as delivered`);
         
-        // Step 1: Update to 'delivered' immediately (double tick)
+        // Only mark as 'delivered' (double tick) — NOT 'read'
+        // 'read' (blue tick) should only happen when client explicitly sends chat:markAsRead
         chatMessage.status = 'delivered';
         await chatMessage.save();
         
@@ -221,20 +222,6 @@ const sendMessage = async (req, res, next) => {
           });
           console.log(`✅ CHAT CONTROLLER: Message status updated to delivered (double tick)`);
         }, 100);
-        
-        // Step 2: Update to 'read' after a short delay (blue tick)
-        // Since receiver is actively viewing the chat, mark as read immediately
-        setTimeout(async () => {
-          chatMessage.status = 'read';
-          chatMessage.readAt = new Date();
-          await chatMessage.save();
-          
-          io.to(roomName).emit("consultation:messageStatus", {
-            messageId: chatMessage._id,
-            status: "read",
-          });
-          console.log(`✅ CHAT CONTROLLER: Message status updated to read (blue tick)`);
-        }, 500); // Small delay to show the progression
       } else {
         console.log(`📨 CHAT CONTROLLER: Receiver not in room, status remains 'sent' (single tick)`);
       }
@@ -333,54 +320,53 @@ const sendMessage = async (req, res, next) => {
         });
 
         console.log("🔔 Targeted notification sent to receiver:", receiverId);
-        
-        // 🔔 SEND FIREBASE PUSH NOTIFICATION
-        // Convert receiverId to string to ensure compatibility
-        const receiverIdString = receiverId.toString();
-        console.log(`📱 Sending Firebase push notification to user ${receiverIdString}`);
-        try {
-          const notificationTemplates = require('../utils/notificationTemplates');
-          
-          // Determine receiver type
-          let receiverType = 'user';
-          const Guest = require('../models/Guest.model');
-          const isReceiverGuest = await Guest.findById(receiverIdString);
-          if (isReceiverGuest) {
-            receiverType = 'guest';
-            console.log(`👤 Receiver ${receiverIdString} is a GUEST`);
-          } else {
-            console.log(`👤 Receiver ${receiverIdString} is a REGULAR USER`);
-          }
-          
-          console.log(`📤 Sending push notification to ${receiverType}:`, {
-            userId: receiverIdString,
-            title: `New message from ${chatMessage.senderName}`,
-            message: message.trim().substring(0, 50),
-            chatId: chat._id
+
+        // Mark as delivered immediately — message reached the server = delivered
+        // Do this BEFORE push so sender sees double tick without waiting for FCM
+        if (!receiverInRoom && chatMessage.status !== 'read') {
+          chatMessage.status = 'delivered';
+          chatMessage.save().catch(e => console.error('❌ Failed to save delivered status:', e.message));
+          // Emit to sender's chat room AND personal room
+          io.to(roomName).emit('consultation:messageStatus', {
+            messageId: chatMessage._id,
+            status: 'delivered',
           });
-          
-          // Send custom notification for chat message
-          await notificationTemplates.custom(
-            receiverIdString,
-            receiverType,
-            `New message from ${chatMessage.senderName}`,
-            message.trim().length > 50 ? message.trim().substring(0, 50) + '...' : message.trim(),
-            'consultation',
-            {
-              chatId: chat._id.toString(),
-              consultationId: chat._id.toString(),
-              senderId: senderId.toString(),
-              senderName: chatMessage.senderName,
-              messageType: 'text',
-              action: 'new_message'
-            },
-            io
-          );
-          console.log(`✅ Firebase push notification sent to user ${receiverIdString}`);
-        } catch (notifError) {
-          console.error('❌ Failed to send Firebase push notification:', notifError);
-          console.error('❌ Error details:', notifError.stack);
+          io.to(`user:${senderId}`).emit('consultation:messageStatus', {
+            messageId: chatMessage._id,
+            status: 'delivered',
+          });
         }
+
+        // 🔔 Non-blocking push notification — fire and forget
+        const receiverIdString = receiverId.toString();
+        Promise.resolve().then(async () => {
+          try {
+            const notificationTemplates = require('../utils/notificationTemplates');
+            const Guest = require('../models/Guest.model');
+            const isReceiverGuest = await Guest.findById(receiverIdString);
+            const receiverType = isReceiverGuest ? 'guest' : 'user';
+
+            await notificationTemplates.custom(
+              receiverIdString,
+              receiverType,
+              `New message from ${chatMessage.senderName}`,
+              message.trim().length > 50 ? message.trim().substring(0, 50) + '...' : message.trim(),
+              'consultation',
+              {
+                chatId: chat._id.toString(),
+                consultationId: chat._id.toString(),
+                senderId: senderId.toString(),
+                senderName: chatMessage.senderName,
+                messageType: 'text',
+                action: 'new_message'
+              },
+              io,
+              { saveToDatabase: false }
+            );
+          } catch (notifError) {
+            console.error('❌ Failed to send push notification:', notifError.message);
+          }
+        });
       } else {
         console.log(
           "🔔 Skipping notification - sender and receiver are the same"
@@ -513,10 +499,7 @@ const getChatNotifications = async (req, res, next) => {
         status: { $ne: "read" },
       });
 
-      if (
-        unreadCount > 0 ||
-        chat.lastMessageTime > new Date(Date.now() - 24 * 60 * 60 * 1000)
-      ) {
+      if (unreadCount > 0) {
         let userName = "Unknown User";
         let userAvatar = null;
 
@@ -651,6 +634,9 @@ const getChatList = async (req, res, next) => {
             if (guest) {
               otherUserName = guest.name || "Guest User";
               otherUserAvatar = guest.profilePhoto || null;
+            } else {
+              // Guest not found (may have been deleted) — show friendly name
+              otherUserName = "Guest User";
             }
           } else {
             // Other user is a regular user/provider
@@ -666,6 +652,15 @@ const getChatList = async (req, res, next) => {
                 profilePhoto: user.profilePhoto,
                 avatarSet: otherUserAvatar,
               });
+            } else {
+              // User not found in User collection — try Guest collection as fallback
+              const guest = await Guest.findById(otherUserId);
+              if (guest) {
+                otherUserName = guest.name || "Guest User";
+                otherUserAvatar = guest.profilePhoto || null;
+              } else {
+                otherUserName = "Deleted User";
+              }
             }
           }
         } catch (error) {
@@ -699,6 +694,20 @@ const getChatList = async (req, res, next) => {
           unreadCount,
         });
 
+        // Get last message details (sender + status) for tick marks in chat list
+        let lastMessageSender = null;
+        let lastMessageStatus = 'sent';
+        try {
+          const lastMsg = await ChatMessage.findOne({ chat: chat._id })
+            .sort({ timestamp: -1 })
+            .select('sender status')
+            .lean();
+          if (lastMsg) {
+            lastMessageSender = lastMsg.sender?.toString() || null;
+            lastMessageStatus = lastMsg.status || 'sent';
+          }
+        } catch (e) {}
+
         return {
           chatId: chat._id,
           otherUser: {
@@ -709,6 +718,8 @@ const getChatList = async (req, res, next) => {
           },
           lastMessage: chat.lastMessage || "",
           lastMessageTime: chat.lastMessageTime || new Date(),
+          lastMessageSender,
+          lastMessageStatus,
           status: chat.status || "active",
           unreadCount: unreadCount,
           hasUnreadMessages: unreadCount > 0,
@@ -840,6 +851,28 @@ const markMessagesAsRead = async (req, res, next) => {
             readBy: userId,
           });
         });
+      }
+
+      // ENHANCED: Delete chat notifications from Notification collection
+      // so they don't show in the notifications screen anymore
+      try {
+        const Notification = require('../models/Notification.model');
+        await Notification.deleteMany({
+          user: userId,
+          type: 'consultation',
+          'data.action': 'new_message',
+          'data.chatId': consultationId,
+        });
+        // Also try with consultationId in data
+        await Notification.deleteMany({
+          user: userId,
+          type: 'consultation',
+          'data.action': 'new_message',
+          'data.consultationId': consultationId,
+        });
+        console.log('🗑️ Chat notifications auto-removed for user:', userId, 'chat:', consultationId);
+      } catch (notifErr) {
+        console.error('⚠️ Failed to auto-remove chat notifications:', notifErr.message);
       }
 
       // ENHANCED: Clear notifications for the user who read the messages

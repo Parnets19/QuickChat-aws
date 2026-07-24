@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
-const { User, OTP } = require("../models");
+const { User, OTP, Reel } = require("../models");
 const { AppError } = require("../middlewares/errorHandler");
 const { sendOTPSMS } = require("../utils/sendSMS");
 const { sendOTPEmail, sendWelcomeEmail } = require("../utils/sendEmail");
@@ -193,7 +193,6 @@ const register = async (req, res, next) => {
       consultationModes,
       rates,
       availability,
-      aadharNumber,
       profilePhoto,
       aadharDocuments,
       portfolioMedia,
@@ -249,7 +248,7 @@ const register = async (req, res, next) => {
       );
     }
 
-    const existingUserByEmail = await User.findOne({ email });
+    const existingUserByEmail = email ? await User.findOne({ email }) : null;
     if (existingUserByEmail) {
       return next(
         new AppError(
@@ -268,10 +267,10 @@ const register = async (req, res, next) => {
     const userData = {
       fullName,
       mobile,
-      email,
+      email: email || undefined, // undefined so sparse unique index ignores missing emails
       password,
       isMobileVerified: true,
-      isEmailVerified: false, // Will be verified later
+      isEmailVerified: false,
       isServiceProvider: isServiceProvider || false,
     };
 
@@ -292,7 +291,6 @@ const register = async (req, res, next) => {
     if (languagesKnown && languagesKnown.length > 0)
       userData.languagesKnown = languagesKnown;
     if (bio) userData.bio = bio;
-    if (aadharNumber) userData.aadharNumber = aadharNumber;
     if (profilePhoto) userData.profilePhoto = profilePhoto;
     if (aadharDocuments) userData.aadharDocuments = aadharDocuments;
     if (portfolioMedia && portfolioMedia.length > 0)
@@ -314,26 +312,33 @@ const register = async (req, res, next) => {
       chat: true,
       audio: true,
       video: true,
+      live: true,
     };
 
-    // Set default rates (chat is free, audio/video default to ₹3/min)
-    userData.rates = rates || {
-      chargeType: "per-minute",
-      chat: 0,
+    // Set rates - support individual rates or same rate for all
+    const chatRate = rates?.chatRate ?? rates?.chat ?? 0; // Chat is always free
+    const audioRate = rates?.audioRate ?? rates?.audio ?? rates?.callRate ?? 3;
+    const videoRate = rates?.videoRate ?? rates?.video ?? rates?.callRate ?? 3;
+    const liveRate = rates?.liveRate ?? rates?.live ?? rates?.callRate ?? 3;
+
+    userData.rates = {
+      chargeType: rates?.chargeType || "per-minute",
+      chat: chatRate,
       perMinute: {
-        audioVideo: rates?.callRate || rates?.audio || rates?.video || 3, // Default ₹3/min
-        audio: rates?.callRate || rates?.audio || 3, // Default ₹3/min
-        video: rates?.callRate || rates?.video || 3, // Default ₹3/min
+        audioVideo: audioRate,
+        audio: audioRate,
+        video: videoRate,
       },
       perHour: {
         audioVideo: 0,
         audio: 0,
         video: 0,
       },
-      defaultChargeType: "per-minute",
+      defaultChargeType: rates?.chargeType || "per-minute",
       // Legacy fields for backward compatibility
-      audio: rates?.callRate || rates?.audio || 3, // Default ₹3/min
-      video: rates?.callRate || rates?.video || 3, // Default ₹3/min
+      audio: audioRate,
+      video: videoRate,
+      live: liveRate,
     };
     if (availability && availability.length > 0)
       userData.availability = availability;
@@ -352,9 +357,44 @@ const register = async (req, res, next) => {
     const user = await User.create(userData);
     console.log("User created successfully:", user._id);
 
+    // Create intro Reel if video URL is provided
+    const { introVideoUrl, introCaption, introTags } = req.body;
+    if (introVideoUrl) {
+      try {
+        await Reel.create({
+          user: user._id,
+          videoUrl: introVideoUrl,
+          caption: introCaption || `Hello! I'm ${user.fullName}`,
+          tags: introTags || ['intro', 'welcome']
+        });
+        console.log("Intro Reel created successfully for user:", user._id);
+      } catch (reelError) {
+        console.error("Failed to create intro Reel:", reelError);
+        // Don't fail registration if Reel creation fails
+      }
+    }
+
     // Send welcome email
     if (email) {
        sendWelcomeEmail(email, fullName);
+    }
+
+    // Notify all connected admins about new KYC request
+    try {
+      if (req.io) {
+        req.io.emit("admin:new_kyc_request", {
+          userId: user._id,
+          fullName: user.fullName,
+          mobile: user.mobile,
+          email: user.email,
+          profilePhoto: user.profilePhoto || null,
+          createdAt: user.createdAt,
+          message: `New provider registered: ${user.fullName} is awaiting KYC verification`,
+        });
+        console.log("📢 Admin notified of new KYC request for:", user.fullName);
+      }
+    } catch (notifyError) {
+      console.error("⚠️ Failed to notify admin (non-critical):", notifyError.message);
     }
 
     // Generate token
@@ -375,6 +415,24 @@ const register = async (req, res, next) => {
       },
     });
   } catch (error) {
+    // Surface Mongoose validation errors as 400 instead of 500
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(e => e.message).join(', ');
+      console.error("❌ Mongoose validation error during registration:", messages);
+      return next(new AppError(`Validation failed: ${messages}`, 400));
+    }
+    // Duplicate key error (unique constraint — email or mobile already exists)
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyValue || {})[0] || 'field';
+      console.error("❌ Duplicate key error during registration:", field, error.keyValue);
+      const msg = field === 'email'
+        ? `Email is already registered. Please login instead.`
+        : field === 'mobile'
+        ? `Mobile number is already registered. Please login instead.`
+        : `${field} is already in use.`;
+      return next(new AppError(msg, 400));
+    }
+    console.error("❌ Register error:", error.message, error.stack);
     next(error);
   }
 };
@@ -420,10 +478,11 @@ const login = async (req, res, next) => {
       return next(new AppError("Incorrect password", 401));
     }
 
-    // Check if account is active
-    if (user.status !== "active") {
-      return next(new AppError("Your account has been suspended", 403));
+    // Allow inactive (user-deactivated) to login — app shows reactivation screen
+    if (user.status === 'suspended' || user.status === 'deleted') {
+      return next(new AppError("Your account has been suspended. Please contact support.", 403));
     }
+    // Note: status === 'inactive' is allowed through — user sees reactivation screen in app
 
     // Update last active
     user.lastActive = new Date();
@@ -484,9 +543,9 @@ const loginWithOTP = async (req, res, next) => {
       return next(new AppError("User not found", 404));
     }
 
-    // Check if account is active
-    if (user.status !== "active") {
-      return next(new AppError("Your account has been suspended", 403));
+    // Allow inactive (user-deactivated) to login — app shows reactivation screen
+    if (user.status === 'suspended' || user.status === 'deleted') {
+      return next(new AppError("Your account has been suspended. Please contact support.", 403));
     }
 
     // Mark OTP as verified
@@ -603,13 +662,18 @@ const getMe = async (req, res, next) => {
 // @access  Private
 const logout = async (req, res, next) => {
   try {
-    // Remove FCM token if provided
-    if (req.body.fcmToken && req.user) {
+    if (req.user) {
       const user = await User.findById(req.user._id);
       if (user && user.fcmTokens) {
-        user.fcmTokens = user.fcmTokens.filter(
-          (token) => token !== req.body.fcmToken
-        );
+        if (req.body.fcmToken) {
+          // Remove only the specific device's token
+          user.fcmTokens = user.fcmTokens.filter(
+            (token) => token !== req.body.fcmToken
+          );
+        } else {
+          // No specific token provided — clear all FCM tokens (full logout)
+          user.fcmTokens = [];
+        }
         await user.save();
       }
     }
@@ -923,6 +987,29 @@ const verifySecurityQuestion = async (req, res, next) => {
   }
 };
 
+// @desc    Check if a mobile number belongs to a regular user/provider account
+// @route   GET /api/auth/check-mobile/:mobile
+// @access  Public
+const checkMobile = async (req, res, next) => {
+  try {
+    const { mobile } = req.params;
+    if (!mobile || mobile.length !== 10) {
+      return next(new AppError('Please provide a valid 10-digit mobile number', 400));
+    }
+    const user = await User.findOne({ mobile }).select('_id role isProvider');
+    if (!user) {
+      return res.status(404).json({ success: false, exists: false });
+    }
+    return res.status(200).json({
+      success: true,
+      exists: true,
+      isProvider: user.isProvider || user.role === 'provider',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -938,4 +1025,5 @@ module.exports = {
   verifyResetOtp,
   getSecurityQuestion,
   verifySecurityQuestion,
+  checkMobile,
 };

@@ -281,9 +281,14 @@ const logoutGuest = async (req, res, next) => {
       guest.isOnline = false;
       guest.lastActive = new Date();
       
-      // Remove FCM token if provided
-      if (fcmToken && guest.fcmTokens) {
-        guest.fcmTokens = guest.fcmTokens.filter(token => token !== fcmToken);
+      if (guest.fcmTokens) {
+        if (fcmToken) {
+          // Remove only this device's token
+          guest.fcmTokens = guest.fcmTokens.filter(token => token !== fcmToken);
+        } else {
+          // No specific token — clear all (full logout)
+          guest.fcmTokens = [];
+        }
       }
       
       await guest.save();

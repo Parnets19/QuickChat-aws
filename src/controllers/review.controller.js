@@ -22,7 +22,8 @@ const createReview = async (req, res, next) => {
     }
 
     // Check if user was part of the consultation
-    if (consultation.user.toString() !== req.user?._id.toString()) {
+    const requesterId = (req.user?._id || req.user?.id)?.toString();
+    if (consultation.user.toString() !== requesterId) {
       return next(new AppError('You can only review your own consultations', 403));
     }
 
@@ -40,7 +41,7 @@ const createReview = async (req, res, next) => {
     // Create review
     const newReview = await Review.create({
       consultation: consultationId,
-      user: req.user?._id,
+      user: req.user?._id || req.user?.id,
       provider: consultation.provider,
       rating,
       review,
@@ -98,11 +99,29 @@ const getProviderReviews = async (req, res, next) => {
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
 
+    // For reviews where user populate returned null (guest reviewers),
+    // fetch their name from the Guest collection
+    const { Guest } = require('../models');
+    const enrichedReviews = await Promise.all(
+      reviews.map(async (review) => {
+        const obj = review.toObject();
+        if (!obj.user && review.user) {
+          const guest = await Guest.findById(review.user).select('name');
+          if (guest) {
+            obj.user = { _id: review.user, fullName: guest.name, isGuest: true };
+          } else {
+            obj.user = { _id: review.user, fullName: 'Guest User', isGuest: true };
+          }
+        }
+        return obj;
+      })
+    );
+
     const total = await Review.countDocuments(query);
 
     // Get rating breakdown
     const ratingBreakdown = await Review.aggregate([
-      { $match: { provider: providerId, status: 'active' } },
+      { $match: { provider: new (require('mongoose').Types.ObjectId)(providerId), status: 'active' } },
       {
         $group: {
           _id: '$rating',
@@ -113,8 +132,45 @@ const getProviderReviews = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: reviews,
+      data: enrichedReviews,
       ratingBreakdown,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get reviews given by a guest (as a client)
+// @route   GET /api/reviews/guest/:guestId
+// @access  Public
+const getGuestReviews = async (req, res, next) => {
+  try {
+    const { guestId } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+
+    const query = {
+      user: guestId,
+      status: 'active',
+    };
+
+    const reviews = await Review.find(query)
+      .populate('provider', 'fullName profilePhoto')
+      .populate('consultation', 'type duration')
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit));
+
+    const total = await Review.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      data: reviews,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -169,7 +225,8 @@ const deleteReview = async (req, res, next) => {
     }
 
     // Check if user owns the review
-    if (review.user.toString() !== req.user?._id.toString()) {
+    const requesterId = (req.user?._id || req.user?.id)?.toString();
+    if (review.user.toString() !== requesterId) {
       return next(new AppError('Not authorized to delete this review', 403));
     }
 
@@ -197,6 +254,7 @@ const deleteReview = async (req, res, next) => {
 module.exports = {
   createReview,
   getProviderReviews,
+  getGuestReviews,
   reportReview,
   deleteReview,
 };

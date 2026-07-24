@@ -2,6 +2,7 @@ const express = require('express');
 const {
   createReview,
   getProviderReviews,
+  getGuestReviews,
   reportReview,
   deleteReview,
 } = require('../controllers/review.controller');
@@ -11,6 +12,7 @@ const router = express.Router();
 
 // Public routes
 router.get('/provider/:providerId', getProviderReviews);
+router.get('/guest/:guestId', getGuestReviews);
 
 // Private routes
 router.use(protect);

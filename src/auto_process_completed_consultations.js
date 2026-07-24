@@ -9,9 +9,12 @@ async function autoProcessCompletedConsultations() {
     );
 
     // Find completed consultations that have no transactions
+    // Only process consultations from the last 2 hours to avoid retroactive charging
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const completedConsultations = await Consultation.find({
       status: "completed",
-      totalAmount: { $gt: 0 }, // Has an amount to process
+      totalAmount: { $gt: 0 },
+      endTime: { $gte: twoHoursAgo },
     });
 
     console.log(
@@ -65,7 +68,7 @@ async function autoProcessCompletedConsultations() {
         console.log(`   👤 Provider: ${provider.fullName}`);
 
         const totalAmount = consultation.totalAmount;
-        const PLATFORM_COMMISSION_RATE = 0.05;
+        const PLATFORM_COMMISSION_RATE = 0.10;
         const platformCommission =
           Math.round(totalAmount * PLATFORM_COMMISSION_RATE * 100) / 100;
         const providerEarnings =
@@ -73,37 +76,25 @@ async function autoProcessCompletedConsultations() {
 
         // Process client deduction if missing
         if (!existingClientTx) {
-          // 🛡️ WALLET PROTECTION: Check balance before deduction
+          // 🛡️ WALLET PROTECTION: Check balance and charge what user can afford
+          let chargeAmount = totalAmount;
           if (client.wallet < totalAmount) {
-            console.log(`   🚨 INSUFFICIENT BALANCE - SKIPPING DEDUCTION:`, {
-              clientId: client._id,
-              currentBalance: client.wallet,
-              requiredAmount: totalAmount,
-              shortfall: totalAmount - client.wallet,
-              consultationId: consultation._id,
-            });
-
-            // Log this as a failed transaction for audit
-            await Transaction.create({
-              user: client._id,
-              userType: consultation.userType,
-              type: "consultation_payment_failed",
-              category: "consultation",
-              amount: totalAmount,
-              balance: client.wallet,
-              status: "failed",
-              description: `Failed consultation payment - insufficient funds: ${consultation.type} with ${provider.fullName}`,
-              consultationId: consultation._id,
-              transactionId: `FAILED_${Date.now()}_${Math.random()
-                .toString(36)
-                .substr(2, 9)}`,
-            });
-
-            continue; // Skip this consultation
+            // Charge what they can afford instead of skipping
+            chargeAmount = Math.floor(client.wallet * 100) / 100;
+            console.log(`   ⚠️ PARTIAL CHARGE: User has ₹${client.wallet}, charging ₹${chargeAmount} instead of ₹${totalAmount}`);
+            
+            if (chargeAmount < 0.01) {
+              console.log(`   🚨 BALANCE TOO LOW (₹${client.wallet}) - skipping`);
+              continue;
+            }
           }
 
-          console.log(`   💸 Deducting ₹${totalAmount} from client`);
-          client.wallet -= totalAmount;
+          // Recalculate commission based on actual charge amount
+          const actualPlatformCommission = Math.round(chargeAmount * PLATFORM_COMMISSION_RATE * 100) / 100;
+          const actualProviderEarnings = Math.round((chargeAmount - actualPlatformCommission) * 100) / 100;
+
+          console.log(`   💸 Deducting ₹${chargeAmount} from client`);
+          client.wallet -= chargeAmount;
 
           // 🛡️ SAFETY CHECK: Ensure wallet never goes negative
           if (client.wallet < 0) {
@@ -117,16 +108,16 @@ async function autoProcessCompletedConsultations() {
           }
 
           // Update totalSpent for both regular users and guest users
-          client.totalSpent = (client.totalSpent || 0) + totalAmount;
+          client.totalSpent = (client.totalSpent || 0) + chargeAmount;
 
           await client.save();
 
           await Transaction.create({
             user: client._id,
-            userType: consultation.userType, // Use the correct userType
+            userType: consultation.userType,
             type: "consultation_payment",
             category: "consultation",
-            amount: totalAmount,
+            amount: chargeAmount,
             balance: client.wallet,
             status: "completed",
             description: `${consultation.type} consultation with ${provider.fullName}`,
@@ -139,9 +130,10 @@ async function autoProcessCompletedConsultations() {
 
         // Process provider earnings if missing
         if (!existingProviderTx) {
-          console.log(`   💰 Adding ₹${providerEarnings} to provider`);
-          provider.wallet += providerEarnings;
-          provider.earnings = (provider.earnings || 0) + providerEarnings;
+          const earningsToCredit = existingClientTx ? providerEarnings : actualProviderEarnings;
+          console.log(`   💰 Adding ₹${earningsToCredit} to provider`);
+          provider.wallet += earningsToCredit;
+          provider.earnings = (provider.earnings || 0) + earningsToCredit;
           await provider.save();
 
           await Transaction.create({
@@ -149,7 +141,7 @@ async function autoProcessCompletedConsultations() {
             userType: "User",
             type: "earning",
             category: "consultation",
-            amount: providerEarnings,
+            amount: earningsToCredit,
             balance: provider.wallet,
             status: "completed",
             description: `${
@@ -165,9 +157,9 @@ async function autoProcessCompletedConsultations() {
               consultationType: consultation.type,
               duration: consultation.duration,
               rate: consultation.rate,
-              platformCommission,
-              grossAmount: totalAmount,
-              netAmount: providerEarnings,
+              platformCommission: existingClientTx ? platformCommission : actualPlatformCommission,
+              grossAmount: existingClientTx ? totalAmount : chargeAmount,
+              netAmount: earningsToCredit,
             },
           });
         }

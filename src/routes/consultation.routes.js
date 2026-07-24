@@ -11,6 +11,7 @@ const {
   getGuestConsultationHistory,
   submitRating,
   getProviderRatings,
+  addParticipantToConsultation,
 } = require("../controllers/consultation.controller");
 const { protect } = require("../middlewares/auth");
 
@@ -36,6 +37,9 @@ router.put("/:id/cancel", cancelConsultation);
 // Reject consultation (provider declines call)
 router.put("/:id/reject", rejectConsultation);
 router.post("/:id/rating", submitRating);
+
+// Add participant to consultation
+router.put("/:id/add-participant", addParticipantToConsultation);
 
 // Public route for getting provider ratings
 router.get("/provider/:providerId/ratings", getProviderRatings);

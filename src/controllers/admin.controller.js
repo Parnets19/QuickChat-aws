@@ -60,7 +60,7 @@ const getAllProviders = async (req, res) => {
     const enhancedProviders = await Promise.all(
       providers.map(async (provider) => {
         const consultationCount = await Consultation.countDocuments({
-          providerId: provider._id
+          provider: provider._id
         });
 
         return {
@@ -226,6 +226,28 @@ const updateProviderStatus = async (req, res) => {
     // Send notification to provider about status change
     try {
       await sendStatusChangeNotification(provider._id, status, req.io);
+      
+      // Create admin panel notification
+      const { createAdminNotification } = require('../utils/notifications');
+      if (status === 'suspended') {
+        await createAdminNotification({
+          title: 'Account Suspended',
+          message: `${provider.fullName}'s account has been suspended by admin.`,
+          type: 'account_suspended',
+          triggeredBy: req.user._id,
+          affectedUser: provider._id,
+          io: req.io,
+        });
+      } else if (status === 'inactive') {
+        await createAdminNotification({
+          title: 'Account Deactivated',
+          message: `${provider.fullName}'s account has been deactivated by admin.`,
+          type: 'account_deactivated',
+          triggeredBy: req.user._id,
+          affectedUser: provider._id,
+          io: req.io,
+        });
+      }
     } catch (notificationError) {
       console.error('Error sending status change notification:', notificationError);
       // Don't fail the request if notification fails
@@ -783,18 +805,20 @@ const verifyKycRequest = async (req, res) => {
     const { id } = req.params;
     const { status, notes } = req.body;
 
-    if (!['verified', 'rejected'].includes(status)) {
+    if (!['verified', 'rejected', 'correction_requested'].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status. Must be verified or rejected'
+        message: 'Invalid status. Must be verified, rejected, or correction_requested'
       });
     }
 
     const updateData = {
-      providerVerificationStatus: status,
+      providerVerificationStatus: status === 'correction_requested' ? 'pending' : status,
       verificationNotes: notes || '',
       verifiedAt: new Date(),
-      verifiedBy: req.user._id
+      verifiedBy: req.user._id,
+      // Track that correction was requested
+      ...(status === 'correction_requested' && { correctionRequested: true, correctionNote: notes || '' }),
     };
 
     // If verified, also mark Aadhar as verified
@@ -817,7 +841,11 @@ const verifyKycRequest = async (req, res) => {
 
     // Send notification to provider about verification status
     try {
-      await sendVerificationNotification(provider._id, status, notes, req.io);
+      if (status === 'correction_requested') {
+        await sendVerificationNotification(provider._id, 'correction_requested', notes, req.io);
+      } else {
+        await sendVerificationNotification(provider._id, status, notes, req.io);
+      }
     } catch (notificationError) {
       console.error('Error sending verification notification:', notificationError);
       // Don't fail the request if notification fails
@@ -825,7 +853,9 @@ const verifyKycRequest = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Provider ${status === 'verified' ? 'verified' : 'rejected'} successfully`,
+      message: status === 'verified' ? 'Provider verified successfully' 
+             : status === 'rejected' ? 'Provider rejected'
+             : 'Correction requested from provider',
       data: provider
     });
   } catch (error) {

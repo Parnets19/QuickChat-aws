@@ -14,6 +14,7 @@ const {
   verifyResetOtp,
   getSecurityQuestion,
   verifySecurityQuestion,
+  checkMobile,
 } = require('../controllers/auth.controller');
 const { protect } = require('../middlewares/auth');
 const { otpLimiter, authLimiter } = require('../middlewares/rateLimiter');
@@ -34,6 +35,7 @@ router.get('/me', protect, getMe);
 router.post('/logout', protect, logout);
 router.post('/refresh-token', refreshToken);
 router.post('/fcm-token', protect, updateFCMToken);
+router.get('/check-mobile/:mobile', checkMobile);
 
 module.exports = router;
 

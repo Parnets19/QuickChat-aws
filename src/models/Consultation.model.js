@@ -10,17 +10,57 @@ const ConsultationSchema = new mongoose.Schema(
     },
     user: {
       type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String for guest users
-      required: true,
+      required: false, // Not required for conference calls
     },
     provider: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false, // Not required for conference calls
     },
+    // Support for conference calls
+    participants: [
+      {
+        userId: {
+          type: mongoose.Schema.Types.Mixed, // ObjectId or String for guests
+          required: true,
+        },
+        userType: {
+          type: String,
+          enum: ["User", "Guest"],
+          default: "User",
+        },
+        role: {
+          type: String,
+          enum: ["host", "participant"],
+          default: "participant",
+        },
+        joinedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        webrtcConnectedAt: Date,
+        billingStarted: {
+          type: Boolean,
+          default: false,
+        },
+        duration: {
+          type: Number,
+          default: 0,
+        },
+        totalAmount: {
+          type: Number,
+          default: 0,
+        },
+      },
+    ],
     type: {
       type: String,
       enum: ["chat", "audio", "video"],
       required: true,
+    },
+    isConference: {
+      type: Boolean,
+      default: false,
     },
     status: {
       type: String,
@@ -66,6 +106,11 @@ const ConsultationSchema = new mongoose.Schema(
     clientAcceptedAt: Date,
     providerAcceptedAt: Date,
     bothSidesAcceptedAt: Date, // When both sides have accepted - this is when billing starts
+    // WebRTC connection tracking - used for billing safety
+    webrtcConnectedAt: {
+      type: Date,
+      default: null,
+    },
     endReason: {
       type: String,
       enum: [
@@ -74,6 +119,9 @@ const ConsultationSchema = new mongoose.Schema(
         "provider_ended",
         "system_error",
         "no_answer",
+        "no_webrtc_connection",
+        "wallet_exhausted",
+        "timeout_no_answer",
       ],
       default: "manual",
     },
@@ -166,30 +214,6 @@ const ConsultationSchema = new mongoose.Schema(
       },
     },
 
-    // First Minute Free Trial fields
-    isFirstMinuteFree: {
-      type: Boolean,
-      default: false,
-    },
-    freeMinuteUsed: {
-      type: Boolean,
-      default: false,
-    },
-    billingStartsAt: Date, // When billing actually starts (startTime + 1 minute if first minute free)
-
-    // NEW: First Time Free Trial System
-    isFirstTimeFreeTrial: {
-      type: Boolean,
-      default: false,
-    },
-    freeTrialUsed: {
-      type: Boolean,
-      default: false,
-    },
-    entireCallFree: {
-      type: Boolean,
-      default: false,
-    },
   },
   {
     timestamps: true,
@@ -200,6 +224,7 @@ const ConsultationSchema = new mongoose.Schema(
 ConsultationSchema.index({ user: 1, status: 1 });
 ConsultationSchema.index({ provider: 1, status: 1 });
 ConsultationSchema.index({ createdAt: -1 });
+ConsultationSchema.index({ "participants.userId": 1, status: 1 });
 
 // Helper function for precise money calculation to avoid floating point issues
 const preciseMoneyCalculation = (amount1, amount2, operation) => {

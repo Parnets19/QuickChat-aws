@@ -79,39 +79,6 @@ const GuestSchema = new mongoose.Schema(
       },
     ],
 
-    // Track free minutes used with each provider (First Minute Free Trial system)
-    freeMinutesUsed: [
-      {
-        providerId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-          required: true,
-        },
-        usedAt: {
-          type: Date,
-          default: Date.now,
-        },
-        consultationId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Consultation",
-        },
-      },
-    ],
-
-    // NEW: First Time Free Trial System (one-time free call for new users)
-    hasUsedFreeTrialCall: {
-      type: Boolean,
-      default: false,
-    },
-    freeTrialUsedAt: {
-      type: Date,
-      default: null,
-    },
-    freeTrialConsultationId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Consultation",
-      default: null,
-    },
   },
   {
     timestamps: true,
