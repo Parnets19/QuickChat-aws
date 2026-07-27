@@ -30,6 +30,8 @@ const createReel = async (req, res, next) => {
 const getReels = async (req, res, next) => {
   try {
     const userId = req.user?._id;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit) || 15);
 
     // Simple Instagram-like algorithm:
     // 1. Reels from users you follow first
@@ -181,7 +183,21 @@ const getReels = async (req, res, next) => {
       });
     }
 
-    res.status(200).json({ success: true, data: combinedItems });
+    // Apply pagination
+    const total = combinedItems.length;
+    const start = (page - 1) * limit;
+    const pagedItems = combinedItems.slice(start, start + limit);
+
+    res.status(200).json({
+      success: true,
+      data: pagedItems,
+      pagination: {
+        page,
+        limit,
+        total,
+        hasMore: start + limit < total,
+      },
+    });
   } catch (error) {
     next(error);
   }
