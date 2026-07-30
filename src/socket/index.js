@@ -139,12 +139,18 @@ const initializeSocket = (io) => {
         const consultationUserId =
           typeof consultation.user === "string"
             ? consultation.user
-            : consultation.user.toString();
-        const consultationProviderId = consultation.provider.toString();
+            : consultation.user?.toString();
+        const consultationProviderId = consultation.provider?.toString();
+
+        // Also allow participants added via the conference add-participant flow
+        const isConferenceParticipant = consultation.participants?.some(
+          p => p.userId?.toString() === userId
+        );
 
         if (
           consultationUserId !== userId &&
-          consultationProviderId !== userId
+          consultationProviderId !== userId &&
+          !isConferenceParticipant
         ) {
           socket.emit("error", { message: "Unauthorized" });
           return;
@@ -727,11 +733,11 @@ const initializeSocket = (io) => {
       }
     });
 
-    // Handle consultation end - ENHANCED FOR BILATERAL TERMINATION WITH BILLING
+    // Handle consultation end - ENHANCED FOR ONE-TO-ONE / MULTIPARTY TERMINATION
     socket.on("consultation:end", async (data) => {
       try {
         console.log(
-          `🛑 BACKEND: User ${userId} is ending consultation ${data.consultationId}`
+          `🛑 BACKEND: User ${userId} requested end for consultation ${data.consultationId}`
         );
 
         const consultation = await Consultation.findById(data.consultationId);
@@ -741,7 +747,6 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Either party can end the consultation (handle guest users)
         const consultationUserId =
           typeof consultation.user === "string"
             ? consultation.user
@@ -756,58 +761,74 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // CRITICAL FIX: Call the billing controller to process billing properly
-        // This ensures wallet deduction, provider credit, and transaction records
+        const consultationRoom = io.sockets.adapter.rooms.get(
+          `consultation:${data.consultationId}`
+        );
+        const participantCount = consultationRoom ? consultationRoom.size : 0;
+        console.log(
+          `🧮 BACKEND: consultation room currently has ${participantCount} connected sockets`
+        );
+
+        const endingUser = await User.findById(userId).select('fullName name');
+        const endedByName = endingUser?.fullName || endingUser?.name || 'User';
+        const endedByRole = consultationProviderId === userId ? 'provider' : 'client';
+
+        const isFullCallEnd = participantCount <= 2;
+
+        if (!isFullCallEnd) {
+          console.log(
+            '🧩 BACKEND: Multiparty leave detected; removing only this participant from the call'
+          );
+
+          socket.to(`consultation:${data.consultationId}`).emit('participant-left', {
+            consultationId: data.consultationId,
+            userId,
+            endedBy: endedByRole,
+            endedByName,
+            reason: 'user_left',
+            timestamp: new Date().toISOString(),
+          });
+
+          socket.leave(`consultation:${data.consultationId}`);
+          return;
+        }
+
         if (consultation.status === "ongoing") {
-          console.log("💰 SOCKET: Calling billing controller to process final billing...");
-          
-          // Import the billing controller
+          console.log("💰 SOCKET: Processing final billing for call end...");
           const { endConsultation: endConsultationWithBilling } = require('../controllers/realTimeBilling.controller');
-          
-          // Create a mock request/response to call the controller
           const mockReq = {
             body: { consultationId: data.consultationId },
             user: { id: userId, _id: userId }
           };
-          
           const mockRes = {
-            json: (data) => {
-              console.log("✅ SOCKET: Billing processed successfully:", data);
-              return data;
+            json: (responseData) => {
+              console.log("✅ SOCKET: Billing processed successfully:", responseData);
+              return responseData;
             },
             status: (code) => ({
-              json: (data) => {
-                console.log(`⚠️ SOCKET: Billing response status ${code}:`, data);
-                return data;
+              json: (responseData) => {
+                console.log(`⚠️ SOCKET: Billing response status ${code}:`, responseData);
+                return responseData;
               }
             })
           };
-          
-          // Call the billing controller to process billing
           await endConsultationWithBilling(mockReq, mockRes);
-          
-          // Reload consultation to get updated values
           await consultation.reload();
-          
         } else if (
           ["no_answer", "cancelled", "missed"].includes(consultation.status)
         ) {
           console.log(
-            `⚠️ Not overriding consultation status '${consultation.status}' - keeping system-set status`
+            `⚠️ BACKEND: Consultation already has status '${consultation.status}', keeping existing state`
           );
-          // Don't change the status, but still update provider availability
         }
 
-        // Mark provider as no longer busy
-        // Check if provider has any other ongoing consultations
         const ongoingConsultations = await Consultation.countDocuments({
           provider: consultation.provider,
           status: "ongoing",
-          _id: { $ne: consultation._id }, // Exclude current consultation
+          _id: { $ne: consultation._id },
         });
 
         const newStatus = ongoingConsultations > 0 ? "busy" : "available";
-
         await User.findByIdAndUpdate(consultation.provider, {
           consultationStatus: newStatus,
           isInCall: ongoingConsultations > 0,
@@ -820,22 +841,9 @@ const initializeSocket = (io) => {
         console.log(
           `📱 Provider ${consultation.provider} status updated to: ${newStatus} (${ongoingConsultations} ongoing consultations)`
         );
-
         console.log(
           `✅ BACKEND: Consultation ${data.consultationId} status: ${consultation.status}`
         );
-
-        // BILATERAL TERMINATION FIX: Notify ALL participants in BOTH room formats
-        console.log(
-          `🛑 BACKEND: Broadcasting consultation end to ALL room formats for bilateral termination`
-        );
-
-        // Get the user who ended the call
-        const endingUser = await User.findById(userId).select('fullName name');
-        const endedByName = endingUser?.fullName || endingUser?.name || 'User';
-        
-        // Determine if ended by provider or client
-        const endedByRole = consultationProviderId === userId ? 'provider' : 'client';
 
         const endEventData = {
           consultationId: data.consultationId,
@@ -845,22 +853,18 @@ const initializeSocket = (io) => {
           endedBy: endedByRole,
           endedByUserId: userId,
           endedByName: endedByName,
-          consultation: consultation, // Include full consultation data
+          consultation: consultation,
         };
 
-        // Send to mobile app format room
         io.to(`consultation:${data.consultationId}`).emit(
           "consultation:ended",
           endEventData
         );
-
-        // Send to web app format room
         io.to(`billing:${data.consultationId}`).emit(
           "consultation:ended",
           endEventData
         );
 
-        // Also send to individual user rooms to ensure delivery
         const otherUserId =
           consultationUserId === userId
             ? consultationProviderId
@@ -872,19 +876,18 @@ const initializeSocket = (io) => {
           `✅ BACKEND: Bilateral termination events sent to all room formats and user rooms`
         );
 
-        // Force disconnect all sockets in consultation rooms
-        const consultationRoom = io.sockets.adapter.rooms.get(
+        const consultationEndRoom = io.sockets.adapter.rooms.get(
           `consultation:${data.consultationId}`
         );
         const billingRoom = io.sockets.adapter.rooms.get(
           `billing:${data.consultationId}`
         );
 
-        if (consultationRoom) {
+        if (consultationEndRoom) {
           console.log(
-            `🛑 BACKEND: Force disconnecting ${consultationRoom.size} clients from consultation room`
+            `🛑 BACKEND: Force disconnecting ${consultationEndRoom.size} clients from consultation room`
           );
-          consultationRoom.forEach((socketId) => {
+          consultationEndRoom.forEach((socketId) => {
             const clientSocket = io.sockets.sockets.get(socketId);
             if (clientSocket) {
               clientSocket.leave(`consultation:${data.consultationId}`);
@@ -1134,24 +1137,30 @@ const initializeSocket = (io) => {
         );
 
         // Broadcast ready signal to other participants (the initiator)
+        const readyPayload = {
+          from: userId,
+          userId: userId,
+          consultationId: data.consultationId,
+          role: data.role,
+          timestamp: data.timestamp,
+        };
+
         socket
           .to(`consultation:${data.consultationId}`)
-          .emit("webrtc:ready-to-receive", {
-            from: userId,
-            consultationId: data.consultationId,
-            role: data.role,
-            timestamp: data.timestamp,
-          });
+          .emit("webrtc:ready-to-receive", readyPayload);
 
         // Also send to billing room for web compatibility
         socket
           .to(`billing:${data.consultationId}`)
-          .emit("webrtc:ready-to-receive", {
-            from: userId,
-            consultationId: data.consultationId,
-            role: data.role,
-            timestamp: data.timestamp,
-          });
+          .emit("webrtc:ready-to-receive", readyPayload);
+
+        // Also broadcast plain ready-to-receive for legacy listeners
+        socket
+          .to(`consultation:${data.consultationId}`)
+          .emit("ready-to-receive", readyPayload);
+        socket
+          .to(`billing:${data.consultationId}`)
+          .emit("ready-to-receive", readyPayload);
 
         console.log(
           `✅ Ready-to-receive signal forwarded to initiator for consultation ${data.consultationId}`
@@ -1710,6 +1719,7 @@ const initializeSocket = (io) => {
           );
         }
 
+        const callerId = data.to || data.clientId || from;
         const acceptanceData = {
           consultationId,
           acceptedBy: userId,
@@ -1718,9 +1728,10 @@ const initializeSocket = (io) => {
         };
 
         console.log(`📡 Acceptance data:`, acceptanceData);
+        console.log(`📡 Caller ID resolved for acceptance notification:`, callerId);
 
         // Find caller's sockets and notify directly
-        const callerSockets = onlineUsers.get(from);
+        const callerSockets = onlineUsers.get(callerId);
         console.log(`📞 Caller sockets found:`, callerSockets ? callerSockets.length : 0);
         
         if (callerSockets && callerSockets.length > 0) {

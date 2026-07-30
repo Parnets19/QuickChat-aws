@@ -29,13 +29,15 @@ const notificationTemplates = {
     });
   },
 
-  incomingCall: async (userId, userType, callerName, callType, consultationId, io) => {
+  incomingCall: async (userId, userType, callerName, callType, consultationId, io, options = {}) => {
     console.log(`📞 notificationTemplates.incomingCall called:`, {
       userId,
       userType,
       consultationId,
       callerName,
-      callType
+      callType,
+      isConference: options?.isConference,
+      from: options?.from,
     });
     
     const result = await createNotification({
@@ -44,17 +46,20 @@ const notificationTemplates = {
       title: `Incoming ${callType} Call`,
       message: `${callerName} is calling you`,
       type: 'consultation',
-      data: { 
-        consultationId, 
-        callerName, 
-        callType, 
+      data: {
+        consultationId,
+        callerName,
+        callType,
         action: 'incoming_call',
         fromName: callerName,
-        // Add extra data for notification tap handling
-        from: userId,
-        sound: 'default', // Use default ringtone
+        // 'to' is the recipient (userId passed in), 'callerId' is the caller's ID
+        // Note: 'from' and 'to' are reserved FCM keys — use 'callerId'/'recipientId' instead
+        recipientId: userId,
+        callerId: options?.from ? String(options.from) : '',
+        isConference: options?.isConference ? 'true' : 'false',
+        sound: 'default',
         priority: 'high',
-        channelId: 'incoming_calls'
+        channelId: 'incoming_calls',
       },
       io
     });

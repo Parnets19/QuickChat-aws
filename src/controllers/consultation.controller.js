@@ -1493,25 +1493,50 @@ const addParticipantToConsultation = async (req, res, next) => {
 
     await consultation.save();
 
-    // Emit socket event to notify the added participant (incoming call)
+    // Notify the newly added participant — via socket AND push notification
     const io = req.app.get('io');
+    const currentUserId = req.user?.isGuest ? req.user.id : req.user?._id;
+    const currentUserName = req.user?.fullName || req.user?.name || 'Unknown User';
+    const callType = consultation.type || 'audio';
+
+    const callRequestPayload = {
+      consultationId: consultation._id.toString(),
+      from: currentUserId,
+      fromName: currentUserName,
+      to: participantUserId,
+      type: callType,
+      callType,
+      isConference: true,
+      timestamp: new Date().toISOString(),
+    };
+
+    // 1. Socket delivery (works when C's app is in foreground and socket is alive)
     if (io) {
-      // Get the current user's details
-      const currentUserId = req.user?.isGuest ? req.user.id : req.user?._id;
-      const currentUserName = req.user?.fullName || req.user?.name || 'Unknown User';
-
-      // Emit incoming call to the new participant
-      io.to(`user:${participantUserId}`).emit('consultation:call-request', {
-        consultationId: consultation._id,
-        from: currentUserId,
-        fromName: currentUserName,
-        to: participantUserId,
-        type: consultation.type,
-        isConference: true,
-        timestamp: new Date().toISOString(),
-      });
-
+      io.to(`user:${participantUserId}`).emit('consultation:call-request', callRequestPayload);
+      io.to(`user:${participantUserId}`).emit('consultation:incoming-call', callRequestPayload);
       console.log('📡 Socket: Incoming call request emitted to new participant:', participantUserId);
+    }
+
+    // 2. FCM push notification (works when C's app is in background / socket may be asleep)
+    try {
+      const notificationTemplates = require('../utils/notificationTemplates');
+      const Guest = require('../models/Guest.model');
+      const isGuestParticipant = await Guest.findById(participantUserId).lean();
+      const participantUserType = isGuestParticipant ? 'guest' : 'user';
+
+      await notificationTemplates.incomingCall(
+        participantUserId,
+        participantUserType,
+        currentUserName,
+        callType,
+        consultation._id.toString(),
+        io,
+        { isConference: true, from: currentUserId }
+      );
+      console.log('📱 Push notification sent to new participant:', participantUserId);
+    } catch (notifError) {
+      // Non-fatal — socket delivery above may be sufficient
+      console.error('❌ Failed to send push notification to new participant:', notifError.message);
     }
 
     res.status(200).json({

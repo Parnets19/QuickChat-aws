@@ -112,6 +112,77 @@ app.get('/health', (req, res) => {
 // Static file serving for uploads
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
+// ── Reel share page — serves OG meta + app store redirect for shared reel links
+app.get('/reel/:reelId', async (req, res) => {
+  const { reelId } = req.params;
+  try {
+    const Reel = require('./models/Reel.model');
+    const User = require('./models/User.model');
+    let title = 'Check out this video on QuickChat';
+    let description = 'Watch amazing videos from top advisers on QuickChat';
+    let videoUrl = '';
+    let thumbUrl = 'https://quickchatindia.com/logo.png';
+
+    // Try to fetch reel details for rich preview
+    if (!reelId.startsWith('provider:')) {
+      try {
+        const reel = await Reel.findById(reelId).populate('user', 'fullName');
+        if (reel) {
+          title = reel.caption || title;
+          description = `${reel.user?.fullName || 'QuickChat'}: ${reel.caption || ''}`;
+          videoUrl = reel.videoUrl || '';
+          thumbUrl = reel.thumbnailUrl || thumbUrl;
+        }
+      } catch {}
+    }
+
+    const appLink = `quickchat://reel/${reelId}`;
+    const webLink = `https://quickchatindia.com/reel/${reelId}`;
+
+    // Return HTML with OG tags + instant app redirect
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${title}</title>
+  <meta name="description" content="${description}">
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${description}">
+  <meta property="og:image" content="${thumbUrl}">
+  <meta property="og:url" content="${webLink}">
+  <meta property="og:type" content="video.other">
+  ${videoUrl ? `<meta property="og:video" content="${videoUrl}">` : ''}
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${title}">
+  <meta name="twitter:image" content="${thumbUrl}">
+  <style>
+    body { font-family: sans-serif; background:#000; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center; }
+    .logo { font-size:28px; font-weight:bold; color:#1AB5AF; margin-bottom:16px; }
+    p { color:rgba(255,255,255,0.7); margin:8px 0 24px; }
+    a.btn { background:#1AB5AF; color:#fff; padding:14px 32px; border-radius:30px; text-decoration:none; font-weight:600; font-size:16px; }
+    a.btn:hover { background:#159A8C; }
+  </style>
+</head>
+<body>
+  <div class="logo">QuickChat</div>
+  <h2 style="margin:0 0 8px">${title}</h2>
+  <p>${description}</p>
+  <a class="btn" href="${appLink}" id="openApp">Open in QuickChat App</a>
+  <script>
+    // Try to open the app immediately
+    window.location.href = '${appLink}';
+    // Fallback: after 2 seconds, redirect to play web version
+    setTimeout(function() {
+      window.location.href = '/?reelId=${reelId}#reels';
+    }, 2000);
+  </script>
+</body>
+</html>`);
+  } catch (error) {
+    res.redirect(`/?reelId=${reelId}#reels`);
+  }
+});
+
 // API Routes
 app.use('/api', routes);
 
