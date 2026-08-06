@@ -77,20 +77,23 @@ const sendPushNotification = async (notification) => {
       dataKeys: Object.keys(notification.data || {})
     });
 
-    // CRITICAL: Send BOTH notification and data payloads for maximum compatibility
-    // EXCEPTION: chat messages are data-only so Android doesn't show a system notification
-    // in foreground — the JS onMessage handler shows our custom in-app banner instead.
-    const isChatMessage = notification.data?.action === 'new_message';
+    // CRITICAL: Incoming calls are DATA-ONLY (no notification block).
+    // A notification block lets Android render a standard banner and ignore
+    // fullScreenIntent. Data-only + fullScreenIntent wakes the lock screen and
+    // triggers the CallKeep / ConnectionService full-screen call UI.
+    // EXCEPTION: chat messages are also data-only (different reason — avoid system banner in foreground).
+    const isIncomingCall = notification.data?.action === 'incoming_call';
+    const isChatMessage  = notification.data?.action === 'new_message';
+    const isDataOnly     = isIncomingCall || isChatMessage;
 
     const message = {
-      // Only include notification payload for non-chat messages
-      // (chat: data-only → no system banner in foreground; background/killed still shows via data)
-      ...(isChatMessage ? {} : {
+      // Data-only for calls and chats; notification block for everything else
+      ...(!isDataOnly ? {
         notification: {
           title: notification.title,
           body: notification.body,
         },
-      }),
+      } : {}),
       data: {
         title: String(notification.title || ''),
         body: String(notification.body || ''),
@@ -104,28 +107,17 @@ const sendPushNotification = async (notification) => {
       priority: 'high',
     };
 
-    // For incoming calls, add special configuration
-    if (notification.data?.action === 'incoming_call') {
-      // Use 'default' channel as primary — it always exists on Android.
-      // 'incoming_calls' channel (IMPORTANCE_HIGH) is created in MainActivity.kt
-      // and will be used automatically once the app is rebuilt.
+    // ── INCOMING CALL — full-screen intent, high-priority channel, data-only ──
+    if (isIncomingCall) {
       message.android = {
         priority: 'high',
-        ttl: 30 * 1000, // 30 seconds — call expires quickly
-        notification: {
-          // 'default' channel always exists; 'incoming_calls' needs a rebuild to exist
-          channelId: 'default',
-          sound: 'default',
-          priority: 'high',
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          tag: notification.data.consultationId,
-          visibility: 'public',
-          notificationCount: 1,
-        },
+        ttl: 55 * 1000, // 55 s — matches PENDING_CALL_TTL_MS on the client
+        // data-only: NO notification block → Android delivers to our background
+        // handler which calls CallKeep.displayIncomingCall() to show the full-screen UI
       };
-      
-      // Add APNS configuration for iOS
+
+      // Add APNS configuration for iOS (VoIP push handled separately via PushKit;
+      // this alert is the fallback for when VoIP cert is not yet configured)
       message.apns = {
         headers: {
           'apns-priority': '10',
@@ -143,9 +135,9 @@ const sendPushNotification = async (notification) => {
           },
         },
       };
-      
-      console.log('📞 Incoming call notification configured with high priority (channel: default)');
-    } else if (notification.data?.action === 'new_message') {
+
+      console.log('📞 Incoming call configured: data-only + high priority (full-screen intent path)');
+    } else if (isChatMessage) {
       // Data-only for chat messages — no system notification banner in foreground
       // JS onMessage handler shows in-app banner instead
       message.android = {
@@ -153,15 +145,14 @@ const sendPushNotification = async (notification) => {
       };
       console.log('💬 Chat message configured (data-only)');
     } else {
-      // For other notifications (including live-stream) — show full body text in expanded view
+      // For other notifications (wallet, admin, live-stream, broadcast etc.)
       message.android.notification = {
         channelId: 'default',
         sound: 'default',
         priority: 'high',
-        // Android BigTextStyle: shows full message when notification is expanded
         body: notification.body,
       };
-      
+
       // Add APNS configuration for iOS
       message.apns = {
         headers: {
@@ -244,15 +235,17 @@ const sendMulticastNotification = async (notification) => {
       dataKeys: Object.keys(notification.data || {})
     });
 
-    const isChatMessage = notification.data?.action === 'new_message';
+    const isIncomingCall = notification.data?.action === 'incoming_call';
+    const isChatMessage  = notification.data?.action === 'new_message';
+    const isDataOnly     = isIncomingCall || isChatMessage;
 
     const message = {
-      ...(isChatMessage ? {} : {
+      ...(!isDataOnly ? {
         notification: {
           title: notification.title,
           body: notification.body,
         },
-      }),
+      } : {}),
       data: {
         title: String(notification.title || ''),
         body: String(notification.body || ''),
@@ -261,20 +254,13 @@ const sendMulticastNotification = async (notification) => {
       tokens: validTokens,
     };
 
-    // Add Android-specific configuration for incoming calls
-    if (notification.data?.action === 'incoming_call') {
+    // ── INCOMING CALL — data-only + high priority so Android background handler
+    // can call CallKeep.displayIncomingCall() and show the full-screen call UI
+    if (isIncomingCall) {
       message.android = {
         priority: 'high',
-        ttl: 30 * 1000,
-        notification: {
-          channelId: 'default',
-          sound: 'default',
-          priority: 'high',
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          tag: notification.data.consultationId,
-          visibility: 'public',
-        },
+        ttl: 55 * 1000,
+        // NO notification block — data-only triggers CallKeep full-screen path
       };
       message.apns = {
         headers: {
@@ -293,26 +279,24 @@ const sendMulticastNotification = async (notification) => {
           },
         },
       };
-      console.log('📞 Multicast incoming call notification configured with high priority (channel: default)');
-    } else if (notification.data?.action === 'new_message') {
-      // Data-only for chat messages — no system notification banner in foreground
-      // Backend JS onMessage handler shows in-app banner instead
+      console.log('📞 Multicast incoming call configured: data-only + high priority (full-screen intent path)');
+    } else if (isChatMessage) {
+      // Data-only for chat messages
       message.android = {
         priority: 'high',
       };
       console.log('💬 Multicast chat message configured (data-only)');
     } else {
-      // For broadcast/general notifications (including live-stream) — show full body in expanded view
+      // General notifications (wallet, admin, live-stream, broadcast)
       message.android = {
         priority: 'high',
         notification: {
           channelId: 'default',
           sound: 'default',
           priority: 'high',
-          body: notification.body, // Full body for BigTextStyle
+          body: notification.body,
         },
       };
-      // Add APNS configuration for iOS
       message.apns = {
         headers: {
           'apns-priority': '10',

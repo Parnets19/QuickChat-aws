@@ -715,6 +715,72 @@ const getLiveStream = async (req, res, next) => {
   }
 };
 
+// @desc Get live stream history for the logged-in user
+//       Returns streams they hosted (streamer) and streams they joined (viewer)
+// @route GET /api/live-streams/history
+// @access Private
+const getLiveStreamHistory = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Streams the user hosted
+    const hostedStreams = await LiveStream.find({ streamer: userId })
+      .populate('streamer', 'fullName profilePhoto')
+      .sort({ startedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Streams the user watched (viewer entry exists)
+    const watchedStreams = await LiveStream.find({
+      'viewers.user': userId,
+      // Exclude streams where the user is also the streamer (already in hostedStreams)
+      streamer: { $ne: userId },
+    })
+      .populate('streamer', 'fullName profilePhoto')
+      .sort({ startedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Normalise to a flat list with a `role` and viewer info attached
+    const hosted = hostedStreams.map(s => {
+      const plain = s.toObject();
+      return {
+        ...plain,
+        role: 'streamer',
+        // How long the stream ran
+        durationSeconds: s.endedAt && s.startedAt
+          ? Math.floor((new Date(s.endedAt) - new Date(s.startedAt)) / 1000)
+          : null,
+      };
+    });
+
+    const watched = watchedStreams.map(s => {
+      const plain = s.toObject();
+      const viewerEntry = plain.viewers.find(
+        v => v.user?.toString() === userId.toString(),
+      );
+      return {
+        ...plain,
+        role: 'viewer',
+        viewerEntry,
+        // How long the viewer watched (seconds, from their viewer record)
+        durationSeconds: viewerEntry?.duration ?? null,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: [...hosted, ...watched].sort(
+        (a, b) => new Date(b.startedAt || b.createdAt) - new Date(a.startedAt || a.createdAt),
+      ),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   startLiveStream,
   endLiveStream,
@@ -722,6 +788,7 @@ module.exports = {
   leaveLiveStream,
   getLiveStreams,
   getLiveStream,
+  getLiveStreamHistory,
   markViewerConnected,
   processLiveStreamBilling,
 };

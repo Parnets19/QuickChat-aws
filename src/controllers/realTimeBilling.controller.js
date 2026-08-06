@@ -1411,12 +1411,28 @@ const endConsultation = async (req, res) => {
       return res.status(404).json({ message: "Consultation not found" });
     }
 
-    // Check if user is authorized to end this consultation
-    if (
-      consultation.user.toString() !== userId &&
-      consultation.provider.toString() !== userId
-    ) {
+    // Check if user is authorized to end this consultation.
+    // Conference participants are allowed to call this endpoint but we skip billing for them —
+    // only the original user/provider settles the bill.
+    const isOriginalParty =
+      consultation.user?.toString() === String(userId) ||
+      consultation.provider?.toString() === String(userId);
+
+    const isConferenceParticipant = !isOriginalParty &&
+      (consultation.participants || []).some(
+        p => p.userId?.toString() === String(userId)
+      );
+
+    if (!isOriginalParty && !isConferenceParticipant) {
       return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    // Conference participants just leave — no billing to process for them
+    if (isConferenceParticipant) {
+      return res.json({
+        success: true,
+        data: { consultationId, message: 'Conference participant left — no billing required' },
+      });
     }
 
     // 🚨 ENHANCED VALIDATION: Prevent duplicate ending
@@ -1697,12 +1713,17 @@ const endConsultation = async (req, res) => {
         // Add earnings to provider
         provider.wallet += providerEarnings;
         provider.earnings = (provider.earnings || 0) + providerEarnings;
+        // Mark first-earning milestone if not already set
+        if (!provider.hasFirstEarning && providerEarnings > 0) {
+          provider.hasFirstEarning = true;
+        }
         await provider.save();
         console.log("💰 CREDITED TO PROVIDER:", {
           providerId: provider._id,
           earnings: providerEarnings,
           newWallet: provider.wallet,
           newEarnings: provider.earnings,
+          hasFirstEarning: provider.hasFirstEarning,
         });
 
         // Create billing transactions
@@ -1858,10 +1879,20 @@ const endConsultation = async (req, res) => {
 
     await consultation.save();
 
+    // Re-fetch provider to get final hasFirstEarning value (may have been set above)
+    const finalProvider = await User.findById(consultation.provider).select("hasFirstEarning earnings wallet").lean();
+    const isFirstEarning = finalProvider?.hasFirstEarning === true && consultation.totalAmount > 0;
+    // providerEarnings for this consultation = totalAmount * PROVIDER_SHARE_RATE
+    const finalProviderEarnings = consultation.totalAmount > 0
+      ? Math.round(consultation.totalAmount * PROVIDER_SHARE_RATE * 100) / 100
+      : 0;
+
     console.log("✅ CONSULTATION ENDED:", {
       consultationId,
       finalDuration,
       totalAmount: consultation.totalAmount,
+      providerEarnings: finalProviderEarnings,
+      isFirstEarning,
       endTime: consultation.endTime,
     });
 
@@ -1872,6 +1903,8 @@ const endConsultation = async (req, res) => {
         status: "completed",
         duration: consultation.duration,
         totalAmount: consultation.totalAmount,
+        providerEarnings: finalProviderEarnings,
+        isFirstEarning,
         endTime: consultation.endTime,
         endReason: consultation.endReason || "manual",
         timestamp: new Date(),
@@ -1913,6 +1946,8 @@ const endConsultation = async (req, res) => {
         consultationId,
         duration: consultation.duration,
         totalAmount: consultation.totalAmount,
+        providerEarnings: finalProviderEarnings,
+        isFirstEarning,
         endTime: consultation.endTime,
         message: "Consultation ended successfully",
       },
@@ -2227,7 +2262,7 @@ const getConsultationStatus = async (req, res) => {
     const userId = req.user.id || req.user._id;
 
     const consultation = await Consultation.findById(consultationId)
-      .populate("provider", "fullName profilePhoto rates")
+      .populate("provider", "fullName profilePhoto rates hasFirstEarning")
       .populate("user", "fullName profilePhoto");
 
     if (!consultation) {
@@ -2251,9 +2286,25 @@ const getConsultationStatus = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
+    // Compute provider earnings for this consultation (90% of totalAmount)
+    const providerEarnings = consultation.totalAmount > 0
+      ? Math.round(consultation.totalAmount * PROVIDER_SHARE_RATE * 100) / 100
+      : 0;
+
+    // isFirstEarning is true if the provider's hasFirstEarning flag is now set
+    // AND this consultation had a non-zero amount (meaning they earned on it)
+    const isFirstEarning =
+      isProvider &&
+      consultation.provider?.hasFirstEarning === true &&
+      providerEarnings > 0;
+
     res.json({
       success: true,
-      data: consultation,
+      data: {
+        ...consultation.toObject(),
+        providerEarnings,
+        isFirstEarning,
+      },
     });
   } catch (error) {
     logger.error("Error getting consultation status:", error);

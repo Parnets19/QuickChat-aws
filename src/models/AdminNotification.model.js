@@ -12,7 +12,7 @@ const AdminNotificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['account_suspended', 'account_deactivated', 'account_deleted', 'deletion_request', 'kyc_request', 'report', 'system'],
+      enum: ['account_suspended', 'account_deactivated', 'account_deleted', 'deletion_request', 'kyc_request', 'report', 'system', 'profile_update'],
       required: true,
     },
     data: mongoose.Schema.Types.Mixed,

@@ -30,6 +30,7 @@ class ConsultationSocket {
           const participantsMap = this.consultationParticipants.get(consultationId);
           const participantsList = Array.from(participantsMap.entries()).map(([userId, info]) => ({
             userId,
+            userName: info.userName || null,
             joinedAt: info.joinedAt,
             isHost: this.consultationHosts.get(consultationId) === userId
           }));
@@ -89,10 +90,12 @@ class ConsultationSocket {
           this.consultationParticipants.set(consultationId, new Map());
         }
         const joinedAt = new Date();
+        const userName = data.userName || null;
         if (userId) {
           this.consultationParticipants.get(consultationId).set(userId, {
             socketId: socket.id,
-            joinedAt: joinedAt
+            joinedAt: joinedAt,
+            userName: userName,
           });
         }
         
@@ -110,6 +113,7 @@ class ConsultationSocket {
             if (id !== userId) {
               existingParticipants.push({
                 userId: id,
+                userName: info.userName || null,
                 joinedAt: info.joinedAt,
                 isHost: this.consultationHosts.get(consultationId) === id
               });

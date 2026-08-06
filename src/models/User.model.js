@@ -425,6 +425,13 @@ const UserSchema = new mongoose.Schema(
       default: null,
     },
 
+    // First-earning milestone — set to true the first time a provider earns money
+    // Used to trigger the in-app "Congratulations!" celebration popup
+    hasFirstEarning: {
+      type: Boolean,
+      default: false,
+    },
+
     // Follow system
     following: [
       {

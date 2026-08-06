@@ -51,6 +51,25 @@ router.post(
 // Public portfolio upload (used during registration — no auth token yet)
 router.post('/upload-portfolio-public', uploadMedia.single('photo'), uploadPortfolio);
 
+// Name-only lookup — returns just fullName for a user ID.
+// Used by the mobile app to resolve participant names without hitting visibility guards.
+router.get('/name/:id', protect, async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(200).json({ success: true, data: { fullName: null } });
+    }
+    const { User } = require('../models');
+    const user = await User.findById(req.params.id).select('fullName name mobile').lean();
+    // Use fullName first, then name, then last-4-digits of mobile as fallback
+    const displayName = user?.fullName || user?.name ||
+      (user?.mobile ? `User (${user.mobile.slice(-4)})` : null);
+    return res.status(200).json({ success: true, data: { fullName: displayName } });
+  } catch (_) {
+    return res.status(200).json({ success: true, data: { fullName: null } });
+  }
+});
+
 // Private routes
 router.use(protect);
 

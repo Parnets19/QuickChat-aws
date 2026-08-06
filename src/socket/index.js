@@ -7,6 +7,7 @@ const onlineUsers = new Map(); // userId -> socketIds[]
 const callTimeouts = new Map(); // consultationId -> timeoutId
 const offlineTimeouts = new Map(); // userId -> timeoutId (for debouncing offline status)
 const activeChatRooms = new Map(); // userId -> consultationId (tracks which chat room user is actively viewing)
+const consultationMembers = new Map(); // consultationId -> Map<userId, { userName, joinedAt }>
 
 const initializeSocket = (io) => {
   // Authentication middleware
@@ -166,17 +167,67 @@ const initializeSocket = (io) => {
           console.log(
             `User ${userId} already in consultation room, skipping duplicate join`
           );
-          // Still send confirmation but don't notify others
+          // Update userName if previously null — use emit data first, then socket.data fallback
+          const cid2 = data.consultationId;
+          if (consultationMembers.has(cid2)) {
+            const mmap = consultationMembers.get(cid2);
+            if (mmap.has(userId)) {
+              const existing = mmap.get(userId);
+              if (!existing.userName) {
+                const updatedName = data.userName || socket.data.user?.fullName || socket.data.user?.name || null;
+                if (updatedName) {
+                  mmap.set(userId, { ...existing, userName: updatedName });
+                }
+              }
+            }
+          }
+          // Send confirmation
           const isProvider = consultationProviderId === userId;
           socket.emit("consultation:joined", {
             consultationId: data.consultationId,
             isProvider: isProvider,
             participantCount: room.size,
           });
+          // Re-send participants-list to THIS socket so the screen's freshly-registered
+          // handler (which missed the first emission during webrtcService.initialize())
+          // can populate allParticipants correctly.
+          const cid2r = data.consultationId;
+          if (consultationMembers.has(cid2r)) {
+            const mmap2 = consultationMembers.get(cid2r);
+            // Build list excluding self, filling in any missing names from DB
+            const listForRejoin = [];
+            for (const [mid, minfo] of mmap2.entries()) {
+              if (mid === userId) continue; // skip self
+              let name = minfo.userName;
+              if (!name) {
+                try {
+                  const u = await User.findById(mid).select('fullName name mobile').lean();
+                  name = u?.fullName || u?.name || (u?.mobile ? `User (${u.mobile.slice(-4)})` : null);
+                  if (name) minfo.userName = name;
+                } catch (_) {}
+              }
+              listForRejoin.push({ userId: mid, userName: name, joinedAt: minfo.joinedAt });
+            }
+            console.log(`📋 [REJOIN] Re-sending participants-list to ${userId} (isAlreadyInRoom path):`, JSON.stringify(listForRejoin));
+            socket.emit('participants-list', { participants: listForRejoin });
+          }
           return;
         }
 
         socket.join(`consultation:${data.consultationId}`);
+
+        // Track participant name for this consultation room
+        const cid = data.consultationId;
+        if (!consultationMembers.has(cid)) {
+          consultationMembers.set(cid, new Map());
+        }
+        const memberMap = consultationMembers.get(cid);
+        // Prefer name from emit data; fall back to socket.data (always populated from JWT)
+        const resolvedUserName = data.userName || socket.data.user?.fullName || socket.data.user?.name || null;
+        memberMap.set(userId, {
+          userName: resolvedUserName,
+          joinedAt: Date.now(),
+        });
 
         // Get updated room info after joining
         const updatedRoom = io.sockets.adapter.rooms.get(
@@ -251,13 +302,16 @@ const initializeSocket = (io) => {
 
         // Only notify others if this is a new join and there are other participants
         if (participantCount > 1) {
-          // Get participant name for display
-          const joiningUser = await User.findById(userId).select('fullName profilePhoto');
+          // Get participant name for display — include mobile for last-resort fallback
+          const joiningUser = await User.findById(userId).select('fullName name mobile profilePhoto').lean();
+          const joiningUserName = joiningUser?.fullName || joiningUser?.name ||
+            (joiningUser?.mobile ? `User (${joiningUser.mobile.slice(-4)})` : null);
           
           socket
             .to(`consultation:${data.consultationId}`)
             .emit("participant:joined", {
               userId: userId,
+              userName: joiningUserName,
               isProvider: isProvider,
               participantCount: participantCount,
             });
@@ -266,11 +320,49 @@ const initializeSocket = (io) => {
           if (participantCount >= 3) {
             io.to(`consultation:${data.consultationId}`).emit("participant:added", {
               participantId: userId,
-              participantName: joiningUser?.fullName || 'Adviser',
+              participantName: joiningUserName || 'Adviser',
               participantPhoto: joiningUser?.profilePhoto || null,
               joinedAt: Date.now(),
               consultationId: data.consultationId,
             });
+          }
+        }
+
+        // Build enriched participant list — fill in any missing userName from DB.
+        // Uses mobile number as last-resort display name so userName is never null.
+        const buildParticipantList = async (excludeUserId) => {
+          const list = [];
+          for (const [mid, minfo] of memberMap.entries()) {
+            if (mid === excludeUserId) continue;
+            let name = minfo.userName;
+            if (!name) {
+              // userName missing in memory — look up from DB
+              try {
+                const u = await User.findById(mid).select('fullName name mobile').lean();
+                name = u?.fullName || u?.name || (u?.mobile ? `User (${u.mobile.slice(-4)})` : null);
+                if (name) minfo.userName = name; // cache for next time
+              } catch (_) {}
+            }
+            list.push({ userId: mid, userName: name, joinedAt: minfo.joinedAt });
+          }
+          return list;
+        };
+
+        // Send existing participants list to the new joiner (so they see who's already in the call)
+        const existingForJoiner = await buildParticipantList(userId);
+        console.log(`📋 [JOIN] Sending participants-list to new joiner ${userId}:`, JSON.stringify(existingForJoiner));
+        socket.emit('participants-list', { participants: existingForJoiner });
+
+        // Broadcast full list to EVERYONE in the room (so all screens update)
+        const fullList = await buildParticipantList(null); // include everyone
+        console.log(`📋 [JOIN] Broadcasting full participants-list (${fullList.length} people):`, JSON.stringify(fullList));
+        io.to(`consultation:${data.consultationId}`).emit('participants-list', { participants: fullList });
+
+        // ALSO send directly to each member's personal room to guarantee delivery
+        for (const [mid] of memberMap.entries()) {
+          if (mid !== userId) {
+            // Send full list so each person knows everyone in the call
+            io.to(`user:${mid}`).emit('participants-list', { participants: fullList });
           }
         }
 
@@ -780,6 +872,11 @@ const initializeSocket = (io) => {
             '🧩 BACKEND: Multiparty leave detected; removing only this participant from the call'
           );
 
+          // Remove from member tracking
+          if (consultationMembers.has(data.consultationId)) {
+            consultationMembers.get(data.consultationId).delete(userId);
+          }
+
           socket.to(`consultation:${data.consultationId}`).emit('participant-left', {
             consultationId: data.consultationId,
             userId,
@@ -871,6 +968,9 @@ const initializeSocket = (io) => {
             : consultationUserId;
 
         io.to(`user:${otherUserId}`).emit("consultation:ended", endEventData);
+
+        // Clean up member tracking for this consultation
+        consultationMembers.delete(data.consultationId);
 
         console.log(
           `✅ BACKEND: Bilateral termination events sent to all room formats and user rooms`
@@ -1543,39 +1643,27 @@ const initializeSocket = (io) => {
               );
             }
 
-            // Send timeout to caller
-            socket.emit("consultation:call-timeout", {
+            const timeoutPayload = {
               consultationId,
               message: "Provider did not answer the call",
               status: "rejected",
               reason: "timeout_no_answer",
-            });
+              timestamp: new Date().toISOString(),
+            };
 
-            // Also broadcast timeout to both room formats
-            io.to(`consultation:${consultationId}`).emit(
-              "consultation:call-timeout",
-              {
-                consultationId,
-                message: "Provider did not answer the call",
-                status: "rejected",
-                reason: "timeout_no_answer",
-                timestamp: new Date().toISOString(),
-              }
-            );
+            // Send timeout to caller (the socket that initiated the call)
+            socket.emit("consultation:call-timeout", timeoutPayload);
 
-            io.to(`billing:${consultationId}`).emit(
-              "consultation:call-timeout",
-              {
-                consultationId,
-                message: "Provider did not answer the call",
-                status: "rejected",
-                reason: "timeout_no_answer",
-                timestamp: new Date().toISOString(),
-              }
-            );
+            // Send to receiver (provider) so their ringing screen dismisses
+            // and they see a "missed call" notification
+            io.to(`user:${to}`).emit("consultation:call-timeout", timeoutPayload);
+
+            // Also broadcast to room formats for web-app clients
+            io.to(`consultation:${consultationId}`).emit("consultation:call-timeout", timeoutPayload);
+            io.to(`billing:${consultationId}`).emit("consultation:call-timeout", timeoutPayload);
 
             console.log(
-              `⏰ Call timeout sent for consultation ${consultationId} - status set to rejected`
+              `⏰ Call timeout sent for consultation ${consultationId} to caller and receiver (user:${to})`
             );
 
             // Remove timeout from map
@@ -1653,37 +1741,26 @@ const initializeSocket = (io) => {
               );
             }
 
-            socket.emit("consultation:call-timeout", {
+            const timeoutPayload = {
               consultationId,
               message: "Provider did not answer the call",
               status: "rejected",
               reason: "timeout_no_answer",
-            });
+              timestamp: new Date().toISOString(),
+            };
 
-            io.to(`consultation:${consultationId}`).emit(
-              "consultation:call-timeout",
-              {
-                consultationId,
-                message: "Provider did not answer the call",
-                status: "rejected",
-                reason: "timeout_no_answer",
-                timestamp: new Date().toISOString(),
-              }
-            );
+            // Notify caller
+            socket.emit("consultation:call-timeout", timeoutPayload);
 
-            io.to(`billing:${consultationId}`).emit(
-              "consultation:call-timeout",
-              {
-                consultationId,
-                message: "Provider did not answer the call",
-                status: "rejected",
-                reason: "timeout_no_answer",
-                timestamp: new Date().toISOString(),
-              }
-            );
+            // Notify receiver so their ringing screen is dismissed
+            io.to(`user:${to}`).emit("consultation:call-timeout", timeoutPayload);
+
+            // Room-format broadcast for web clients
+            io.to(`consultation:${consultationId}`).emit("consultation:call-timeout", timeoutPayload);
+            io.to(`billing:${consultationId}`).emit("consultation:call-timeout", timeoutPayload);
 
             console.log(
-              `⏰ Call timeout sent for consultation ${consultationId} - status set to rejected`
+              `⏰ Call timeout sent for consultation ${consultationId} to caller and receiver (user:${to})`
             );
 
             callTimeouts.delete(consultationId);

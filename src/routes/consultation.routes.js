@@ -12,6 +12,7 @@ const {
   submitRating,
   getProviderRatings,
   addParticipantToConsultation,
+  getConsultationParticipants,
 } = require("../controllers/consultation.controller");
 const { protect } = require("../middlewares/auth");
 
@@ -40,6 +41,9 @@ router.post("/:id/rating", submitRating);
 
 // Add participant to consultation
 router.put("/:id/add-participant", addParticipantToConsultation);
+
+// Get all participants with names — accessible to any call participant including conference invitees
+router.get("/:id/participants", getConsultationParticipants);
 
 // Public route for getting provider ratings
 router.get("/provider/:providerId/ratings", getProviderRatings);

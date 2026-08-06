@@ -1,6 +1,7 @@
 const { User, Consultation, Review, Transaction } = require("../models");
 const Notification = require("../models/Notification.model");
 const { AppError } = require("../middlewares/errorHandler");
+const { createAdminNotification } = require("../utils/notifications");
 const { uploadToCloudinary } = require("../utils/cloudinary");
 const fs = require("fs");
 const path = require("path");
@@ -96,6 +97,20 @@ const updateProfile = async (req, res, next) => {
       new: true,
       runValidators: true,
     });
+
+    // Notify admin about the profile update (fire-and-forget)
+    createAdminNotification({
+      title: 'Profile Updated',
+      message: `${user.fullName || 'A user'} has updated their profile.`,
+      type: 'profile_update',
+      triggeredBy: user._id,
+      affectedUser: user._id,
+      data: {
+        userId: user._id,
+        updatedFields: Object.keys(updateData),
+      },
+      io: req.io,
+    }).catch((err) => console.error('Admin notification error (updateProfile):', err));
 
     res.status(200).json({
       success: true,
@@ -493,6 +508,20 @@ const updateProviderSettings = async (req, res, next) => {
 
     // Fetch the updated user to verify rates were saved correctly
     const updatedUser = await User.findById(req.user._id);
+
+    // Notify admin about the provider settings update (fire-and-forget)
+    createAdminNotification({
+      title: 'Provider Settings Updated',
+      message: `${updatedUser.fullName || 'A provider'} has updated their provider settings.`,
+      type: 'profile_update',
+      triggeredBy: updatedUser._id,
+      affectedUser: updatedUser._id,
+      data: {
+        userId: updatedUser._id,
+        updatedFields: Object.keys(updateData),
+      },
+      io: req.io,
+    }).catch((err) => console.error('Admin notification error (updateProviderSettings):', err));
 
     res.status(200).json({
       success: true,
@@ -898,9 +927,11 @@ const searchProviders = async (req, res, next) => {
       city,
       gender,
       minRating,
+      minPrice,
       maxPrice,
       consultationType,
       recommended,
+      sortBy,     // rating | fees_asc | fees_desc | name_asc | name_desc
       lat,        // user latitude for proximity sort
       lng,        // user longitude for proximity sort
       sortByDistance,
@@ -988,8 +1019,16 @@ const searchProviders = async (req, res, next) => {
       query[`consultationModes.${consultationType}`] = true;
     }
 
+    if (minPrice) {
+      query['rates.perMinute.audioVideo'] = {
+        ...(query['rates.perMinute.audioVideo'] || {}),
+        $gte: parseFloat(minPrice),
+      };
+    }
+
     if (maxPrice) {
-      query[`rates.${consultationType || "chat"}`] = {
+      query['rates.perMinute.audioVideo'] = {
+        ...(query['rates.perMinute.audioVideo'] || {}),
         $lte: parseFloat(maxPrice),
       };
     }
@@ -997,6 +1036,18 @@ const searchProviders = async (req, res, next) => {
     if (recommended === 'true' || recommended === true) {
       query.isRecommended = true;
     }
+
+    // ── Build sort object from sortBy param ──────────────────────────────────
+    const buildSortObj = () => {
+      switch (sortBy) {
+        case 'rating':     return { 'rating.average': -1, isOnline: -1 };
+        case 'fees_asc':   return { 'rates.perMinute.audioVideo': 1,  'rating.average': -1 };
+        case 'fees_desc':  return { 'rates.perMinute.audioVideo': -1, 'rating.average': -1 };
+        case 'name_asc':   return { fullName: 1 };
+        case 'name_desc':  return { fullName: -1 };
+        default:           return { 'rating.average': -1, isOnline: -1 };
+      }
+    };
 
     let providers;
 
@@ -1034,11 +1085,11 @@ const searchProviders = async (req, res, next) => {
       const startIdx = (parseInt(page) - 1) * parseInt(limit);
       providers = allMatching.slice(startIdx, startIdx + parseInt(limit));
     } else {
-      // ── Default sort: rating desc ──
+      // ── Sort by the requested sort option ──
       providers = await User.find(query)
         .select('-wallet -earnings -bankDetails -password')
         .populate('serviceCategories')
-        .sort({ 'rating.average': -1, isOnline: -1 })
+        .sort(buildSortObj())
         .skip((parseInt(page) - 1) * parseInt(limit))
         .limit(parseInt(limit));
     }

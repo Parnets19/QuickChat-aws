@@ -639,7 +639,7 @@ const getConsultation = async (req, res, next) => {
 // @access  Private
 const getMyConsultations = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, status, role } = req.query;
+    const { page = 1, limit = 20, status, role, type } = req.query;
 
     let query;
     const userId = req.user?.isGuest ? req.user.id : req.user?._id;
@@ -682,6 +682,12 @@ const getMyConsultations = async (req, res, next) => {
 
     if (status) {
       query.status = status;
+    }
+
+    // Filter by consultation type (e.g. "audio,video" or "audio")
+    if (type) {
+      const types = type.split(',').map(t => t.trim()).filter(Boolean);
+      query.type = types.length === 1 ? types[0] : { $in: types };
     }
 
     const consultations = await Consultation.find(query)
@@ -1515,6 +1521,36 @@ const addParticipantToConsultation = async (req, res, next) => {
       io.to(`user:${participantUserId}`).emit('consultation:call-request', callRequestPayload);
       io.to(`user:${participantUserId}`).emit('consultation:incoming-call', callRequestPayload);
       console.log('📡 Socket: Incoming call request emitted to new participant:', participantUserId);
+
+      // Fetch the invited user's name
+      const invitedUser = await require('../models/User.model').findById(participantUserId).select('fullName').lean();
+      const invitedPayload = {
+        participantId: participantUserId,
+        participantName: invitedUser?.fullName || 'Unknown',
+        invitedBy: currentUserId,
+        invitedByName: currentUserName,
+        joinedAt: Date.now(),
+        consultationId: consultation._id.toString(),
+      };
+
+      // Broadcast to consultation room (catches sockets that joined via consultation:join)
+      io.to(`consultation:${consultation._id.toString()}`).emit('participant:invited', invitedPayload);
+
+      // ALSO send directly to each existing participant's personal room
+      // This guarantees delivery even if their socket is not in the consultation room
+      const existingUserIds = [
+        consultation.user?.toString(),
+        consultation.provider?.toString(),
+        ...(consultation.participants || []).map(p => p.userId?.toString()),
+      ].filter(id => id && id !== participantUserId);
+
+      const seen = new Set();
+      for (const uid of existingUserIds) {
+        if (!uid || seen.has(uid)) continue;
+        seen.add(uid);
+        io.to(`user:${uid}`).emit('participant:invited', invitedPayload);
+        console.log(`📡 participant:invited sent to user:${uid}`);
+      }
     }
 
     // 2. FCM push notification (works when C's app is in background / socket may be asleep)
@@ -1549,6 +1585,89 @@ const addParticipantToConsultation = async (req, res, next) => {
   }
 };
 
+// @desc    Get all participants of a consultation with their names
+// @route   GET /api/consultations/:id/participants
+// @access  Private — any participant (user, provider, or conference invitee)
+const getConsultationParticipants = async (req, res, next) => {
+  try {
+    // Don't rely on populate for Mixed fields — fetch raw then look up names directly
+    const consultation = await Consultation.findById(req.params.id).lean();
+
+    if (!consultation) {
+      return next(new AppError('Consultation not found', 404));
+    }
+
+    // Allow access to: user, provider, or any conference participant
+    const requestingId = req.user?.isGuest
+      ? String(req.user.id)
+      : String(req.user?._id);
+
+    const consultationUserId     = String(consultation.user?._id || consultation.user || '');
+    const consultationProviderId = String(consultation.provider?._id || consultation.provider || '');
+    const isConferenceParticipant = (consultation.participants || []).some(
+      p => String(p.userId?._id || p.userId) === requestingId
+    );
+
+    if (
+      consultationUserId !== requestingId &&
+      consultationProviderId !== requestingId &&
+      !isConferenceParticipant
+    ) {
+      return next(new AppError('Not authorized', 403));
+    }
+
+    // Collect all unique user IDs that need name resolution
+    const idSet = new Set();
+    if (consultation.user)     idSet.add(consultationUserId);
+    if (consultation.provider) idSet.add(consultationProviderId);
+    for (const p of (consultation.participants || [])) {
+      const pid = String(p.userId?._id || p.userId || '');
+      if (pid) idSet.add(pid);
+    }
+
+    // Batch-fetch names from User collection (ignore IDs that aren't valid ObjectIds)
+    const mongoose = require('mongoose');
+    const validIds = [...idSet].filter(id => mongoose.Types.ObjectId.isValid(id));
+    const userDocs = await User.find({ _id: { $in: validIds } }).select('fullName name mobile').lean();
+    const nameMap = {};
+    for (const u of userDocs) {
+      nameMap[String(u._id)] = u.fullName || u.name ||
+        (u.mobile ? `User (${u.mobile.slice(-4)})` : null);
+    }
+
+    // Build response list
+    const participants = [];
+
+    if (consultationUserId) {
+      participants.push({
+        userId:   consultationUserId,
+        fullName: nameMap[consultationUserId] || null,
+        role:     'client',
+      });
+    }
+    if (consultationProviderId) {
+      participants.push({
+        userId:   consultationProviderId,
+        fullName: nameMap[consultationProviderId] || null,
+        role:     'provider',
+      });
+    }
+    for (const p of (consultation.participants || [])) {
+      const pid = String(p.userId?._id || p.userId || '');
+      if (!pid) continue;
+      participants.push({
+        userId:   pid,
+        fullName: nameMap[pid] || null,
+        role:     p.role || 'participant',
+      });
+    }
+
+    res.status(200).json({ success: true, data: participants });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createConsultation,
   getConsultation,
@@ -1562,4 +1681,5 @@ module.exports = {
   submitRating,
   getProviderRatings,
   addParticipantToConsultation,
+  getConsultationParticipants,
 };
