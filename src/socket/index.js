@@ -765,15 +765,66 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Only allow cancellation if call is still pending (not answered yet)
-        if (consultation.status === "pending") {
+        // Allow cancellation if:
+        // - status is "pending" (legacy path), OR
+        // - status is "ongoing" but billing hasn't started yet (ringing phase —
+        //   /billing/start sets status:"ongoing" immediately, before either side
+        //   has actually connected, so billingStarted:false means still ringing)
+        const canCancel =
+          consultation.status === "pending" ||
+          (consultation.status === "ongoing" && !consultation.billingStarted);
+
+        // When billing has already started (canCancel=false), the client sent
+        // consultation:cancel instead of consultation:end — this happens when the
+        // call was very short (<5s) and the mobile callWasEstablished check fires
+        // the wrong branch.  Rather than rejecting with an error (which leaves the
+        // DB record stuck as "ongoing"), route straight to the billing-end flow.
+        if (!canCancel && consultation.status === "ongoing" && consultation.billingStarted) {
+          console.log(
+            `⚠️ consultation:cancel received for a billing-active call — routing to endConsultation (${data.consultationId})`
+          );
+          const { endConsultation: endConsultationWithBilling } = require('../controllers/realTimeBilling.controller');
+          const mockReq = {
+            body: { consultationId: data.consultationId },
+            user: { id: userId, _id: userId },
+          };
+          const mockRes = {
+            json: (d) => d,
+            status: (code) => ({ json: (d) => { console.log(`⚠️ billing-end (cancel fallback) status ${code}:`, d); return d; } }),
+          };
+          await endConsultationWithBilling(mockReq, mockRes);
+          // Reload to pick up the updated status so notifications below are accurate
+          await consultation.reload?.();
+
+          const cancellingUser = await User.findById(userId).select('fullName name');
+          const cancelledByName = cancellingUser?.fullName || cancellingUser?.name || 'User';
+          const cancelledByRole = consultationProviderId === userId ? 'provider' : 'client';
+          const otherUserId = consultationUserId === userId ? consultationProviderId : consultationUserId;
+
+          const endedEventData = {
+            consultationId: data.consultationId,
+            reason: "manual_cancel",
+            message: `Call ended by ${cancelledByName}`,
+            timestamp: new Date(),
+            endedBy: cancelledByRole,
+            endedByUserId: userId,
+            endedByName: cancelledByName,
+          };
+
+          io.to(`consultation:${data.consultationId}`).emit("consultation:ended", endedEventData);
+          io.to(`user:${otherUserId}`).emit("consultation:ended", endedEventData);
+          io.to(`user:${userId}`).emit("consultation:ended", endedEventData);
+          console.log(`✅ BACKEND: billing-active call ended via cancel fallback (${data.consultationId})`);
+          return;
+        }
+
+        if (canCancel) {
           consultation.status = "cancelled";
           consultation.endTime = new Date();
           consultation.endReason = "manual_cancel";
           consultation.duration = 0;
           consultation.totalAmount = 0;
           await consultation.save();
-
           // Get the user who cancelled
           const cancellingUser = await User.findById(userId).select('fullName name');
           const cancelledByName = cancellingUser?.fullName || cancellingUser?.name || 'User';
@@ -808,16 +859,52 @@ const initializeSocket = (io) => {
           io.to(`user:${otherUserId}`).emit("consultation:cancelled", cancelEventData);
           io.to(`user:${userId}`).emit("consultation:cancelled", cancelEventData);
 
-          console.log(
-            `✅ BACKEND: Call cancellation notifications sent to both parties (user:${userId} and user:${otherUserId})`
-          );
-        } else {
-          console.log(
-            `⚠️ Cannot cancel consultation - status is ${consultation.status}`
-          );
-          socket.emit("error", { 
-            message: "Call cannot be cancelled at this stage" 
+          // ── Send FCM push to the OTHER party so they know the call was ────
+          // cancelled even when their app is killed or backgrounded.
+          // The native QuickChatFirebaseService handles call_cancelled to:
+          //   1. Stop the native ringtone immediately
+          //   2. Cancel the incoming-call notification
+          //   3. Write MISSED_CALL to SharedPreferences so the next app open
+          //      shows a "Missed call from X" banner via IncomingCallProvider
+          Promise.resolve().then(async () => {
+            try {
+              const notificationTemplates = require('../utils/notificationTemplates');
+              const Guest = require('../models/Guest.model');
+
+              // Determine the OTHER user — the one who did NOT cancel
+              const recipientId = otherUserId;
+
+              const isGuest = await Guest.findById(recipientId);
+              const userType = isGuest ? 'guest' : 'user';
+
+              await notificationTemplates.custom(
+                recipientId,
+                userType,
+                'Missed Call',
+                `${cancelledByName} cancelled the call`,
+                'consultation',
+                {
+                  type:           'consultation',
+                  action:         'call_cancelled',
+                  consultationId: String(data.consultationId),
+                  cancelledByName,
+                  cancelledBy:    cancelledByRole,
+                  fromName:       cancelledByName,
+                  reason:         'manual_cancel',
+                },
+                io,
+                { saveToDatabase: false },
+              );
+              console.log(`✅ BACKEND: call_cancelled FCM push sent to ${recipientId}`);
+            } catch (e) {
+              console.error('❌ BACKEND: Failed to send call_cancelled FCM push:', e.message);
+            }
           });
+        } else {
+          // Call is already completed/missed/no_answer — nothing to do
+          console.log(
+            `ℹ️ consultation:cancel ignored — status already '${consultation.status}' (${data.consultationId})`
+          );
         }
       } catch (error) {
         console.error("❌ BACKEND: Error cancelling consultation:", error);
@@ -1879,11 +1966,72 @@ const initializeSocket = (io) => {
         const { consultationId, from, reason } = data;
 
         console.log(
-          `📞 Call rejected by provider ${userId} for consultation ${consultationId}`
+          `📞 Call rejected by user ${userId} for consultation ${consultationId}`
         );
 
-        // Update consultation status to rejected
+        // Clear the call timeout since the call was rejected
+        const timeoutId = callTimeouts.get(consultationId);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          callTimeouts.delete(consultationId);
+          console.log(`⏰ Call timeout cleared for consultation ${consultationId} (rejected)`);
+        }
+
         const consultation = await Consultation.findById(consultationId);
+
+        // Get the rejecting user's name
+        const rejectingUser = await User.findById(userId).select('fullName name');
+        const rejectedByName = rejectingUser?.fullName || rejectingUser?.name || 'Provider';
+
+        // ── CONFERENCE vs 1-TO-1 LOGIC ────────────────────────────────────────
+        // If this is a conference call and the rejector is a conference participant
+        // (not the primary user or provider), only that participant is removed.
+        // The existing 1-to-1 call between A and B continues unaffected.
+        //
+        // If this is a 1-to-1 call (no isConference flag), the whole consultation
+        // is rejected and the DB is updated accordingly.
+
+        const consultationUserId     = consultation?.user?.toString();
+        const consultationProviderId = consultation?.provider?.toString();
+        const isPrimaryParticipant   = userId === consultationUserId || userId === consultationProviderId;
+
+        const isConferenceParticipantReject =
+          consultation?.isConference &&
+          !isPrimaryParticipant;
+
+        if (isConferenceParticipantReject) {
+          // ── CONFERENCE DECLINE ─────────────────────────────────────────────
+          // C declined the invite — remove them from consultation.participants
+          // but leave the consultation status and the A↔B call untouched.
+          console.log(`📞 Conference participant ${userId} declined invite — removing from participants only`);
+
+          if (consultation) {
+            consultation.participants = (consultation.participants || []).filter(
+              (p) => p.userId?.toString() !== userId
+            );
+            await consultation.save();
+          }
+
+          const conferenceDeclineData = {
+            consultationId,
+            declinedBy: userId,
+            declinedByName: rejectedByName,
+            reason: reason || 'Conference invite declined',
+            timestamp: new Date(),
+          };
+
+          // Notify ALL existing participants (A, B, and any other Cs) that this
+          // person declined so their UI can update the participant list.
+          io.to(`consultation:${consultationId}`).emit('participant:declined', conferenceDeclineData);
+          io.to(`user:${consultationUserId}`).emit('participant:declined', conferenceDeclineData);
+          io.to(`user:${consultationProviderId}`).emit('participant:declined', conferenceDeclineData);
+
+          console.log(`✅ Conference decline notification sent to existing participants`);
+          return;
+        }
+
+        // ── 1-TO-1 DECLINE (or primary participant declining conference) ──────
+        // Update consultation status to rejected in the DB
         if (consultation && consultation.status === "pending") {
           consultation.status = "rejected";
           consultation.endTime = new Date();
@@ -1891,21 +2039,8 @@ const initializeSocket = (io) => {
           consultation.duration = 0;
           consultation.totalAmount = 0;
           await consultation.save();
+          console.log(`✅ Consultation ${consultationId} marked as rejected in DB`);
         }
-
-        // Clear the call timeout since provider rejected (no need to wait anymore)
-        const timeoutId = callTimeouts.get(consultationId);
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          callTimeouts.delete(consultationId);
-          console.log(
-            `⏰ Call timeout cleared for consultation ${consultationId} (rejected)`
-          );
-        }
-
-        // Get provider info
-        const providerUser = await User.findById(userId).select('fullName name');
-        const rejectedByName = providerUser?.fullName || providerUser?.name || 'Provider';
 
         const rejectionData = {
           consultationId,
@@ -1919,11 +2054,9 @@ const initializeSocket = (io) => {
           timestamp: new Date(),
         };
 
-        // Find caller's sockets and notify
+        // Notify the caller (the `from` field = caller's userId)
         const callerSockets = onlineUsers.get(from);
-
         if (callerSockets && callerSockets.length > 0) {
-          // Notify caller that call was rejected
           callerSockets.forEach((socketId) => {
             const callerSocket = io.sockets.sockets.get(socketId);
             if (callerSocket) {
@@ -1931,15 +2064,14 @@ const initializeSocket = (io) => {
               callerSocket.emit("consultation:cancelled", rejectionData);
             }
           });
-
           console.log(`✅ Call rejection notification sent to caller ${from}`);
         }
 
-        // Also emit to user rooms for reliability
+        // Also emit to user rooms for reliability (covers offline/reconnect cases)
         io.to(`user:${from}`).emit("consultation:call-rejected", rejectionData);
         io.to(`user:${from}`).emit("consultation:cancelled", rejectionData);
-        
-        console.log(`✅ BACKEND: Call rejection sent to user:${from}`);
+
+        console.log(`✅ BACKEND: 1-to-1 call rejection fully handled for consultation ${consultationId}`);
       } catch (error) {
         console.error("Error handling call rejection:", error);
       }

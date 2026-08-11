@@ -39,7 +39,7 @@ const notificationTemplates = {
       isConference: options?.isConference,
       from: options?.from,
     });
-    
+
     const result = await createNotification({
       userId,
       userType,
@@ -47,23 +47,38 @@ const notificationTemplates = {
       message: `${callerName} is calling you`,
       type: 'consultation',
       data: {
-        consultationId,
+        // ── Fields checked by QuickChatFirebaseService.kt ──────────────────
+        // The native service checks data["type"] == "consultation" AND
+        // data["action"] == "incoming_call" to decide whether to handle the
+        // message natively in background/killed state.
+        type:           'consultation',
+        action:         'incoming_call',
+
+        // ── Caller identity — read by writePendingCallToStorage() ───────────
+        // Native code reads data["from"] first, then falls back to data["callerId"].
+        // Send BOTH so it works whether the native or JS path handles it.
+        from:           options?.from ? String(options.from) : '',
+        callerId:       options?.from ? String(options.from) : '',   // fallback alias
+
+        // Recipient — who is receiving this call (the provider/user being called)
+        to:             String(userId),
+        recipientId:    String(userId),   // fallback alias
+
+        // ── Call metadata ────────────────────────────────────────────────────
+        consultationId: String(consultationId),
         callerName,
+        fromName:       callerName,
         callType,
-        action: 'incoming_call',
-        fromName: callerName,
-        // 'to' is the recipient (userId passed in), 'callerId' is the caller's ID
-        // Note: 'from' and 'to' are reserved FCM keys — use 'callerId'/'recipientId' instead
-        recipientId: userId,
-        callerId: options?.from ? String(options.from) : '',
-        isConference: options?.isConference ? 'true' : 'false',
-        sound: 'default',
-        priority: 'high',
-        channelId: 'incoming_calls',
+        isConference:   options?.isConference ? 'true' : 'false',
+
+        // ── Android notification hints ───────────────────────────────────────
+        sound:          'default',
+        priority:       'high',
+        channelId:      'incoming_calls',
       },
-      io
+      io,
     });
-    
+
     console.log(`📞 notificationTemplates.incomingCall result:`, result ? 'Success' : 'Failed');
     return result;
   },

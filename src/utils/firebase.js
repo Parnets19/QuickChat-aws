@@ -138,12 +138,40 @@ const sendPushNotification = async (notification) => {
 
       console.log('📞 Incoming call configured: data-only + high priority (full-screen intent path)');
     } else if (isChatMessage) {
-      // Data-only for chat messages — no system notification banner in foreground
-      // JS onMessage handler shows in-app banner instead
+      // Chat messages NEED a notification block so Android/iOS displays the
+      // system notification banner when the app is background or killed.
+      // In the foreground the JS onMessage handler immediately cancels the
+      // system banner via QuickChatNotifications.cancelAllNotifications() and
+      // replaces it with the in-app banner — so there is no double-banner.
+      message.notification = {
+        title: notification.title,
+        body:  notification.body,
+      };
       message.android = {
         priority: 'high',
+        notification: {
+          channelId: 'chat_messages',
+          sound:     'default',
+          priority:  'high',
+          tag:       'chat_message', // tag allows per-message cancel in foreground
+        },
       };
-      console.log('💬 Chat message configured (data-only)');
+      message.apns = {
+        headers: {
+          'apns-priority': '10',
+        },
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            alert: {
+              title: notification.title,
+              body:  notification.body,
+            },
+          },
+        },
+      };
+      console.log('💬 Chat message configured (notification + data, cancelable in foreground)');
     } else {
       // For other notifications (wallet, admin, live-stream, broadcast etc.)
       message.android.notification = {
@@ -281,11 +309,37 @@ const sendMulticastNotification = async (notification) => {
       };
       console.log('📞 Multicast incoming call configured: data-only + high priority (full-screen intent path)');
     } else if (isChatMessage) {
-      // Data-only for chat messages
+      // Chat messages need a notification block for background/killed delivery.
+      // Foreground: JS handler cancels the system banner immediately.
+      message.notification = {
+        title: notification.title,
+        body:  notification.body,
+      };
       message.android = {
         priority: 'high',
+        notification: {
+          channelId: 'chat_messages',
+          sound:     'default',
+          priority:  'high',
+          tag:       'chat_message',
+        },
       };
-      console.log('💬 Multicast chat message configured (data-only)');
+      message.apns = {
+        headers: {
+          'apns-priority': '10',
+        },
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            alert: {
+              title: notification.title,
+              body:  notification.body,
+            },
+          },
+        },
+      };
+      console.log('💬 Multicast chat message configured (notification + data, cancelable in foreground)');
     } else {
       // General notifications (wallet, admin, live-stream, broadcast)
       message.android = {
