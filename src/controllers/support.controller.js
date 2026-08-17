@@ -9,7 +9,7 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['what is quick chat', 'about quick chat', 'what is this', 'quickchat', 'website', 'platform', 'app'],
-    reply: "Quick Chat (quickchatindia.com) is India's expert consultation platform.\n\n📱 Available on: Android & iOS apps + Web\n🎯 Services: Audio calls, Video calls, Chat consultations\n💰 Billing: Per-minute billing based on provider's rate\n🆓 Free trial: First minute FREE for new users\n💳 Payments: PhonePe, UPI, Debit/Credit cards\n\nConnect with experts in astrology, legal, medical, finance, and more!",
+    reply: "Quick Chat (quickchatindia.com) is India's expert consultation platform.\n\n📱 Available on: Android & iOS apps + Web\n🎯 Services: Audio calls, Video calls, Chat consultations, Live Streaming\n💰 Billing: Per-minute billing for audio/video/live (Chat is FREE)\n💳 Payments: PhonePe, UPI, Debit/Credit cards\n\nConnect with experts in astrology, legal, medical, finance, and more!",
   },
   {
     keywords: ['register', 'sign up', 'signup', 'create account', 'new account', 'join'],
@@ -21,11 +21,11 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['consultation', 'call', 'video', 'audio', 'connect', 'talk', 'start call', 'book'],
-    reply: "To start a consultation on Quick Chat:\n1. Browse providers on 'Find Expert' page\n2. Click on a provider's profile\n3. Choose call type: 🎵 Audio / 📹 Video / 💬 Chat\n4. Ensure you have sufficient wallet balance\n5. Click 'Start Consultation'\n\n💡 First minute is FREE for new users!\n⏱️ Billing is per-minute based on provider's rate\n📱 Works on web and mobile app",
+    reply: "To start a consultation on Quick Chat:\n1. Browse providers on 'Search' page\n2. Click on a provider's profile\n3. Choose: 💬 Chat (FREE) / 📞 Audio / 📹 Video\n4. For audio/video: Ensure wallet balance covers at least 1 minute\n5. Click 'Start Consultation'\n\n⏱️ Audio/Video: Billed per-minute based on provider's rate\n💬 Chat: Always FREE\n📱 Works on web and mobile app",
   },
   {
     keywords: ['payment', 'pay', 'wallet', 'recharge', 'add money', 'balance', 'topup', 'phonepe', 'upi'],
-    reply: "To add money to your Quick Chat wallet:\n1. Go to 'Wallet' in your profile\n2. Click 'Add Money'\n3. Enter the amount (minimum ₹50)\n4. Pay via PhonePe, UPI, or Debit/Credit card\n\n💳 Payment methods: PhonePe, UPI, Cards\n💰 Minimum recharge: ₹50\n⚡ Payments are processed instantly\n\nFor payment issues, email: Quickchat2026@gmail.com",
+    reply: "To add money to your Quick Chat wallet:\n1. Go to 'Wallet' in your profile\n2. Click 'Add Money'\n3. Enter the amount (minimum ₹100)\n4. Pay via PhonePe, UPI, or Debit/Credit card\n\n💳 Payment methods: PhonePe, UPI, Cards\n💰 Minimum recharge: ₹100 | Maximum: ₹50,000\n⚡ Payments are processed instantly\n\nFor payment issues, email: Quickchat2026@gmail.com",
   },
   {
     keywords: ['refund', 'money back', 'charge', 'deducted', 'wrong charge', 'overcharged'],
@@ -37,19 +37,19 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['provider', 'expert', 'advisor', 'become', 'earn', 'offer service', 'astrologer', 'consultant'],
-    reply: "To become a provider on Quick Chat:\n1. Go to your profile settings\n2. Click 'Become a Provider'\n3. Fill in your expertise and set your per-minute rate\n4. Upload required documents\n5. Wait for admin approval (24-48 hours)\n\n💰 Providers earn per minute of consultation\n💸 Minimum withdrawal: ₹200\n⏱️ Payouts within 24 hours\n📧 Questions: Quickchat2026@gmail.com",
+    reply: "To become a provider on Quick Chat:\n1. Download the app and register\n2. Fill in your profession, skills, bio, and per-minute rate\n3. Upload profile photo and Aadhaar document\n4. Add bank details for withdrawals\n5. Submit — admin approval takes 24-48 hours\n\n💰 Providers earn 90% of consultation fees (10% platform commission)\n💸 Minimum withdrawal: ₹100\n⏱️ Payouts within 24 hours\n📧 Questions: Quickchat2026@gmail.com",
   },
   {
     keywords: ['withdraw', 'withdrawal', 'payout', 'earnings', 'bank', 'transfer money'],
-    reply: "To withdraw your earnings from Quick Chat:\n1. Go to 'Wallet' > 'Withdraw'\n2. Enter your bank account details\n3. Enter the amount to withdraw\n4. Submit the request\n\n💰 Minimum withdrawal: ₹200\n⏱️ Processing time: 24 hours\n🏦 Transferred directly to your bank account\n\n📧 Withdrawal issues: Quickchat2026@gmail.com",
+    reply: "To withdraw your earnings from Quick Chat:\n1. Go to 'Wallet' > 'Withdraw'\n2. Enter your bank account details (if not already added)\n3. Enter the amount to withdraw\n4. Submit the request\n\n💰 Minimum withdrawal: ₹100 | Maximum: ₹50,000\n⏱️ Processing time: 24 hours\n🏦 Transferred directly to your bank account\n📊 You can withdraw up to 75% of your wallet balance\n\n📧 Withdrawal issues: Quickchat2026@gmail.com",
   },
   {
     keywords: ['free', 'trial', 'free minute', 'first call', 'free consultation'],
-    reply: "Quick Chat offers a FREE trial for new users! 🎉\n\n✅ First consultation: First minute is FREE\n✅ No credit card required to start\n✅ Available for all new registered users\n\nJust find a provider and start your first consultation to enjoy the free trial.\n\n🌐 Visit: quickchatindia.com",
+    reply: "Quick Chat pricing info:\n\n💬 Chat consultations: Always FREE — no wallet balance needed\n📞 Audio/Video calls: Billed per minute based on provider's rate\n💰 Minimum wallet recharge: ₹100\n\nTo start a free chat:\n1. Find a provider on the Search page\n2. Click their profile → tap 'Chat'\n3. Start messaging for FREE!\n\n🌐 Visit: quickchatindia.com",
   },
   {
     keywords: ['price', 'rate', 'cost', 'how much', 'charges', 'fee', 'per minute'],
-    reply: "Quick Chat pricing:\n\n💰 Billing: Per-minute based on each provider's rate\n🆓 Free trial: First minute FREE for new users\n💳 Minimum wallet recharge: ₹50\n\nEach provider sets their own per-minute rate, visible on their profile before you start a call.\n\n📱 Download the app or visit quickchatindia.com to browse providers and their rates.",
+    reply: "Quick Chat pricing:\n\n� Chat: Always FREE\n📞 Audio/Video: Per-minute based on each provider's rate\n� Minimum wallet recharge: ₹100\n📊 Provider sets their own rate (visible on their profile)\n\nExample: If provider charges ₹5/min and call lasts 3 min = ₹15 deducted.\n\n📱 Download the app or visit quickchatindia.com to browse providers and their rates.",
   },
   {
     keywords: ['download', 'android', 'ios', 'mobile app', 'play store', 'app store'],
@@ -129,7 +129,7 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['chat consultation', 'text chat','chat', 'messaging', 'text only'],
-    reply: "Quick Chat supports text-based chat consultations! 💬\n\nHow to start a chat consultation:\n1. Find a provider who offers 'Chat' service\n2. Click 'Start Chat Consultation'\n3. Type your messages in real-time\n\n💰 Chat consultations are also billed per minute\n🆓 First minute free for new users\n\n📧 Support: Quickchat2026@gmail.com",
+    reply: "Quick Chat supports text-based chat consultations! 💬\n\nHow to start a chat consultation:\n1. Find a provider on the Search page\n2. Open their profile\n3. Tap 'Chat' or 'Message'\n4. Start typing your messages\n\n✅ Chat is completely FREE — no wallet balance needed!\n💬 Messages are delivered in real-time\n📱 Available on both app and web\n\n📧 Support: Quickchat2026@gmail.com",
   },
   {
     keywords: ['thank', 'thanks', 'bye', 'goodbye', 'ok', 'okay', 'got it', 'understood', 'great', 'perfect', 'done', 'solved', 'resolved'],
@@ -147,7 +147,7 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['call not connecting', 'call not starting', 'call failed', 'cant start call', 'call button not working'],
-    reply: "Call not connecting? Try this:\n1. Check wallet balance (must be > provider's per-minute rate)\n2. Allow mic & camera permissions\n3. Check internet speed (min 2 Mbps)\n4. Refresh and try again\n\n📧 Quickchat2026@gmail.com",
+    reply: "Call not connecting? Try this:\n1. Check wallet balance (must be ≥ provider's per-minute rate)\n2. Allow mic & camera permissions\n3. Check internet speed (min 2 Mbps)\n4. Make sure provider is 'Available' (green dot)\n5. Refresh and try again\n\n📧 Quickchat2026@gmail.com",
   },
   {
     keywords: ['otp not received', 'otp not coming', 'didnt get otp', 'no otp', 'resend otp'],
@@ -155,19 +155,19 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['how to pay', 'payment method', 'how to add money', 'add balance', 'top up'],
-    reply: "To add money:\n1. Profile → Wallet → Add Money\n2. Enter amount (min ₹50)\n3. Pay via PhonePe / UPI / Card\n\n⚡ Credited instantly!\n📧 Payment issues: Quickchat2026@gmail.com",
+    reply: "To add money:\n1. Profile → Wallet → Add Money\n2. Enter amount (min ₹100, max ₹50,000)\n3. Pay via PhonePe / UPI / Card\n\n⚡ Credited instantly!\n📧 Payment issues: Quickchat2026@gmail.com",
   },
   {
     keywords: ['minimum recharge', 'minimum amount', 'min recharge', 'least amount'],
-    reply: "Minimum wallet recharge on Quick Chat is ₹50.\n\nYou can add any amount above ₹50 via PhonePe, UPI, or Debit/Credit card.",
+    reply: "Minimum wallet recharge on Quick Chat is ₹100.\n\nYou can add any amount between ₹100 and ₹50,000 via PhonePe, UPI, or Debit/Credit card.",
   },
   {
     keywords: ['minimum withdrawal', 'min withdraw', 'least withdrawal', 'how much to withdraw'],
-    reply: "Minimum withdrawal amount is ₹200.\n\nWithdrawals are processed within 24 hours directly to your bank account.",
+    reply: "Minimum withdrawal amount is ₹100.\n\nWithdrawals are processed within 24 hours directly to your bank account. Maximum: ₹50,000 (or 75% of wallet balance, whichever is lower).",
   },
   {
     keywords: ['how long', 'how many days', 'when will', 'processing time', 'how much time'],
-    reply: "Processing times on Quick Chat:\n• Wallet recharge: Instant\n• Withdrawal to bank: 24 hours\n• Refunds: 5-7 business days\n• KYC verification: 24-48 hours\n• Account appeal: 48 hours\n\n📧 Quickchat2026@gmail.com",
+    reply: "Processing times on Quick Chat:\n• Wallet recharge: Instant\n• Withdrawal to bank: 24 hours\n• Refunds: 5-7 business days\n• KYC verification: 24-48 hours\n• Account appeal: 48 hours\n• Provider registration approval: 24-48 hours\n\n📧 Quickchat2026@gmail.com",
   },
   {
     keywords: ['provider offline', 'provider not available', 'expert not online', 'no provider', 'all busy'],
@@ -199,7 +199,7 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['how does billing work', 'billing', 'how am i charged', 'when charged', 'charge per minute'],
-    reply: "Quick Chat billing works like this:\n• You're charged per minute of the consultation\n• Rate is set by the provider (visible on their profile)\n• Amount is deducted from your wallet in real-time\n• First minute is FREE for new users\n• Minimum ₹50 wallet balance needed to start\n\n📧 Billing queries: Quickchat2026@gmail.com",
+    reply: "Quick Chat billing works like this:\n• Audio/Video: Charged per minute of the consultation\n• Chat: Always FREE — no charges!\n• Rate is set by the provider (visible on their profile)\n• Amount is deducted from your wallet in real-time\n• Billing rounds UP to the nearest minute\n• Minimum ₹100 wallet balance needed to start audio/video calls\n\n📧 Billing queries: Quickchat2026@gmail.com",
   },
   {
     keywords: ['who are providers', 'who are experts', 'are they verified', 'real experts', 'trusted'],
@@ -207,11 +207,11 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['can i use without account', 'guest', 'without login', 'no account', 'without register'],
-    reply: "You need a Quick Chat account to start consultations.\n\nRegistration is FREE and takes under 2 minutes:\n1. Visit quickchatindia.com\n2. Click 'Get Started'\n3. Enter mobile number + OTP\n\n🆓 First minute of your first call is FREE!",
+    reply: "Yes! Quick Chat supports Guest Mode! 👤\n\n📱 Guest users can:\n• Browse and search providers\n• Start chat consultations (FREE)\n• Make audio/video calls (wallet required)\n• Add money to guest wallet via PhonePe/UPI\n\n⚠️ Limitations: Guests cannot become providers or upload reels.\n💡 Register a full account anytime for access to all features.\n\n🌐 quickchatindia.com",
   },
   {
     keywords: ['how many calls', 'call limit', 'daily limit', 'max calls', 'unlimited'],
-    reply: "There's no limit on the number of consultations on Quick Chat! 🎉\n\nYou can make as many calls as you want as long as you have wallet balance.\n\n💰 Minimum recharge: ₹50\n📧 Quickchat2026@gmail.com",
+    reply: "There's no limit on consultations on Quick Chat! 🎉\n\n• Unlimited chat consultations (always FREE)\n• Unlimited audio/video calls (as long as you have wallet balance)\n\n💰 Minimum recharge: ₹100\n📧 Quickchat2026@gmail.com",
   },
   {
     keywords: ['referral', 'refer', 'invite friend', 'refer and earn', 'referral code'],
@@ -235,7 +235,7 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['how to search', 'find expert', 'search provider', 'filter', 'browse'],
-    reply: "To find an expert on Quick Chat:\n1. Go to 'Find Expert' page\n2. Use filters: Category, Language, Rating, Price\n3. See who's online right now (green dot = available)\n4. Click their profile to view details and start a call\n\n🌐 quickchatindia.com",
+    reply: "To find an expert on Quick Chat:\n1. Go to 'Search' page (first tab in app)\n2. Use filters: Category, Language, Rating, Price\n3. See who's online right now (green dot = available)\n4. Click their profile to view details\n5. Start a Chat (FREE) or Audio/Video call\n\n🌐 quickchatindia.com",
   },
 
   // ── Ultra-short / typo-friendly phrases ────────────────────────────────────
@@ -281,11 +281,11 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['provider earnings', 'how much do providers earn', 'provider income', 'how providers get paid'],
-    reply: "Provider earnings on Quick Chat:\n• You earn per minute of each consultation\n• Rate is set by you (visible on your profile)\n• Earnings accumulate in your wallet\n• Withdraw anytime (min ₹200)\n• Payouts in 2-3 business days\n\n📧 Earnings queries: Quickchat2026@gmail.com",
+    reply: "Provider earnings on Quick Chat:\n• You earn 90% of each consultation fee (10% platform commission)\n• Rate is set by you (visible on your profile)\n• Earnings accumulate in your wallet\n• Withdraw anytime (min ₹100, max ₹50,000)\n• Payouts processed within 24 hours\n\n📧 Earnings queries: Quickchat2026@gmail.com",
   },
   {
     keywords: ['what is wallet', 'wallet kya hai', 'how wallet works', 'wallet balance'],
-    reply: "Quick Chat Wallet:\n• Your in-app balance used for consultations\n• Add money via PhonePe, UPI, or Card (min ₹50)\n• Balance is deducted per minute during calls\n• Providers receive earnings in their wallet\n• Withdraw to bank (min ₹200)\n\n📧 Quickchat2026@gmail.com",
+    reply: "Quick Chat Wallet:\n• Your in-app balance used for audio/video consultations\n• Add money via PhonePe, UPI, or Card (min ₹100, max ₹50,000)\n• Balance is deducted per minute during audio/video calls\n• Chat is always FREE — no wallet needed for chat\n• Providers receive earnings in their wallet\n• Withdraw to bank (min ₹100, max ₹50,000)\n\n📧 Quickchat2026@gmail.com",
   },
   {
     keywords: ['aadhaar', 'pan card', 'passport', 'id document', 'government id', 'upload document'],
@@ -301,7 +301,79 @@ const AUTO_REPLIES = [
   },
   {
     keywords: ['how to use', 'how does it work', 'explain', 'guide me', 'tutorial', 'steps'],
-    reply: "Here's how Quick Chat works:\n\n1️⃣ Register with your mobile number (free)\n2️⃣ Add money to your wallet (min ₹50)\n3️⃣ Browse experts on 'Find Expert' page\n4️⃣ Start an Audio / Video / Chat consultation\n5️⃣ Get billed per minute (first minute FREE for new users)\n6️⃣ Rate the provider after the call\n\n🌐 quickchatindia.com",
+    reply: "Here's how Quick Chat works:\n\n1️⃣ Register with your mobile number (free) or use Guest Mode\n2️⃣ Browse experts on 'Search' page\n3️⃣ Start a FREE Chat consultation instantly\n4️⃣ For Audio/Video: Add money to wallet (min ₹100) → Start call\n5️⃣ Audio/Video: Billed per minute based on provider's rate\n6️⃣ Rate the provider after the call\n\n🌐 quickchatindia.com",
+  },
+
+  // ── Live Streaming ──────────────────────────────────────────────────────────
+  {
+    keywords: ['live', 'go live', 'live stream', 'streaming', 'broadcast', 'live video', 'watch live'],
+    reply: "Quick Chat has a Live Streaming feature! 🔴\n\n📹 For Providers (Go Live):\n1. Open the app → tap 'Live' tab\n2. Add a title and description\n3. Tap 'Go Live' — viewers join in real-time!\n4. Earn per minute from viewers who watch\n\n👁️ For Viewers:\n1. Go to 'Live' tab to see active streams\n2. Tap a stream to watch\n3. You're billed per minute of viewing (based on streamer's rate)\n4. Like and chat during the stream!\n\n📧 Issues: Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['live earning', 'earn from live', 'live income', 'live rate', 'live billing'],
+    reply: "Live Stream earnings for providers:\n• Set your live stream rate (₹ per minute)\n• Viewers are billed per minute while watching\n• Earnings go to your wallet instantly\n• Track viewer count, duration, and earnings in stream history\n\n📧 Quickchat2026@gmail.com",
+  },
+
+  // ── Reels / Short Videos ────────────────────────────────────────────────────
+  {
+    keywords: ['reel', 'reels', 'short video', 'video upload', 'upload video', 'create reel', 'post video', 'portfolio video'],
+    reply: "Quick Chat Reels — Share short videos! 🎬\n\n📤 Upload a Reel (Providers):\n1. Go to Profile → Portfolio → Add Media\n2. Upload a video or image with caption\n3. Your content appears in the 'Videos' tab for all users\n\n👁️ Watch Reels (Users):\n1. Tap the 'Videos' tab in the app\n2. Swipe through provider videos\n3. Like ❤️, comment 💬, share 🔗\n4. Tap provider profile to start a consultation\n\n📧 Issues: Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['like reel', 'comment reel', 'share reel', 'reel not playing', 'video not loading'],
+    reply: "Reel interactions:\n• ❤️ Double-tap or tap the heart to like\n• 💬 Tap comment icon to add a comment\n• 🔗 Tap share to send via WhatsApp or other apps\n\nVideo not playing?\n1. Check internet connection\n2. Update the app to latest version\n3. Clear app cache\n\n📧 Quickchat2026@gmail.com",
+  },
+
+  // ── Follow System ───────────────────────────────────────────────────────────
+  {
+    keywords: ['followers', 'following', 'who follows me', 'follower count', 'how many followers'],
+    reply: "Quick Chat Follow System:\n• Follow providers to get notified when they come online\n• Your follower/following counts show on your profile\n• Providers see their total followers on their dashboard\n• Unfollow anytime from the provider's profile\n\n📧 Quickchat2026@gmail.com",
+  },
+
+  // ── Bank Details & Withdrawals ──────────────────────────────────────────────
+  {
+    keywords: ['bank detail', 'add bank', 'bank account', 'ifsc', 'account number', 'upi id', 'bank name'],
+    reply: "Bank Details for withdrawals:\n1. Go to Profile → Wallet → Bank Details\n2. Enter: Account Number, IFSC Code, Account Holder Name, Bank Name\n3. Optionally add UPI ID\n4. Save — now you can withdraw!\n\n⚠️ Bank details must match your KYC name.\n💰 Min withdrawal: ₹100 | Max: ₹50,000\n📧 Quickchat2026@gmail.com",
+  },
+
+  // ── Location / Map ──────────────────────────────────────────────────────────
+  {
+    keywords: ['location', 'map', 'address', 'village', 'city', 'state', 'where', 'near me', 'nearby'],
+    reply: "Quick Chat uses your location to:\n• Show nearby providers on search\n• Display your village/town on your profile\n• Help users find local experts\n\nYou set your location during registration via Google Maps pin. To update:\n1. Go to Profile → Edit Profile → Location\n2. Search or pin your location on the map\n3. Save\n\n📧 Quickchat2026@gmail.com",
+  },
+
+  // ── Guest Users ─────────────────────────────────────────────────────────────
+  {
+    keywords: ['guest login', 'guest user', 'guest account', 'use as guest', 'guest mode', 'without full registration'],
+    reply: "Quick Chat Guest Mode:\n• Login with just your mobile number (no full registration)\n• Browse providers and start consultations\n• Add money to guest wallet via PhonePe/UPI\n• Chat with providers\n\n⚠️ Limitations: Guests cannot become providers or access all features.\n💡 Upgrade to a full account anytime from Profile.\n\n📧 Quickchat2026@gmail.com",
+  },
+
+  // ── Consultation Modes ──────────────────────────────────────────────────────
+  {
+    keywords: ['audio call', 'voice call', 'audio only', 'phone call consultation'],
+    reply: "Audio Call Consultation:\n• Voice-only call with the expert\n• Billed per minute (rate shown on provider profile)\n• Lower data usage than video\n• Tap 📞 Audio on the provider's profile to start\n\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['video call', 'video consultation', 'face to face', 'video chat'],
+    reply: "Video Call Consultation:\n• Face-to-face video call with the expert\n• Same per-minute rate as audio (set by provider)\n• Requires camera + microphone permissions\n• Min 2 Mbps internet recommended\n• Tap 📹 Video on the provider's profile to start\n\n📧 Quickchat2026@gmail.com",
+  },
+
+  // ── App Features ────────────────────────────────────────────────────────────
+  {
+    keywords: ['dark mode', 'theme', 'light mode', 'night mode'],
+    reply: "Quick Chat currently uses a light theme by default. Dark mode is coming soon in a future update!\n\n📧 Feature requests: Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['multiple language', 'change language', 'app language', 'hindi me', 'language change'],
+    reply: "Quick Chat supports multiple languages!\n\nTo change app language:\n1. Open the app\n2. Go to Profile → Settings → Language\n3. Choose: English, Hindi, Bengali, Telugu, or Kannada\n\nThe entire app will switch to your chosen language.\n\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['commission', 'platform fee', 'how much cut', 'quick chat fee', 'deduction from earning'],
+    reply: "Quick Chat Platform Fee:\n• Quick Chat takes a 10% commission on each consultation\n• Providers receive 90% of the billed amount\n• Example: If call costs ₹100, provider earns ₹90\n• No hidden fees or charges\n\n📧 Quickchat2026@gmail.com",
+  },
+  {
+    keywords: ['age limit', 'minimum age', 'how old', '18 years', 'age requirement'],
+    reply: "Quick Chat Age Requirement:\n• Users must be 18 years or older to register\n• Providers must verify their identity via KYC\n• Minors are not permitted to use the platform\n\n📧 Quickchat2026@gmail.com",
   },
 ];
 

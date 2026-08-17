@@ -93,10 +93,43 @@ const updateProfile = async (req, res, next) => {
       }
     });
 
+    // Fetch old data BEFORE update for audit log
+    const oldUser = await User.findById(req.user?._id).lean();
+
     const user = await User.findByIdAndUpdate(req.user?._id, updateData, {
       new: true,
       runValidators: true,
     });
+
+    // Log profile changes (fire-and-forget)
+    if (oldUser && Object.keys(updateData).length > 0) {
+      const ProfileEditLog = require('../models/ProfileEditLog.model');
+      const changes = [];
+      for (const field of Object.keys(updateData)) {
+        const oldVal = oldUser[field];
+        const newVal = updateData[field];
+        // Only log if value actually changed
+        const oldStr = JSON.stringify(oldVal || '');
+        const newStr = JSON.stringify(newVal || '');
+        if (oldStr !== newStr) {
+          changes.push({
+            field,
+            oldValue: oldVal || null,
+            newValue: newVal || null,
+          });
+        }
+      }
+      if (changes.length > 0) {
+        ProfileEditLog.create({
+          user: user._id,
+          userName: user.fullName,
+          userMobile: user.mobile,
+          changes,
+          ip: req.ip || req.headers['x-forwarded-for'] || '',
+          userAgent: req.headers['user-agent'] || '',
+        }).catch(err => console.error('ProfileEditLog error:', err));
+      }
+    }
 
     // Notify admin about the profile update (fire-and-forget)
     createAdminNotification({
@@ -508,6 +541,35 @@ const updateProviderSettings = async (req, res, next) => {
 
     // Fetch the updated user to verify rates were saved correctly
     const updatedUser = await User.findById(req.user._id);
+
+    // Log provider settings changes (fire-and-forget)
+    const ProfileEditLog = require('../models/ProfileEditLog.model');
+    const provChanges = [];
+    const oldData = currentUser.toObject();
+    const fieldsToCheck = [...allowedFields, 'rates'];
+    for (const field of fieldsToCheck) {
+      const oldVal = oldData[field];
+      const newVal = updatedUser[field];
+      const oldStr = JSON.stringify(oldVal || '');
+      const newStr = JSON.stringify(newVal || '');
+      if (oldStr !== newStr) {
+        provChanges.push({
+          field,
+          oldValue: oldVal || null,
+          newValue: newVal || null,
+        });
+      }
+    }
+    if (provChanges.length > 0) {
+      ProfileEditLog.create({
+        user: updatedUser._id,
+        userName: updatedUser.fullName,
+        userMobile: updatedUser.mobile,
+        changes: provChanges,
+        ip: req.ip || req.headers['x-forwarded-for'] || '',
+        userAgent: req.headers['user-agent'] || '',
+      }).catch(err => console.error('ProfileEditLog error:', err));
+    }
 
     // Notify admin about the provider settings update (fire-and-forget)
     createAdminNotification({
