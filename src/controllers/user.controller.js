@@ -246,16 +246,44 @@ const uploadPortfolio = async (req, res, next) => {
       return next(new AppError("Please upload a file", 400));
     }
 
+    // Log file details for debugging
+    console.log('📤 Portfolio upload request:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: `${(req.file.size / 1024 / 1024).toFixed(2)} MB`,
+      path: req.file.path,
+    });
+
+    // Validate file size (100MB max)
+    const maxSize = 100 * 1024 * 1024; // 100MB
+    if (req.file.size > maxSize) {
+      return next(new AppError(`File size exceeds 100MB limit. Your file: ${(req.file.size / 1024 / 1024).toFixed(2)}MB`, 400));
+    }
+
+    // Validate video duration if it's a video (optional, needs ffprobe)
+    const isVideo = req.file.mimetype.startsWith('video/');
+    
+    console.log(`🚀 Uploading ${isVideo ? 'video' : 'image'} to Cloudinary...`);
+
     const result = await uploadToCloudinary(
       req.file.path,
       "skillhub/portfolio"
     );
 
     if (!result || !result.url) {
+      console.error('❌ Cloudinary returned no URL');
       return next(
         new AppError("Portfolio upload failed - no URL returned", 500)
       );
     }
+
+    // Log successful upload
+    console.log('✅ Portfolio uploaded:', {
+      url: result.url,
+      type: isVideo ? 'video' : 'image',
+      fallback: result.fallback || false,
+      duration: result.duration || 'N/A',
+    });
 
     // If user is authenticated, add to their portfolio
     if (req.user?._id) {
@@ -282,19 +310,39 @@ const uploadPortfolio = async (req, res, next) => {
       });
 
       await user.save();
+      console.log('✅ Portfolio added to user profile');
     }
 
     res.status(200).json({
       success: true,
-      message: "Portfolio media uploaded successfully",
+      message: `Portfolio ${isVideo ? 'video' : 'image'} uploaded successfully`,
       data: {
         url: result.url,
-        type: req.file.mimetype.startsWith("image/") ? "image" : "video",
+        type: isVideo ? "video" : "image",
+        fallback: result.fallback || false,
+        duration: result.duration || null,
       },
     });
   } catch (error) {
-    console.error("❌ Portfolio upload error:", error);
-    next(error);
+    console.error("❌ Portfolio upload error:", {
+      message: error.message,
+      stack: error.stack,
+      file: req.file ? {
+        name: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+      } : 'No file',
+    });
+    
+    // Provide more specific error message
+    if (error.message.includes('timeout')) {
+      return next(new AppError("Upload timeout - file may be too large or network is slow. Please try a smaller video.", 408));
+    }
+    if (error.message.includes('File size')) {
+      return next(error);
+    }
+    
+    next(new AppError(`Upload failed: ${error.message}`, 500));
   }
 };
 

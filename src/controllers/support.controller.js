@@ -355,11 +355,31 @@ const startChat = async (req, res, next) => {
       chat.lastMessageAt = new Date();
       chat.adminUnread += 1;
 
-      // Auto-reply
-      const autoReply = getAutoReply(firstMessage);
-      chat.messages.push({ sender: 'bot', message: autoReply });
+      // Auto-reply disabled - admin will reply manually
+      // const autoReply = getAutoReply(firstMessage);
+      // chat.messages.push({ sender: 'bot', message: autoReply });
 
       await chat.save();
+
+      // Send admin notification for new support chat
+      try {
+        const { createAdminNotification } = require('../utils/notifications');
+        const userName = userId 
+          ? (await require('../models/User.model').findById(userId).select('fullName')).fullName 
+          : guestName || 'Guest User';
+        
+        await createAdminNotification({
+          title: 'New Support Chat',
+          message: `${userName} started a new support chat: "${firstMessage.substring(0, 50)}${firstMessage.length > 50 ? '...' : ''}"`,
+          type: 'support',
+          data: { chatId: chat._id, userId, guestEmail },
+          affectedUser: userId || null,
+          io: req.app?.get('io'),
+        });
+      } catch (notifError) {
+        console.error('Failed to send admin notification:', notifError);
+        // Don't fail the whole request if notification fails
+      }
     }
 
     res.status(200).json({ success: true, data: chat });
@@ -387,18 +407,38 @@ const sendMessage = async (req, res, next) => {
     chat.lastMessageAt = new Date();
     chat.adminUnread += 1;
 
-    // Auto-reply from bot
-    const autoReply = getAutoReply(message);
-    chat.messages.push({ sender: 'bot', message: autoReply });
+    // Auto-reply disabled - admin will reply manually
+    // const autoReply = getAutoReply(message);
+    // chat.messages.push({ sender: 'bot', message: autoReply });
 
     await chat.save();
+
+    // Send admin notification for new support message
+    try {
+      const { createAdminNotification } = require('../utils/notifications');
+      const userName = chat.user 
+        ? (await require('../models/User.model').findById(chat.user).select('fullName')).fullName 
+        : chat.guestName || 'Guest User';
+      
+      await createAdminNotification({
+        title: 'New Support Message',
+        message: `${userName} sent a message: "${message.trim().substring(0, 50)}${message.trim().length > 50 ? '...' : ''}"`,
+        type: 'support',
+        data: { chatId: chat._id, userId: chat.user, guestEmail: chat.guestEmail },
+        affectedUser: chat.user || null,
+        io: req.app?.get('io'),
+      });
+    } catch (notifError) {
+      console.error('Failed to send admin notification:', notifError);
+      // Don't fail the whole request if notification fails
+    }
 
     // Emit via socket if available
     const io = req.app?.get('io');
     if (io) {
       io.to(`support:${chatId}`).emit('support_message', {
         chatId,
-        messages: chat.messages.slice(-2),
+        messages: chat.messages.slice(-1), // Only return the user message
       });
       io.to('admin_support').emit('support_new_message', {
         chatId,
@@ -407,7 +447,7 @@ const sendMessage = async (req, res, next) => {
       });
     }
 
-    res.status(200).json({ success: true, data: chat.messages.slice(-2) });
+    res.status(200).json({ success: true, data: chat.messages.slice(-1) }); // Only return the user message
   } catch (error) {
     next(error);
   }
