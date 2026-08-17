@@ -633,4 +633,489 @@ router.delete('/notifications/:id', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██  REVIEW MANAGEMENT                                                       ██
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET all reviews with filters
+router.get('/reviews', async (req, res, next) => {
+  try {
+    const { Review, User } = require('../models');
+    const { page = 1, limit = 20, status = 'all', rating, search, sortBy = 'newest' } = req.query;
+
+    const query = {};
+    if (status !== 'all') query.status = status;
+    if (rating) query.rating = parseInt(rating);
+
+    // Sort options
+    const sortOptions = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      highRating: { rating: -1 },
+      lowRating: { rating: 1 },
+    };
+
+    let reviews = await Review.find(query)
+      .populate('user', 'fullName profilePhoto mobile')
+      .populate('provider', 'fullName profilePhoto profession')
+      .populate('consultation', 'type duration totalAmount createdAt')
+      .sort(sortOptions[sortBy] || sortOptions.newest)
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit))
+      .lean();
+
+    // Handle search filter on populated fields
+    if (search) {
+      const s = search.toLowerCase();
+      reviews = reviews.filter(r =>
+        (r.user?.fullName || '').toLowerCase().includes(s) ||
+        (r.provider?.fullName || '').toLowerCase().includes(s) ||
+        (r.review || '').toLowerCase().includes(s)
+      );
+    }
+
+    const total = await Review.countDocuments(query);
+
+    // Stats
+    const allReviews = await Review.find({});
+    const stats = {
+      total: allReviews.length,
+      active: allReviews.filter(r => r.status === 'active').length,
+      hidden: allReviews.filter(r => r.status === 'hidden').length,
+      reported: allReviews.filter(r => r.isReported).length,
+      averageRating: allReviews.length > 0
+        ? (allReviews.reduce((s, r) => s + r.rating, 0) / allReviews.length).toFixed(1)
+        : 0,
+    };
+
+    res.json({
+      success: true,
+      data: reviews,
+      stats,
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
+    });
+  } catch (error) { next(error); }
+});
+
+// PUT update review status (hide/activate/delete)
+router.put('/reviews/:id/status', async (req, res, next) => {
+  try {
+    const { Review } = require('../models');
+    const { status } = req.body;
+    if (!['active', 'hidden', 'deleted'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status' });
+    }
+    const review = await Review.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    if (!review) return res.status(404).json({ success: false, message: 'Review not found' });
+    res.json({ success: true, data: review });
+  } catch (error) { next(error); }
+});
+
+// DELETE review permanently
+router.delete('/reviews/:id', async (req, res, next) => {
+  try {
+    const { Review, User } = require('../models');
+    const review = await Review.findById(req.params.id);
+    if (!review) return res.status(404).json({ success: false, message: 'Review not found' });
+
+    // Update provider rating
+    const provider = await User.findById(review.provider);
+    if (provider && provider.rating.count > 0) {
+      const newCount = provider.rating.count - 1;
+      const newTotal = (provider.rating.average * provider.rating.count) - review.rating;
+      provider.rating.count = newCount;
+      provider.rating.average = newCount > 0 ? newTotal / newCount : 0;
+      await provider.save();
+    }
+
+    await Review.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Review deleted' });
+  } catch (error) { next(error); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██  REELS MODERATION                                                        ██
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET all reels with filters
+router.get('/reels', async (req, res, next) => {
+  try {
+    const { Reel } = require('../models');
+    const { page = 1, limit = 20, status = 'all', search, sortBy = 'newest' } = req.query;
+
+    const query = {};
+    if (status === 'active') query.isActive = true;
+    else if (status === 'hidden') query.isActive = false;
+
+    const sortOptions = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      mostViewed: { views: -1 },
+      mostLiked: { 'likes': -1 },
+    };
+
+    let reels = await Reel.find(query)
+      .populate('user', 'fullName profilePhoto profession')
+      .sort(sortOptions[sortBy] || sortOptions.newest)
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit))
+      .lean();
+
+    if (search) {
+      const s = search.toLowerCase();
+      reels = reels.filter(r =>
+        (r.caption || '').toLowerCase().includes(s) ||
+        (r.user?.fullName || '').toLowerCase().includes(s) ||
+        (r.tags || []).some(t => t.toLowerCase().includes(s))
+      );
+    }
+
+    const total = await Reel.countDocuments(query);
+
+    // Stats
+    const totalReels = await Reel.countDocuments();
+    const activeReels = await Reel.countDocuments({ isActive: true });
+    const totalViews = await Reel.aggregate([{ $group: { _id: null, total: { $sum: '$views' } } }]);
+
+    res.json({
+      success: true,
+      data: reels,
+      stats: {
+        total: totalReels,
+        active: activeReels,
+        hidden: totalReels - activeReels,
+        totalViews: totalViews[0]?.total || 0,
+      },
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
+    });
+  } catch (error) { next(error); }
+});
+
+// PUT toggle reel active status
+router.put('/reels/:id/toggle', async (req, res, next) => {
+  try {
+    const { Reel } = require('../models');
+    const reel = await Reel.findById(req.params.id);
+    if (!reel) return res.status(404).json({ success: false, message: 'Reel not found' });
+    reel.isActive = !reel.isActive;
+    await reel.save();
+    res.json({ success: true, data: reel, message: reel.isActive ? 'Reel activated' : 'Reel hidden' });
+  } catch (error) { next(error); }
+});
+
+// DELETE reel permanently
+router.delete('/reels/:id', async (req, res, next) => {
+  try {
+    const { Reel, ReelComment } = require('../models');
+    const reel = await Reel.findById(req.params.id);
+    if (!reel) return res.status(404).json({ success: false, message: 'Reel not found' });
+    await ReelComment.deleteMany({ reel: req.params.id });
+    await Reel.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Reel and its comments deleted' });
+  } catch (error) { next(error); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██  LIVE STREAM MONITORING                                                  ██
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET all live streams (active + history)
+router.get('/live-streams', async (req, res, next) => {
+  try {
+    const { LiveStream } = require('../models');
+    const { page = 1, limit = 20, status = 'all' } = req.query;
+
+    const query = {};
+    if (status === 'active') query.isActive = true;
+    else if (status === 'ended') query.isActive = false;
+
+    const streams = await LiveStream.find(query)
+      .populate('streamer', 'fullName profilePhoto profession')
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit))
+      .lean();
+
+    const total = await LiveStream.countDocuments(query);
+    const activeCount = await LiveStream.countDocuments({ isActive: true });
+    const totalEarnings = await LiveStream.aggregate([{ $group: { _id: null, total: { $sum: '$totalEarnings' } } }]);
+
+    res.json({
+      success: true,
+      data: streams,
+      stats: {
+        total: await LiveStream.countDocuments(),
+        active: activeCount,
+        totalEarnings: totalEarnings[0]?.total || 0,
+      },
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
+    });
+  } catch (error) { next(error); }
+});
+
+// PUT force-end a live stream
+router.put('/live-streams/:id/force-end', async (req, res, next) => {
+  try {
+    const { LiveStream } = require('../models');
+    const stream = await LiveStream.findById(req.params.id);
+    if (!stream) return res.status(404).json({ success: false, message: 'Stream not found' });
+    if (!stream.isActive) return res.status(400).json({ success: false, message: 'Stream already ended' });
+
+    stream.isActive = false;
+    stream.endedAt = new Date();
+    await stream.save();
+
+    // Notify via socket
+    if (req.io) {
+      req.io.to(`live-stream:${req.params.id}`).emit('stream:force-ended', {
+        message: 'This stream has been terminated by admin.',
+      });
+    }
+
+    res.json({ success: true, message: 'Stream force-ended' });
+  } catch (error) { next(error); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██  CONSULTATION MONITORING                                                 ██
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET active/ongoing consultations
+router.get('/consultations', async (req, res, next) => {
+  try {
+    const { Consultation, User } = require('../models');
+    const Guest = require('../models/Guest.model');
+    const { page = 1, limit = 20, status = 'all', type = 'all', search } = req.query;
+
+    const query = {};
+    if (status !== 'all') query.status = status;
+    if (type !== 'all') query.type = type;
+
+    let consultations = await Consultation.find(query)
+      .populate('provider', 'fullName profilePhoto profession')
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit))
+      .lean();
+
+    // Manually resolve user names (handles both User and Guest)
+    const userIds = consultations.filter(c => c.userType !== 'Guest' && c.user).map(c => c.user.toString());
+    const guestIds = consultations.filter(c => c.userType === 'Guest' && c.user).map(c => c.user.toString());
+
+    const [users, guests] = await Promise.all([
+      userIds.length > 0 ? User.find({ _id: { $in: userIds } }).select('fullName profilePhoto mobile').lean() : [],
+      guestIds.length > 0 ? Guest.find({ _id: { $in: guestIds } }).select('name mobile').lean() : [],
+    ]);
+
+    const userMap = {};
+    users.forEach(u => { userMap[u._id.toString()] = { _id: u._id, fullName: u.fullName, profilePhoto: u.profilePhoto, mobile: u.mobile }; });
+    guests.forEach(g => { userMap[g._id.toString()] = { _id: g._id, fullName: g.name, profilePhoto: null, mobile: g.mobile, isGuest: true }; });
+
+    // Attach resolved user data
+    consultations = consultations.map(c => ({
+      ...c,
+      user: c.user ? (userMap[c.user.toString()] || { _id: c.user, fullName: 'Unknown User', profilePhoto: null }) : null,
+    }));
+
+    // Also resolve provider if populate failed (string IDs)
+    const unresolvedProviders = consultations.filter(c => c.provider && !c.provider.fullName);
+    if (unresolvedProviders.length > 0) {
+      const provIds = unresolvedProviders.map(c => c.provider.toString ? c.provider.toString() : c.provider);
+      const provs = await User.find({ _id: { $in: provIds } }).select('fullName profilePhoto profession').lean();
+      const provMap = {};
+      provs.forEach(p => { provMap[p._id.toString()] = p; });
+      consultations = consultations.map(c => {
+        if (c.provider && !c.provider.fullName) {
+          const key = c.provider.toString ? c.provider.toString() : c.provider;
+          return { ...c, provider: provMap[key] || { _id: key, fullName: 'Unknown Provider' } };
+        }
+        return c;
+      });
+    }
+
+    if (search) {
+      const s = search.toLowerCase();
+      consultations = consultations.filter(c =>
+        (c.user?.fullName || '').toLowerCase().includes(s) ||
+        (c.provider?.fullName || '').toLowerCase().includes(s) ||
+        (c.consultationId || '').toLowerCase().includes(s)
+      );
+    }
+
+    const total = await Consultation.countDocuments(query);
+
+    // Stats
+    const ongoing = await Consultation.countDocuments({ status: 'ongoing' });
+    const completed = await Consultation.countDocuments({ status: 'completed' });
+    const totalRevenue = await Consultation.aggregate([
+      { $match: { status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } },
+    ]);
+
+    res.json({
+      success: true,
+      data: consultations,
+      stats: {
+        ongoing,
+        completed,
+        total: await Consultation.countDocuments(),
+        totalRevenue: totalRevenue[0]?.total || 0,
+      },
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
+    });
+  } catch (error) { next(error); }
+});
+
+// GET single consultation details
+router.get('/consultations/:id', async (req, res, next) => {
+  try {
+    const { Consultation } = require('../models');
+    const consultation = await Consultation.findById(req.params.id)
+      .populate('user', 'fullName profilePhoto mobile email wallet')
+      .populate('provider', 'fullName profilePhoto profession mobile email wallet earnings')
+      .lean();
+    if (!consultation) return res.status(404).json({ success: false, message: 'Consultation not found' });
+    res.json({ success: true, data: consultation });
+  } catch (error) { next(error); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██  REFUND / DISPUTE SYSTEM                                                 ██
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// POST process refund for a consultation
+router.post('/consultations/:id/refund', async (req, res, next) => {
+  try {
+    const { Consultation, Transaction, User } = require('../models');
+    const Guest = require('../models/Guest.model');
+    const { createNotification } = require('../utils/notifications');
+    const { id } = req.params;
+    const { amount, reason } = req.body;
+
+    if (!amount || parseFloat(amount) <= 0) {
+      return res.status(400).json({ success: false, message: 'Refund amount must be greater than 0' });
+    }
+    if (!reason) {
+      return res.status(400).json({ success: false, message: 'Refund reason is required' });
+    }
+
+    const consultation = await Consultation.findById(id);
+    if (!consultation) return res.status(404).json({ success: false, message: 'Consultation not found' });
+
+    const refundAmount = Math.min(parseFloat(amount), consultation.totalAmount || 0);
+    if (refundAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Nothing to refund for this consultation' });
+    }
+
+    // Credit user wallet
+    const userId = consultation.user;
+    const isGuestUser = consultation.userType === 'Guest';
+    let targetUser, previousBalance, newBalance, userName;
+
+    if (isGuestUser) {
+      targetUser = await Guest.findById(userId);
+      if (!targetUser) return res.status(404).json({ success: false, message: 'Guest user not found' });
+      previousBalance = targetUser.wallet || 0;
+      newBalance = Math.round((previousBalance + refundAmount) * 100) / 100;
+      targetUser.wallet = newBalance;
+      await targetUser.save();
+      userName = targetUser.name;
+    } else {
+      targetUser = await User.findById(userId);
+      if (!targetUser) return res.status(404).json({ success: false, message: 'User not found' });
+      previousBalance = targetUser.wallet || 0;
+      newBalance = Math.round((previousBalance + refundAmount) * 100) / 100;
+      targetUser.wallet = newBalance;
+      await targetUser.save();
+      userName = targetUser.fullName;
+    }
+
+    // Create refund transaction
+    await Transaction.create({
+      user: userId,
+      userType: isGuestUser ? 'Guest' : 'User',
+      type: 'credit',
+      category: 'refund',
+      amount: refundAmount,
+      balance: newBalance,
+      description: `Refund for consultation ${consultation.consultationId} — ${reason}`,
+      status: 'completed',
+      processedBy: req.user._id,
+      processedAt: new Date(),
+      metadata: {
+        consultationId: consultation._id,
+        consultationCode: consultation.consultationId,
+        previousBalance,
+        newBalance,
+        reason,
+        adminId: req.user._id.toString(),
+      },
+    });
+
+    // Deduct from provider earnings (optional, depends on policy)
+    const provider = await User.findById(consultation.provider);
+    if (provider) {
+      const providerDeduction = Math.round(refundAmount * 0.9 * 100) / 100; // 90% was credited to provider
+      if (provider.earnings >= providerDeduction) {
+        provider.earnings = Math.round((provider.earnings - providerDeduction) * 100) / 100;
+        await provider.save();
+      }
+    }
+
+    // Send notification to user
+    await createNotification({
+      userId: userId.toString(),
+      userType: isGuestUser ? 'guest' : 'user',
+      title: '💰 Refund Processed',
+      message: `Rs.${refundAmount.toFixed(2)} has been refunded to your wallet for consultation ${consultation.consultationId}. Reason: ${reason}`,
+      type: 'wallet',
+      data: { amount: refundAmount, reason, consultationId: consultation.consultationId },
+      io: req.io,
+    }).catch(() => {});
+
+    res.json({
+      success: true,
+      message: `Rs.${refundAmount} refunded to ${userName}`,
+      data: { refundAmount, previousBalance, newBalance, consultationId: consultation.consultationId },
+    });
+  } catch (error) { next(error); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██  PROFILE EDIT LOGS (Audit Trail)                                         ██
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET all profile edit logs
+router.get('/profile-edits', async (req, res, next) => {
+  try {
+    const ProfileEditLog = require('../models/ProfileEditLog.model');
+    const { page = 1, limit = 20, search, userId } = req.query;
+
+    const query = {};
+    if (userId) query.user = userId;
+    if (search) {
+      query.$or = [
+        { userName: { $regex: search, $options: 'i' } },
+        { userMobile: { $regex: search, $options: 'i' } },
+        { 'changes.field': { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const logs = await ProfileEditLog.find(query)
+      .populate('user', 'fullName profilePhoto mobile profession isServiceProvider')
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit))
+      .lean();
+
+    const total = await ProfileEditLog.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: logs,
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
+    });
+  } catch (error) { next(error); }
+});
+
 module.exports = router;

@@ -21,6 +21,7 @@ const AdminNotification = require('./AdminNotification.model');
 const Reel = require('./Reel.model');
 const ReelComment = require('./ReelComment.model');
 const LiveStream = require('./LiveStream.model');
+const ProfileEditLog = require('./ProfileEditLog.model');
 
 module.exports = {
   User,
@@ -46,5 +47,6 @@ module.exports = {
   Reel,
   ReelComment,
   LiveStream,
+  ProfileEditLog,
 };
 
