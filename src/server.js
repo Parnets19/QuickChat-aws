@@ -84,8 +84,8 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(compression()); // Compress responses
-app.use(express.json());
-app.use(express.urlencoded({ extended: true}));
+app.use(express.json({ limit: '100mb' })); // Increase JSON payload limit
+app.use(express.urlencoded({ extended: true, limit: '100mb' })); // Increase URL-encoded payload limit
 app.use(mongoSanitize()); // Prevent MongoDB injection
 
 // Initialize Socket.IO handlers
