@@ -128,7 +128,8 @@ const processFinalBilling = async (liveStream, viewer, now, io) => {
           viewer.amountToPay = newAmountToPay;
           viewer.isPaid = true;
           viewer.lastBillingTime = now;
-          liveStream.totalEarnings = preciseMoneyCalculation(liveStream.totalEarnings, amountToBill, "add");
+          // FIXED: Add streamer earnings (after commission), not full amount
+          liveStream.totalEarnings = preciseMoneyCalculation(liveStream.totalEarnings, streamerEarnings, "add");
         }
       }
     } else {
@@ -580,7 +581,8 @@ const processLiveStreamBilling = async (req, res, next) => {
       viewer.duration = elapsedSeconds;
       viewer.amountToPay = newAmountToPay;
       viewer.lastBillingTime = now;
-      liveStream.totalEarnings = preciseMoneyCalculation(liveStream.totalEarnings, amountToBill, "add");
+      // FIXED: Add streamer earnings (after commission), not full amount
+      liveStream.totalEarnings = preciseMoneyCalculation(liveStream.totalEarnings, streamerEarnings, "add");
       await liveStream.save();
       
       // Emit billing update via socket

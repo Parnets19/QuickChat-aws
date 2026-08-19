@@ -134,12 +134,17 @@ module.exports = (io) => {
   const handleWebRTCOffer = (socket, data) => {
     try {
       const { liveStreamId, offer, to } = data;
-      if (!liveStreamId || !to) return;
+      if (!liveStreamId || !to) {
+        console.log('⚠️ Missing liveStreamId or to in webrtc offer');
+        return;
+      }
+      console.log(`📤 Forwarding WebRTC offer from ${socket.data.userId} to user:${to}`);
       socket.to(`user:${to}`).emit('webrtc:offer', {
         offer,
         liveStreamId,
         from: socket.data.userId,
       });
+      console.log(`✅ WebRTC offer forwarded to user:${to}`);
     } catch (error) {
       console.error('Error forwarding webrtc offer for live stream:', error);
     }
@@ -148,12 +153,17 @@ module.exports = (io) => {
   const handleWebRTCAnswer = (socket, data) => {
     try {
       const { liveStreamId, answer, to } = data;
-      if (!liveStreamId || !to) return;
+      if (!liveStreamId || !to) {
+        console.log('⚠️ Missing liveStreamId or to in webrtc answer');
+        return;
+      }
+      console.log(`📤 Forwarding WebRTC answer from ${socket.data.userId} to user:${to}`);
       socket.to(`user:${to}`).emit('webrtc:answer', {
         answer,
         liveStreamId,
         from: socket.data.userId,
       });
+      console.log(`✅ WebRTC answer forwarded to user:${to}`);
     } catch (error) {
       console.error('Error forwarding webrtc answer for live stream:', error);
     }
@@ -162,7 +172,11 @@ module.exports = (io) => {
   const handleWebRTCIceCandidate = (socket, data) => {
     try {
       const { liveStreamId, candidate, to } = data;
-      if (!liveStreamId || !to) return;
+      if (!liveStreamId || !to) {
+        console.log('⚠️ Missing liveStreamId or to in webrtc ice candidate');
+        return;
+      }
+      console.log(`🧊 Forwarding ICE candidate from ${socket.data.userId} to user:${to}`);
       socket.to(`user:${to}`).emit('webrtc:ice-candidate', {
         candidate,
         liveStreamId,
@@ -176,7 +190,11 @@ module.exports = (io) => {
   const handleReadyToReceive = (socket, data) => {
     try {
       const { liveStreamId, role } = data;
-      if (!liveStreamId) return;
+      if (!liveStreamId) {
+        console.log('⚠️ Missing liveStreamId in ready-to-receive');
+        return;
+      }
+      console.log(`📢 User ${socket.data.userId} is ready to receive (role: ${role}), broadcasting to live-stream:${liveStreamId}`);
       // Send to everyone in the live stream room (for streamer to receive)
       socket.to(`live-stream:${liveStreamId}`).emit('webrtc:ready-to-receive', {
         from: socket.data.userId,
@@ -184,6 +202,7 @@ module.exports = (io) => {
         role,
         timestamp: new Date(),
       });
+      console.log(`✅ Ready-to-receive broadcast to live-stream:${liveStreamId}`);
     } catch (error) {
       console.error('Error forwarding ready-to-receive for live stream:', error);
     }
