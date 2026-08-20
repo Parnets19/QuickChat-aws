@@ -3,6 +3,7 @@ const {
   createReel,
   getReels,
   getReel,
+  getReelById,
   toggleLikeReel,
   addComment,
   getReelComments,
@@ -18,6 +19,8 @@ const router = express.Router();
 router.route('/')
   .get(optionalProtect, getReels)
   .post(protect, createReel);
+
+router.route('/by-id/:id').get(getReelById);
 
 router.route('/user/:userId')
   .get(getUserReels);

@@ -531,10 +531,85 @@ const deleteReel = async (req, res, next) => {
   }
 };
 
+// @desc    Get a single reel by ID — works for BOTH real Reel IDs and provider synthetic IDs
+// @route   GET /api/reels/by-id/:id
+// @access  Public
+const getReelById = async (req, res, next) => {
+  try {
+    const reelId = req.params.id;
+
+    // ── Provider synthetic ID: provider:{userId}:{source}:{index} ──────────
+    if (reelId.startsWith('provider:')) {
+      const parts = reelId.split(':');
+      const providerId = parts[1];
+      const source     = parts[2]; // 'profession' | 'portfolio' | 'profile'
+      const sourceIndex = parseInt(parts[3]) || 0;
+
+      const provider = await User.findById(providerId)
+        .select('_id fullName profilePhoto bio profession professionVideo portfolioMedia');
+      if (!provider) return next(new AppError('Provider not found', 404));
+
+      let item;
+      if (source === 'profession') {
+        item = provider.professionVideo?.[sourceIndex];
+      } else if (source === 'portfolio') {
+        item = provider.portfolioMedia?.[sourceIndex];
+      } else {
+        // 'profile' fallback — no media item, just provider info
+        return res.status(200).json({
+          success: true,
+          data: {
+            _id: reelId,
+            type: 'image',
+            imageUrl: provider.profilePhoto,
+            videoUrl: null,
+            caption: provider.bio || provider.profession || '',
+            user: { _id: provider._id, fullName: provider.fullName, profilePhoto: provider.profilePhoto },
+            likes: [],
+            views: 0,
+            shares: 0,
+            isProviderReel: true,
+          },
+        });
+      }
+
+      if (!item) return next(new AppError('Reel not found', 404));
+
+      const url = typeof item === 'string' ? item : (item.url || '');
+      const isVideo = url.match(/\.(mp4|webm|mov)$/i) || source === 'profession';
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          _id: reelId,
+          type: isVideo ? 'video' : 'image',
+          videoUrl: isVideo ? url : null,
+          imageUrl: !isVideo ? url : null,
+          caption: provider.bio || provider.profession || '',
+          user: { _id: provider._id, fullName: provider.fullName, profilePhoto: provider.profilePhoto },
+          likes: item.likes || [],
+          views: item.views || 0,
+          shares: item.shares || 0,
+          isProviderReel: true,
+        },
+      });
+    }
+
+    // ── Real MongoDB reel ID ────────────────────────────────────────────────
+    const reel = await Reel.findById(reelId).populate('user', '_id fullName profilePhoto');
+    if (!reel || !reel.isActive) return next(new AppError('Reel not found', 404));
+
+    res.status(200).json({ success: true, data: reel });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createReel,
   getReels,
   getReel,
+  getReelById,
   toggleLikeReel,
   addComment,
   getReelComments,
