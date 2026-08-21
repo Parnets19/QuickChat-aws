@@ -1,5 +1,15 @@
 const { Reel, ReelComment, User } = require('../models');
 const { AppError } = require('../middlewares/errorHandler');
+const { createNotification } = require('../utils/notifications');
+
+// Helper: get the provider (owner) ID for a reel
+const getReelOwnerId = async (reelId) => {
+  if (reelId.startsWith('provider:')) {
+    return reelId.split(':')[1];
+  }
+  const reel = await Reel.findById(reelId).select('user');
+  return reel?.user?.toString() || null;
+};
 
 // @desc    Create a new reel
 // @route   POST /api/reels
@@ -258,7 +268,39 @@ const toggleLikeReel = async (req, res, next) => {
       }
 
       await provider.save();
-      return res.status(200).json({ success: true, data: item, isLiked: !isLiked });
+
+      // Send notification to provider on LIKE (not unlike)
+      if (!isLiked && providerId !== userId.toString()) {
+        const liker = await User.findById(userId).select('fullName');
+        createNotification({
+          userId: providerId,
+          title: '❤️ New Like',
+          message: `${liker?.fullName || 'Someone'} liked your reel`,
+          type: 'system',
+          data: { reelId, action: 'like' },
+          sendPush: true,
+        }).catch(err => console.error('Like notification error:', err));
+      }
+
+      // Return a full reel-shaped response so frontend doesn't crash
+      const url = typeof item === 'string' ? item : (item.url || '');
+      const isVideo = url.match(/\.(mp4|webm|mov)$/i) || source === 'profession';
+      return res.status(200).json({
+        success: true,
+        data: {
+          _id: reelId,
+          type: isVideo ? 'video' : 'image',
+          videoUrl: isVideo ? url : null,
+          imageUrl: !isVideo ? url : null,
+          caption: provider.bio || provider.profession || '',
+          user: { _id: provider._id, fullName: provider.fullName, profilePhoto: provider.profilePhoto },
+          likes: item.likes || [],
+          views: item.views || 0,
+          shares: item.shares || 0,
+          isProviderReel: true,
+        },
+        isLiked: !isLiked,
+      });
     }
 
     // Handle regular reel
@@ -272,6 +314,19 @@ const toggleLikeReel = async (req, res, next) => {
       reel.likes.push(userId);
     }
     await reel.save();
+
+    // Send notification to reel owner on LIKE (not unlike)
+    if (!isLiked && reel.user && reel.user.toString() !== userId.toString()) {
+      const liker = await User.findById(userId).select('fullName');
+      createNotification({
+        userId: reel.user.toString(),
+        title: '❤️ New Like',
+        message: `${liker?.fullName || 'Someone'} liked your reel`,
+        type: 'system',
+        data: { reelId, action: 'like' },
+        sendPush: true,
+      }).catch(err => console.error('Like notification error:', err));
+    }
 
     res.status(200).json({ success: true, data: reel, isLiked: !isLiked });
   } catch (error) {
@@ -317,6 +372,23 @@ const addComment = async (req, res, next) => {
 
       await provider.save();
 
+      // Send notification to provider about new comment
+      if (providerId !== userId.toString()) {
+        const commenter = await User.findById(userId, '_id fullName profilePhoto');
+        createNotification({
+          userId: providerId,
+          title: '💬 New Comment',
+          message: `${commenter?.fullName || 'Someone'} commented: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`,
+          type: 'system',
+          data: { reelId, action: 'comment' },
+          sendPush: true,
+        }).catch(err => console.error('Comment notification error:', err));
+
+        // Populate user info for the new comment
+        const populatedComment = { ...newComment, user: commenter, _id: new Date().getTime() };
+        return res.status(201).json({ success: true, data: populatedComment });
+      }
+
       // Populate user info for the new comment
       const user = await User.findById(userId, '_id fullName profilePhoto');
       const populatedComment = { ...newComment, user, _id: new Date().getTime() };
@@ -333,6 +405,20 @@ const addComment = async (req, res, next) => {
 
     // Populate user info
     const populatedComment = await ReelComment.findById(comment._id).populate('user', '_id fullName profilePhoto');
+
+    // Send notification to reel owner about new comment
+    const reelForNotif = await Reel.findById(reelId).select('user');
+    if (reelForNotif?.user && reelForNotif.user.toString() !== userId.toString()) {
+      const commenter = await User.findById(userId).select('fullName');
+      createNotification({
+        userId: reelForNotif.user.toString(),
+        title: '💬 New Comment',
+        message: `${commenter?.fullName || 'Someone'} commented: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`,
+        type: 'system',
+        data: { reelId, action: 'comment' },
+        sendPush: true,
+      }).catch(err => console.error('Comment notification error:', err));
+    }
 
     res.status(201).json({ success: true, data: populatedComment });
   } catch (error) {
@@ -377,11 +463,17 @@ const getReelComments = async (req, res, next) => {
       const userMap = {};
       users.forEach(u => userMap[u._id.toString()] = u);
 
-      const populatedComments = comments.map((c, i) => ({
-        ...c,
-        _id: c._id || new Date().getTime() + i,
-        user: userMap[c.user.toString()]
-      })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      const populatedComments = comments.map((c, i) => {
+        // Handle both Mongoose subdocuments and plain objects
+        const commentObj = c._doc || (c.toObject ? c.toObject() : c);
+        const userId = commentObj.user?._id || commentObj.user;
+        return {
+          _id: commentObj._id || new Date().getTime() + i,
+          text: commentObj.text || '',
+          createdAt: commentObj.createdAt,
+          user: userMap[userId?.toString()] || { fullName: 'Anonymous' },
+        };
+      }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
       return res.status(200).json({ success: true, data: populatedComments });
     }
@@ -479,6 +571,19 @@ const incrementReelShares = async (req, res, next) => {
       targetArray[sourceIndex].shares += 1;
       await provider.save();
 
+      // Send notification to provider about share
+      if (req.user && providerId !== req.user._id.toString()) {
+        const sharer = await User.findById(req.user._id).select('fullName');
+        createNotification({
+          userId: providerId,
+          title: '🔗 Reel Shared',
+          message: `${sharer?.fullName || 'Someone'} shared your reel`,
+          type: 'system',
+          data: { reelId, action: 'share' },
+          sendPush: true,
+        }).catch(err => console.error('Share notification error:', err));
+      }
+
       return res.status(200).json({ success: true, data: targetArray[sourceIndex] });
     }
 
@@ -490,6 +595,19 @@ const incrementReelShares = async (req, res, next) => {
     ).populate('user', '_id fullName profilePhoto');
 
     if (!reel) return next(new AppError('Reel not found', 404));
+
+    // Send notification to reel owner about share
+    if (req.user && reel.user && reel.user._id && reel.user._id.toString() !== req.user._id.toString()) {
+      const sharer = await User.findById(req.user._id).select('fullName');
+      createNotification({
+        userId: reel.user._id.toString(),
+        title: '🔗 Reel Shared',
+        message: `${sharer?.fullName || 'Someone'} shared your reel`,
+        type: 'system',
+        data: { reelId, action: 'share' },
+        sendPush: true,
+      }).catch(err => console.error('Share notification error:', err));
+    }
 
     res.status(200).json({ success: true, data: reel });
   } catch (error) {

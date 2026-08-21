@@ -115,6 +115,25 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // ── Reel share page — serves OG meta + app store redirect for shared reel links
 app.get('/reel/:reelId', async (req, res) => {
   const { reelId } = req.params;
+  const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+
+  // Detect social media crawlers/bots that need OG meta tags
+  const isCrawler = /facebookexternalhit|twitterbot|whatsapp|telegrambot|linkedinbot|slackbot|discordbot|pinterestbot|googlebot|bingbot|yandexbot/i.test(userAgent);
+
+  // If it's NOT a crawler, redirect to the web frontend which has a proper ReelPage
+  if (!isCrawler) {
+    // Let the SPA handle it — redirect to the frontend URL
+    const buildPath = path.join(__dirname, '..', 'build');
+    const indexPath = path.join(buildPath, 'index.html');
+    const fs = require('fs');
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+    // Fallback if build doesn't exist (dev mode)
+    return res.redirect(`https://quickchatindia.com/reel/${reelId}`);
+  }
+
+  // For crawlers: serve OG meta tags for rich link previews
   try {
     const Reel = require('./models/Reel.model');
     const User = require('./models/User.model');
@@ -134,12 +153,24 @@ app.get('/reel/:reelId', async (req, res) => {
           thumbUrl = reel.thumbnailUrl || thumbUrl;
         }
       } catch {}
+    } else {
+      // Provider reel — try to get provider name
+      try {
+        const parts = reelId.split(':');
+        const providerId = parts[1];
+        if (providerId) {
+          const provider = await User.findById(providerId).select('fullName profession');
+          if (provider) {
+            title = `${provider.fullName} on QuickChat`;
+            description = `Watch ${provider.fullName}${provider.profession ? ' - ' + provider.profession : ''} on QuickChat`;
+          }
+        }
+      } catch {}
     }
 
-    const appLink = `quickchat://reel/${reelId}`;
     const webLink = `https://quickchatindia.com/reel/${reelId}`;
 
-    // Return HTML with OG tags + instant app redirect
+    // Return minimal HTML with OG tags for crawlers
     res.send(`<!DOCTYPE html>
 <html>
 <head>
@@ -154,32 +185,15 @@ app.get('/reel/:reelId', async (req, res) => {
   ${videoUrl ? `<meta property="og:video" content="${videoUrl}">` : ''}
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${title}">
+  <meta name="twitter:description" content="${description}">
   <meta name="twitter:image" content="${thumbUrl}">
-  <style>
-    body { font-family: sans-serif; background:#000; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center; }
-    .logo { font-size:28px; font-weight:bold; color:#1AB5AF; margin-bottom:16px; }
-    p { color:rgba(255,255,255,0.7); margin:8px 0 24px; }
-    a.btn { background:#1AB5AF; color:#fff; padding:14px 32px; border-radius:30px; text-decoration:none; font-weight:600; font-size:16px; }
-    a.btn:hover { background:#159A8C; }
-  </style>
 </head>
 <body>
-  <div class="logo">QuickChat</div>
-  <h2 style="margin:0 0 8px">${title}</h2>
-  <p>${description}</p>
-  <a class="btn" href="${appLink}" id="openApp">Open in QuickChat App</a>
-  <script>
-    // Try to open the app immediately
-    window.location.href = '${appLink}';
-    // Fallback: after 2 seconds, redirect to play web version
-    setTimeout(function() {
-      window.location.href = '/?reelId=${reelId}#reels';
-    }, 2000);
-  </script>
+  <script>window.location.href = '${webLink}';</script>
 </body>
 </html>`);
   } catch (error) {
-    res.redirect(`/?reelId=${reelId}#reels`);
+    res.redirect(`https://quickchatindia.com/reel/${reelId}`);
   }
 });
 

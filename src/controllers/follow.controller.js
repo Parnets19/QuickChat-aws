@@ -1,5 +1,6 @@
 const { User } = require('../models');
 const { AppError } = require('../middlewares/errorHandler');
+const { createNotification } = require('../utils/notifications');
 
 // @desc    Follow a provider
 // @route   POST /api/follow/:id
@@ -29,6 +30,17 @@ const followUser = async (req, res, next) => {
       User.findByIdAndUpdate(targetId, { $addToSet: { followers: currentId } }),
       User.findByIdAndUpdate(currentId, { $addToSet: { following: targetId } }),
     ]);
+
+    // Send notification to the followed provider
+    const follower = await User.findById(currentId).select('fullName');
+    createNotification({
+      userId: targetId,
+      title: '👤 New Follower',
+      message: `${follower?.fullName || 'Someone'} started following you`,
+      type: 'system',
+      data: { followerId: currentId.toString(), action: 'follow' },
+      sendPush: true,
+    }).catch(err => console.error('Follow notification error:', err));
 
     res.status(200).json({ success: true, following: true, message: 'Followed successfully' });
   } catch (error) {
@@ -99,10 +111,16 @@ const getFollowing = async (req, res, next) => {
 
 // @desc    Bulk check follow status for multiple provider IDs
 // @route   POST /api/follow/bulk-status
+// @route   GET  /api/follow/status/bulk?userIds=id1,id2,...
 // @access  Private
 const getBulkFollowStatus = async (req, res, next) => {
   try {
-    const { providerIds } = req.body;
+    // Support both POST body { providerIds: [...] } and GET query ?userIds=id1,id2,...
+    let providerIds = req.body?.providerIds;
+    if (!providerIds && req.query.userIds) {
+      providerIds = req.query.userIds.split(',').map(id => id.trim()).filter(Boolean);
+    }
+
     if (!Array.isArray(providerIds) || providerIds.length === 0) {
       return res.status(200).json({ success: true, data: {} });
     }

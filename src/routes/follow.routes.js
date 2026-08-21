@@ -13,6 +13,7 @@ const router = express.Router();
 router.use(protect); // all follow routes require auth
 
 router.post('/bulk-status', getBulkFollowStatus);
+router.get('/status/bulk', getBulkFollowStatus); // GET version for web frontend
 router.get('/following', getFollowing);
 router.post('/:id', followUser);
 router.delete('/:id', unfollowUser);
