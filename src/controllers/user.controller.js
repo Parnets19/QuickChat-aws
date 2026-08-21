@@ -1183,6 +1183,9 @@ const searchProviders = async (req, res, next) => {
         return Math.sqrt(dLat * dLat + dLng * dLng);
       };
 
+      // Save city filter info before removing it (for fallback)
+      let savedCityFilter = city || null;
+
       // When using nearby/distance filter, skip the text-based city filter
       // because we're filtering by coordinates instead
       if (nearby === 'true' || sortByDistance === 'true') {
@@ -1207,25 +1210,75 @@ const searchProviders = async (req, res, next) => {
         .populate('serviceCategories')
         .limit(1000); // cap to avoid memory issues
 
-      // Filter by radius AND sort by distance
-      const withDistance = allMatching
-        .map(p => ({ provider: p, distance: calcDistMeters(p) }))
-        .filter(({ distance }) => distance >= 0 && distance <= maxRadiusMeters);
+      // Separate providers WITH coordinates (can calculate distance) from those WITHOUT
+      const withCoords = [];
+      const withoutCoords = [];
+      for (const p of allMatching) {
+        const dist = calcDistMeters(p);
+        if (dist >= 0) {
+          withCoords.push({ provider: p, distance: dist });
+        } else {
+          withoutCoords.push(p);
+        }
+      }
+
+      // Filter providers with coordinates by radius
+      const withinRadius = withCoords.filter(({ distance }) => distance <= maxRadiusMeters);
 
       // Sort by distance, then by rating for providers within ~1km of each other
-      withDistance.sort((a, b) => {
+      withinRadius.sort((a, b) => {
         if (Math.abs(a.distance - b.distance) < 1000) {
           return (b.provider.rating?.average || 0) - (a.provider.rating?.average || 0);
         }
         return a.distance - b.distance;
       });
 
+      // ── Fallback for providers WITHOUT coordinates: text-based city/state match ──
+      // Only include them if their place text matches the searched location
+      let fallbackProviders = [];
+      if (withoutCoords.length > 0) {
+        // Use city param from frontend (e.g., "Sampangi Rama Nagar, Bengaluru, Karnataka")
+        // Split by comma and try each part individually for broader matching
+        const locationText = savedCityFilter || '';
+        if (locationText) {
+          const locationParts = locationText.split(',').map(s => s.trim()).filter(Boolean);
+          fallbackProviders = withoutCoords.filter(p => {
+            const place = p.place || {};
+            const placeValues = [
+              place.village || '',
+              place.town || '',
+              place.city || '',
+              place.state || '',
+              place.country || '',
+            ].map(v => v.toLowerCase());
+
+            // Match if ANY part of the user's location text matches any place field
+            return locationParts.some(part => {
+              const partLower = part.toLowerCase();
+              return placeValues.some(val => val && (val.includes(partLower) || partLower.includes(val)));
+            });
+          });
+        }
+        // NO "show all" fallback — strict location matching only
+
+        // Sort fallback providers by rating
+        fallbackProviders.sort((a, b) =>
+          (b.rating?.average || 0) - (a.rating?.average || 0)
+        );
+      }
+
+      // Combine: distance-sorted providers first, then fallback providers
+      const combinedProviders = [
+        ...withinRadius.map(({ provider }) => provider),
+        ...fallbackProviders,
+      ];
+
       // Paginate after filtering and sorting
       const startIdx = (parseInt(page) - 1) * parseInt(limit);
-      providers = withDistance.slice(startIdx, startIdx + parseInt(limit)).map(({ provider }) => provider);
+      providers = combinedProviders.slice(startIdx, startIdx + parseInt(limit));
 
-      // Use filtered count for pagination (not total DB count)
-      const filteredTotal = withDistance.length;
+      // Use combined count for pagination
+      const filteredTotal = combinedProviders.length;
       return res.status(200).json({
         success: true,
         data: providers,
