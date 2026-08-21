@@ -1042,9 +1042,11 @@ const searchProviders = async (req, res, next) => {
       consultationType,
       recommended,
       sortBy,     // rating | fees_asc | fees_desc | name_asc | name_desc
-      lat,        // user latitude for proximity sort
-      lng,        // user longitude for proximity sort
+      lat,        // user latitude for proximity sort/filter
+      lng,        // user longitude for proximity sort/filter
+      radius,     // max distance in km (default 50km when using location coords)
       sortByDistance,
+      nearby,     // flag: true when user wants nearby providers
       page = 1,
       limit = 20,
     } = req.query;
@@ -1161,41 +1163,81 @@ const searchProviders = async (req, res, next) => {
 
     let providers;
 
-    if (sortByDistance === 'true' && lat && lng) {
-      // ── Proximity sort: fetch all matching, then sort by distance in JS ──
-      // (MongoDB $near requires a 2dsphere index — JS sort is simpler for now)
+    // ── Determine if we should use distance-based filtering ──────────────────
+    const useDistanceFilter = (sortByDistance === 'true' || nearby === 'true') && lat && lng;
+
+    if (useDistanceFilter) {
+      // ── Proximity filter + sort: fetch matching, filter by radius, sort by distance ──
       const userLat = parseFloat(lat);
       const userLng = parseFloat(lng);
+      // Default radius: 50km, max: 500km
+      const maxRadiusKm = Math.min(parseFloat(radius) || 50, 500);
+      const maxRadiusMeters = maxRadiusKm * 1000;
 
-      const calcDist = (p) => {
+      const calcDistMeters = (p) => {
         const pLat = p.place?.coordinates?.lat;
         const pLng = p.place?.coordinates?.lng;
-        if (!pLat || !pLng) return 999999;
-        const dLat = (pLat - userLat) * 111000;
-        const dLng = (pLng - userLng) * 111000 * Math.cos((userLat * Math.PI) / 180);
+        if (!pLat || !pLng) return -1; // no coordinates stored
+        const dLat = (pLat - userLat) * 111320;
+        const dLng = (pLng - userLng) * 111320 * Math.cos((userLat * Math.PI) / 180);
         return Math.sqrt(dLat * dLat + dLng * dLng);
       };
+
+      // When using nearby/distance filter, skip the text-based city filter
+      // because we're filtering by coordinates instead
+      if (nearby === 'true' || sortByDistance === 'true') {
+        // Remove city-based text filter if it was added (we use radius instead)
+        if (query.$and) {
+          query.$and = query.$and.filter(condition => {
+            // Remove the $or condition that matches place fields (city filter)
+            if (condition.$or) {
+              const isPlaceFilter = condition.$or.some(c =>
+                Object.keys(c).some(k => k.startsWith('place.'))
+              );
+              return !isPlaceFilter;
+            }
+            return true;
+          });
+          if (query.$and.length === 0) delete query.$and;
+        }
+      }
 
       const allMatching = await User.find(query)
         .select('-wallet -earnings -bankDetails -password')
         .populate('serviceCategories')
-        .limit(500); // cap to avoid memory issues
+        .limit(1000); // cap to avoid memory issues
 
-      // Sort by distance, then by rating for equal distances
-      allMatching.sort((a, b) => {
-        const dA = calcDist(a);
-        const dB = calcDist(b);
-        if (Math.abs(dA - dB) < 1000) { // within 1km — sort by rating
-          return (b.rating?.average || 0) - (a.rating?.average || 0);
+      // Filter by radius AND sort by distance
+      const withDistance = allMatching
+        .map(p => ({ provider: p, distance: calcDistMeters(p) }))
+        .filter(({ distance }) => distance >= 0 && distance <= maxRadiusMeters);
+
+      // Sort by distance, then by rating for providers within ~1km of each other
+      withDistance.sort((a, b) => {
+        if (Math.abs(a.distance - b.distance) < 1000) {
+          return (b.provider.rating?.average || 0) - (a.provider.rating?.average || 0);
         }
-        return dA - dB;
+        return a.distance - b.distance;
       });
 
-      // Paginate after sorting
+      // Paginate after filtering and sorting
       const startIdx = (parseInt(page) - 1) * parseInt(limit);
-      providers = allMatching.slice(startIdx, startIdx + parseInt(limit));
+      providers = withDistance.slice(startIdx, startIdx + parseInt(limit)).map(({ provider }) => provider);
+
+      // Use filtered count for pagination (not total DB count)
+      const filteredTotal = withDistance.length;
+      return res.status(200).json({
+        success: true,
+        data: providers,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: filteredTotal,
+          pages: Math.ceil(filteredTotal / parseInt(limit)),
+        },
+      });
     } else {
-      // ── Sort by the requested sort option ──
+      // ── Sort by the requested sort option (no distance filtering) ──
       providers = await User.find(query)
         .select('-wallet -earnings -bankDetails -password')
         .populate('serviceCategories')
