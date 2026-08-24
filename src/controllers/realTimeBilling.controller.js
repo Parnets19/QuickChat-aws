@@ -770,6 +770,7 @@ const acceptCall = async (req, res) => {
         acceptedBy: userId.toString(),
         acceptedByName: req.user.fullName || req.user.name || "Provider",
         timestamp: new Date().toISOString(),
+        source: req.body.source || req.headers['x-client-platform'] || 'unknown',
       };
 
       console.log("📡 Emitting call acceptance via socket:", acceptanceData);

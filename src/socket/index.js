@@ -1310,6 +1310,28 @@ const initializeSocket = (io) => {
     socket.on("webrtc:ice-candidate", handleWebRTCIceCandidate); // Mobile format
     socket.on("ice-candidate", handleWebRTCIceCandidate); // Web format
 
+    // Handle webrtc:create-offer-request - relay from mobile provider to web client
+    socket.on("webrtc:create-offer-request", (data) => {
+      try {
+        const { consultationId: cId, to, from } = data;
+        if (!cId) return;
+
+        console.log(`📨 Relaying webrtc:create-offer-request from ${from} to ${to} for consultation ${cId}`);
+
+        // Broadcast to consultation and billing rooms so web client receives it
+        socket.to(`consultation:${cId}`).emit("webrtc:create-offer-request", data);
+        socket.to(`billing:${cId}`).emit("webrtc:create-offer-request", data);
+
+        // Also emit to the target user's personal room for reliability
+        if (to) {
+          io.to(`user:${to}`).emit("webrtc:create-offer-request", data);
+          console.log(`📡 webrtc:create-offer-request also sent to user:${to} personal room`);
+        }
+      } catch (error) {
+        console.error("Error relaying webrtc:create-offer-request:", error);
+      }
+    });
+
     // BILLING SAFETY: Record the exact moment WebRTC actually connected.
     // This is used as the TRUE billing start time in endConsultation.
     // If this event never arrives (call failed to connect), webrtcConnectedAt
@@ -1929,6 +1951,7 @@ const initializeSocket = (io) => {
           acceptedBy: userId,
           acceptedByName: socket.data.user?.fullName || socket.user?.fullName || "Provider",
           timestamp: new Date().toISOString(),
+          source: data.source || 'unknown', // Forward the source (mobile-app, web, etc.)
         };
 
         console.log(`📡 Acceptance data:`, acceptanceData);
