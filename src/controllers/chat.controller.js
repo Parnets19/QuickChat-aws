@@ -594,30 +594,14 @@ const getChatList = async (req, res, next) => {
     const userId = req.user.id || req.user._id;
     const isGuest = req.user.isGuest || false;
 
-    console.log(
-      `📋 getChatList called for user: ${userId}, isGuest: ${isGuest}`
-    );
-
     const chats = await Chat.find({
       $or: [{ user: userId }, { provider: userId }],
     }).sort({ lastMessageTime: -1 });
 
-    console.log(`📋 Found ${chats.length} chats for user ${userId}`);
-
     const chatList = await Promise.all(
       chats.map(async (chat) => {
-        console.log(`🔍 Processing chat: ${chat._id}`);
-
         const isUserTheClient = chat.user.toString() === userId.toString();
         const otherUserId = isUserTheClient ? chat.provider : chat.user;
-
-        console.log(`🔍 Chat details:`, {
-          chatId: chat._id,
-          user: chat.user,
-          provider: chat.provider,
-          isUserTheClient,
-          otherUserId,
-        });
 
         // For guests calling this API, they are always the client (user field)
         // So if they're the client, the other user is the provider (never a guest)
@@ -635,7 +619,6 @@ const getChatList = async (req, res, next) => {
               otherUserName = guest.name || "Guest User";
               otherUserAvatar = guest.profilePhoto || null;
             } else {
-              // Guest not found (may have been deleted) — show friendly name
               otherUserName = "Guest User";
             }
           } else {
@@ -644,14 +627,6 @@ const getChatList = async (req, res, next) => {
             if (user) {
               otherUserName = user.fullName || user.name || "User";
               otherUserAvatar = user.profilePhoto || null;
-
-              // Debug logging
-              console.log(`🔍 Chat list user debug:`, {
-                userId: otherUserId,
-                userName: otherUserName,
-                profilePhoto: user.profilePhoto,
-                avatarSet: otherUserAvatar,
-              });
             } else {
               // User not found in User collection — try Guest collection as fallback
               const guest = await Guest.findById(otherUserId);
@@ -668,30 +643,10 @@ const getChatList = async (req, res, next) => {
         }
 
         // Calculate unread message count for this chat
-        // Count messages where the sender is NOT the current user AND status is not 'read'
         const unreadCount = await ChatMessage.countDocuments({
           chat: chat._id,
           sender: { $ne: userId },
-          status: { $in: ["sent", "delivered"] }, // Only count sent/delivered as unread, not 'read'
-        });
-
-        console.log(`🔍 Unread count calculation for chat ${chat._id}:`, {
-          chatId: chat._id,
-          currentUserId: userId,
-          unreadCount,
-          query: {
-            chat: chat._id,
-            sender: { $ne: userId },
-            status: { $in: ["sent", "delivered"] },
-          },
-        });
-
-        console.log(`🔍 Final chat object before return:`, {
-          chatId: chat._id,
-          otherUserName,
-          otherUserAvatar,
-          isOtherUserGuest,
-          unreadCount,
+          status: { $in: ["sent", "delivered"] },
         });
 
         // Get last message details (sender + status) for tick marks in chat list
