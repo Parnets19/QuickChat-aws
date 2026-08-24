@@ -1921,6 +1921,16 @@ const endConsultation = async (req, res) => {
         consultationEndedData
       );
 
+      // CRITICAL: Also emit consultation:ended for web frontend compatibility
+      io.to(`user:${consultation.user}`).emit(
+        "consultation:ended",
+        consultationEndedData
+      );
+      io.to(`user:${consultation.provider}`).emit(
+        "consultation:ended",
+        consultationEndedData
+      );
+
       // Also emit status change event for dashboard sync
       io.to(`user:${consultation.user}`).emit("consultation:status-changed", {
         consultationId: consultation._id,
@@ -2148,6 +2158,16 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
       );
       io.to(`user:${consultation.provider}`).emit(
         "consultation:completed",
+        consultationEndedData
+      );
+
+      // CRITICAL: Also emit consultation:ended for web frontend compatibility
+      io.to(`user:${consultation.user}`).emit(
+        "consultation:ended",
+        consultationEndedData
+      );
+      io.to(`user:${consultation.provider}`).emit(
+        "consultation:ended",
         consultationEndedData
       );
 
