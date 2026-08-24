@@ -126,6 +126,16 @@ const initializeSocket = (io) => {
     socket.join(`user:${userId}`);
     console.log(`User ${userId} joined personal room: user:${userId}`);
 
+    // Handle explicit user room join request (belt-and-suspenders for reconnection scenarios)
+    socket.on("join-user-room", (data) => {
+      const requestedUserId = data?.userId;
+      // Only allow joining own room (security check)
+      if (requestedUserId && requestedUserId === userId) {
+        socket.join(`user:${userId}`);
+        console.log(`User ${userId} re-joined personal room via explicit request`);
+      }
+    });
+
     // Handle consultation join with duplicate prevention
     socket.on("consultation:join", async (data) => {
       try {
@@ -1896,6 +1906,24 @@ const initializeSocket = (io) => {
         }
 
         const callerId = data.to || data.clientId || from;
+        
+        // SAFETY NET: If callerId resolves to the provider themselves, look up the actual client from DB
+        let resolvedCallerId = callerId;
+        if (callerId === userId) {
+          try {
+            const consultation = await Consultation.findById(consultationId).select('user provider');
+            if (consultation) {
+              const clientId = consultation.user?.toString();
+              if (clientId && clientId !== userId) {
+                resolvedCallerId = clientId;
+                console.log(`🔧 callerId was provider's own ID, resolved actual client from DB: ${resolvedCallerId}`);
+              }
+            }
+          } catch (lookupErr) {
+            console.warn(`⚠️ Failed to lookup consultation for callerId resolution:`, lookupErr.message);
+          }
+        }
+        
         const acceptanceData = {
           consultationId,
           acceptedBy: userId,
@@ -1904,10 +1932,10 @@ const initializeSocket = (io) => {
         };
 
         console.log(`📡 Acceptance data:`, acceptanceData);
-        console.log(`📡 Caller ID resolved for acceptance notification:`, callerId);
+        console.log(`📡 Caller ID resolved for acceptance notification:`, resolvedCallerId);
 
         // Find caller's sockets and notify directly
-        const callerSockets = onlineUsers.get(callerId);
+        const callerSockets = onlineUsers.get(resolvedCallerId);
         console.log(`📞 Caller sockets found:`, callerSockets ? callerSockets.length : 0);
         
         if (callerSockets && callerSockets.length > 0) {
@@ -1918,9 +1946,18 @@ const initializeSocket = (io) => {
               callerSocket.emit("consultation:call-accepted", acceptanceData);
             }
           });
-          console.log(`✅ Call acceptance notification sent to caller ${from}`);
+          console.log(`✅ Call acceptance notification sent to caller ${resolvedCallerId}`);
         } else {
-          console.warn(`⚠️ No sockets found for caller ${from} in onlineUsers map`);
+          console.warn(`⚠️ No sockets found for caller ${resolvedCallerId} in onlineUsers map`);
+        }
+
+        // CRITICAL FALLBACK: Always emit to caller's personal user room
+        // This ensures the web client receives the acceptance even if onlineUsers lookup failed
+        // or the client hasn't joined consultation/billing rooms yet
+        if (resolvedCallerId) {
+          io.to(`user:${resolvedCallerId}`).emit("consultation:call-accepted", acceptanceData);
+          io.to(`user:${resolvedCallerId}`).emit("webrtc:call-accepted", acceptanceData);
+          console.log(`📡 Fallback: Emitted call-accepted to user:${resolvedCallerId} personal room`);
         }
 
         // CRITICAL FIX: Broadcast to both room formats for cross-platform compatibility
