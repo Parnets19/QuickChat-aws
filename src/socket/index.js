@@ -1112,20 +1112,28 @@ const initializeSocket = (io) => {
     // UNIFIED WebRTC OFFER HANDLER - Supports both mobile and web formats
     const handleWebRTCOffer = (data, callback) => {
       try {
-        // Get room info to check if other party is connected
-        const room = io.sockets.adapter.rooms.get(
+        // Get room info — check BOTH room formats for cross-platform compatibility
+        // Mobile may be in consultation:{id}, web may be in billing:{id}, or both
+        const consultationRoom = io.sockets.adapter.rooms.get(
           `consultation:${data.consultationId}`
         );
-        const participantCount = room ? room.size : 0;
-        const roomMembers = room ? Array.from(room) : [];
+        const billingRoom = io.sockets.adapter.rooms.get(
+          `billing:${data.consultationId}`
+        );
+
+        // Combine unique socket IDs from both rooms
+        const allMembers = new Set();
+        if (consultationRoom) consultationRoom.forEach(id => allMembers.add(id));
+        if (billingRoom) billingRoom.forEach(id => allMembers.add(id));
+        
+        const participantCount = allMembers.size;
+        const roomMembers = Array.from(allMembers);
 
         console.log(
           `📞 WebRTC offer received from ${userId} for consultation ${data.consultationId}`
         );
         console.log(
-          `📊 Room info: ${participantCount} participants, socket IDs: ${roomMembers.join(
-            ", "
-          )}`
+          `📊 Room info: ${participantCount} unique participants across both rooms`
         );
 
         // Log if this is an upgrade offer
@@ -1137,7 +1145,7 @@ const initializeSocket = (io) => {
 
         if (participantCount < 2) {
           console.log(
-            `⚠️ Cannot forward offer - only ${participantCount} participant(s) in room`
+            `⚠️ Cannot forward offer - only ${participantCount} participant(s) in rooms`
           );
           if (callback)
             callback({
@@ -1870,6 +1878,10 @@ const initializeSocket = (io) => {
         console.log(
           `📞 Call accepted by provider ${userId} for consultation ${consultationId}`
         );
+
+        // Ensure the accepting provider is in both rooms for WebRTC signaling
+        socket.join(`consultation:${consultationId}`);
+        socket.join(`billing:${consultationId}`);
         console.log(`📞 Caller ID (from): ${from}`);
         console.log(`📞 Provider ID (userId): ${userId}`);
 
@@ -2098,6 +2110,22 @@ const initializeSocket = (io) => {
       } catch (error) {
         console.error("Error joining billing room:", error);
         socket.emit("error", { message: "Failed to join billing room" });
+      }
+    });
+
+    // Handle join-consultation (mobile app emits this for quick room join without DB validation)
+    socket.on("join-consultation", (data) => {
+      try {
+        const { consultationId } = data;
+        if (!consultationId) return;
+
+        // Join both rooms immediately (no async DB check — fast path for cross-platform)
+        socket.join(`consultation:${consultationId}`);
+        socket.join(`billing:${consultationId}`);
+
+        console.log(`📞 User ${userId} fast-joined consultation + billing rooms: ${consultationId}`);
+      } catch (error) {
+        console.error("Error in join-consultation:", error);
       }
     });
 
