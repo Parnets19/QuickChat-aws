@@ -593,6 +593,8 @@ const getChatList = async (req, res, next) => {
   try {
     const userId = req.user.id || req.user._id;
     const isGuest = req.user.isGuest || false;
+    const mongoose = require('mongoose');
+    const userObjectId = new mongoose.Types.ObjectId(userId);
 
     const chats = await Chat.find({
       $or: [{ user: userId }, { provider: userId }],
@@ -645,7 +647,7 @@ const getChatList = async (req, res, next) => {
         // Calculate unread message count for this chat
         const unreadCount = await ChatMessage.countDocuments({
           chat: chat._id,
-          sender: { $ne: userId },
+          sender: { $ne: userObjectId },
           status: { $in: ["sent", "delivered"] },
         });
 
@@ -747,6 +749,8 @@ const markMessagesAsRead = async (req, res, next) => {
   try {
     const { consultationId, messageIds } = req.body;
     const userId = req.user.id || req.user._id;
+    const mongoose = require('mongoose');
+    const userObjectId = new mongoose.Types.ObjectId(userId);
 
     if (!consultationId && !messageIds) {
       return next(
@@ -760,30 +764,25 @@ const markMessagesAsRead = async (req, res, next) => {
       // Mark specific messages as read
       updateQuery = {
         _id: { $in: messageIds },
-        sender: { $ne: userId },
+        sender: { $ne: userObjectId },
         status: { $ne: "read" },
       };
     } else if (consultationId) {
       // For new chat system, consultationId is actually the chatId
-      // Try to find chat by chatId first, then fall back to consultation lookup
-      let chat = await Chat.findOne({ chatId: consultationId });
+      // Try to find chat by _id
+      let chat = await Chat.findById(consultationId).catch(() => null);
 
       if (!chat) {
-        // Fall back to finding by _id for backward compatibility
-        chat = await Chat.findById(consultationId);
-      }
-
-      if (!chat) {
-        // If no chat found, try to mark messages directly by chatId
+        // If no chat found, try to mark messages directly by chat field
         updateQuery = {
-          chatId: consultationId,
-          sender: { $ne: userId },
+          chat: consultationId,
+          sender: { $ne: userObjectId },
           status: { $ne: "read" },
         };
       } else {
         updateQuery = {
           chat: chat._id,
-          sender: { $ne: userId },
+          sender: { $ne: userObjectId },
           status: { $ne: "read" },
         };
       }
