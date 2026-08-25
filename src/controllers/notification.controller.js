@@ -12,6 +12,11 @@ const getNotifications = async (req, res, next) => {
       user: req.user?._id,
       // Exclude chat message notifications — they belong in Chat tab
       'data.action': { $ne: 'new_message' },
+      // Exclude notifications with empty/missing title AND message
+      $or: [
+        { title: { $exists: true, $ne: '' } },
+        { message: { $exists: true, $ne: '' } },
+      ],
     };
     if (isRead !== undefined) {
       query.isRead = isRead === 'true';
@@ -27,6 +32,10 @@ const getNotifications = async (req, res, next) => {
       user: req.user?._id,
       isRead: false,
       'data.action': { $ne: 'new_message' },
+      $or: [
+        { title: { $exists: true, $ne: '' } },
+        { message: { $exists: true, $ne: '' } },
+      ],
     });
 
     res.status(200).json({

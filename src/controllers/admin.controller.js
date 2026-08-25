@@ -863,6 +863,8 @@ const verifyKycRequest = async (req, res) => {
       // A verified account is a live provider, not a deleted one
       updateData.isDeleted = false;
       updateData.deletedAt = null;
+      // NOTE: We intentionally do NOT change the provider's rate here.
+      // Whatever rate the provider set during registration is kept as-is.
     }
 
     const provider = await User.findByIdAndUpdate(

@@ -209,9 +209,9 @@ const checkConsultationAffordability = async (req, res) => {
     }
 
     const ratePerMinute =
-      provider.rates?.perMinute?.audioVideo || 
-      provider.rates?.[consultationType] || 
-      provider.rates?.audioVideo || 
+      provider.rates?.perMinute?.audioVideo ||
+      provider.rates?.[consultationType] ||
+      provider.rates?.audioVideo ||
       1; // Default 1 rupee per minute
 
     console.log("💵 RATE CONFIGURATION - DETAILED:", {
