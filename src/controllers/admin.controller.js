@@ -852,9 +852,14 @@ const verifyKycRequest = async (req, res) => {
       ...(status === 'correction_requested' && { correctionRequested: true, correctionNote: notes || '' }),
     };
 
-    // If verified, also mark Aadhar as verified
+    // If verified, also mark Aadhar as verified and ensure the user is a
+    // searchable service provider (search requires isServiceProvider + active + visible).
     if (status === 'verified') {
       updateData.isAadharVerified = true;
+      updateData.isServiceProvider = true;
+      updateData.role = 'provider';
+      updateData.status = 'active';
+      updateData.isProfileHidden = false;
     }
 
     const provider = await User.findByIdAndUpdate(

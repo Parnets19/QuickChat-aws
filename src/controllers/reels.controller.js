@@ -49,14 +49,26 @@ const getReels = async (req, res, next) => {
     // 3. Recent reels
     // 4. Also include providers' portfolio media (images & videos)
 
-    let reels = await Reel.find({ isActive: true })
+    // Only surface content from verified, active, visible, non-deleted providers.
+    const providerFilter = {
+      isServiceProvider: true,
+      isProfileHidden: false,
+      status: 'active',
+      providerVerificationStatus: 'verified',
+      isDeleted: { $ne: true },
+    };
+
+    // Get all providers (advisers) with portfolio media OR profession video
+    const providers = await User.find(providerFilter)
+      .select('_id fullName profilePhoto bio profession portfolioMedia professionVideo');
+
+    // Build the set of allowed owner IDs so reels from unverified accounts are excluded
+    const verifiedProviderIds = providers.map(p => p._id);
+
+    let reels = await Reel.find({ isActive: true, user: { $in: verifiedProviderIds } })
       .populate('user', '_id fullName profilePhoto')
       .sort({ createdAt: -1 })
       .limit(50);
-
-    // Get all providers (advisers) with portfolio media OR profession video
-    const providers = await User.find({ isServiceProvider: true, isProfileHidden: false })
-      .select('_id fullName profilePhoto bio profession portfolioMedia professionVideo');
 
     console.log('🔍 [Reels Debug] Found providers:', providers.length);
     providers.forEach(p => {
@@ -621,6 +633,20 @@ const incrementReelShares = async (req, res, next) => {
 const getUserReels = async (req, res, next) => {
   try {
     const { userId } = req.params;
+
+    // Only show reels if the owner is a verified, active, visible, non-deleted provider.
+    const owner = await User.findOne({
+      _id: userId,
+      isServiceProvider: true,
+      isProfileHidden: false,
+      status: 'active',
+      providerVerificationStatus: 'verified',
+      isDeleted: { $ne: true },
+    }).select('_id');
+
+    if (!owner) {
+      return res.status(200).json({ success: true, data: [] });
+    }
 
     const reels = await Reel.find({ user: userId, isActive: true }).sort({ createdAt: -1 }).populate('user', '_id fullName profilePhoto');
     res.status(200).json({ success: true, data: reels });

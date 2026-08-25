@@ -1056,6 +1056,7 @@ const searchProviders = async (req, res, next) => {
       isProfileHidden: false,
       status: "active",
       providerVerificationStatus: "verified", // Only show verified providers
+      isDeleted: { $ne: true }, // Never show deleted/anonymized accounts
     };
 
     // Exclude current user from results if authenticated
