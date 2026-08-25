@@ -56,9 +56,25 @@ const getUserProfile = async (req, res, next) => {
       User.findByIdAndUpdate(req.params.id, { $inc: { profileViews: 1 } }).catch(() => {});
     }
 
+    const userData = user.toObject();
+
+    // Attach the intro video (stored as the provider's earliest Reel)
+    try {
+      const Reel = require("../models/Reel.model");
+      const introReel = await Reel.findOne({ user: req.params.id, isActive: true })
+        .sort({ createdAt: 1 })
+        .select("videoUrl thumbnailUrl caption tags createdAt")
+        .lean();
+      if (introReel?.videoUrl) {
+        userData.introReel = introReel;
+      }
+    } catch (reelErr) {
+      console.error("Could not load intro reel (non-critical):", reelErr.message);
+    }
+
     res.status(200).json({
       success: true,
-      data: user,
+      data: userData,
     });
   } catch (error) {
     next(error);
