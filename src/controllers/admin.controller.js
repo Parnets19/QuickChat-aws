@@ -860,6 +860,9 @@ const verifyKycRequest = async (req, res) => {
       updateData.role = 'provider';
       updateData.status = 'active';
       updateData.isProfileHidden = false;
+      // A verified account is a live provider, not a deleted one
+      updateData.isDeleted = false;
+      updateData.deletedAt = null;
     }
 
     const provider = await User.findByIdAndUpdate(
