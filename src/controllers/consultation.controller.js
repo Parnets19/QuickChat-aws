@@ -501,7 +501,7 @@ const createConsultation = async (req, res, next) => {
       title: notificationTitle,
       message: notificationMessage,
       type: "consultation",
-      data: { consultationId: consultation._id },
+      data: { consultationId: consultation._id, consultationType: type, userId: userId },
     });
 
     // NOTE: Ring notifications are now handled by real-time billing controller only
