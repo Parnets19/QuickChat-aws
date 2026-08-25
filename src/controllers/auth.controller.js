@@ -274,6 +274,11 @@ const register = async (req, res, next) => {
       isServiceProvider: isServiceProvider || false,
     };
 
+    // Providers start as pending KYC; regular users have no verification status
+    if (isServiceProvider) {
+      userData.providerVerificationStatus = "pending";
+    }
+
     // Add optional fields if provided
     if (dateOfBirth) userData.dateOfBirth = new Date(dateOfBirth);
     if (gender) userData.gender = gender;
@@ -379,9 +384,9 @@ const register = async (req, res, next) => {
        sendWelcomeEmail(email, fullName);
     }
 
-    // Notify all connected admins about new KYC request
+    // Notify all connected admins about new KYC request (only for providers)
     try {
-      if (req.io) {
+      if (req.io && user.isServiceProvider) {
         req.io.emit("admin:new_kyc_request", {
           userId: user._id,
           fullName: user.fullName,

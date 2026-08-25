@@ -773,7 +773,7 @@ const getKycRequestById = async (req, res) => {
     const { id } = req.params;
 
     const kycRequest = await User.findById(id)
-      .select('fullName email mobile dateOfBirth gender place profession education hobbies skills languagesKnown bio aadharNumber aadharDocuments profilePhoto portfolioMedia portfolioLinks serviceCategories consultationModes rates availability bankDetails providerVerificationStatus verificationNotes verifiedAt verifiedBy createdAt updatedAt')
+      .select('fullName email mobile dateOfBirth gender place profession education hobbies skills languagesKnown bio aadharNumber aadharDocuments profilePhoto professionVideo portfolioMedia portfolioLinks serviceCategories consultationModes rates availability bankDetails providerVerificationStatus verificationNotes verifiedAt verifiedBy createdAt updatedAt')
       .populate('verifiedBy', 'fullName email')
       .populate('serviceCategories')
       .lean();
@@ -783,6 +783,20 @@ const getKycRequestById = async (req, res) => {
         success: false,
         message: 'KYC request not found'
       });
+    }
+
+    // Attach the intro reel (stored separately in the Reel collection)
+    try {
+      const Reel = require('../models/Reel.model');
+      const introReel = await Reel.findOne({ user: id })
+        .sort({ createdAt: 1 })
+        .select('videoUrl caption tags thumbnailUrl createdAt')
+        .lean();
+      if (introReel) {
+        kycRequest.introReel = introReel;
+      }
+    } catch (reelErr) {
+      console.error('Could not load intro reel for KYC detail (non-critical):', reelErr.message);
     }
 
     res.status(200).json({
