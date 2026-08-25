@@ -715,22 +715,39 @@ const getKycRequests = async (req, res) => {
       search = ''
     } = req.query;
 
-    // Build filter query - only service providers
-    const filter = { isServiceProvider: true };
-    
-    // Status filter
+    // Build filter query.
+    // Include anyone who is a service provider OR who has an actual KYC status
+    // (a user can be pending KYC even if isServiceProvider is still false).
+    const filter = {};
+
     if (status !== 'all') {
+      // A specific status was requested (pending/verified/rejected)
       filter.providerVerificationStatus = status;
+    } else {
+      // "All" tab: providers + anyone with a real verification status set
+      filter.$or = [
+        { isServiceProvider: true },
+        { providerVerificationStatus: { $in: ['pending', 'verified', 'rejected'] } }
+      ];
     }
 
-    // Search filter
+    // Search filter (combine with the base filter using $and so it doesn't overwrite $or)
     if (search) {
-      filter.$or = [
+      const searchOr = [
         { fullName: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
         { mobile: { $regex: search, $options: 'i' } },
         { aadharNumber: { $regex: search, $options: 'i' } }
       ];
+
+      if (filter.$or) {
+        // Preserve the base $or and require the search $or as well
+        const baseOr = filter.$or;
+        delete filter.$or;
+        filter.$and = [{ $or: baseOr }, { $or: searchOr }];
+      } else {
+        filter.$or = searchOr;
+      }
     }
 
     // Execute query with pagination
