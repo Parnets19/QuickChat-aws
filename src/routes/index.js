@@ -30,6 +30,7 @@ const reportRoutes = require("./report.routes");
 const supportRoutes = require("./support.routes");
 const reelsRoutes = require("./reels.routes");
 const liveStreamRoutes = require("./liveStream.routes");
+const turnRoutes = require("./turn.routes");
 
 const router = express.Router();
 
@@ -63,5 +64,6 @@ router.use("/reports", reportRoutes);
 router.use("/support", supportRoutes);
 router.use("/reels", reelsRoutes);
 router.use("/live-streams", liveStreamRoutes);
+router.use("/turn", turnRoutes); // TURN/ICE server credentials for WebRTC
 
 module.exports = router;
