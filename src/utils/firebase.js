@@ -77,17 +77,17 @@ const sendPushNotification = async (notification) => {
       dataKeys: Object.keys(notification.data || {})
     });
 
-    // CRITICAL: Incoming calls are DATA-ONLY (no notification block).
-    // A notification block lets Android render a standard banner and ignore
-    // fullScreenIntent. Data-only + fullScreenIntent wakes the lock screen and
-    // triggers the CallKeep / ConnectionService full-screen call UI.
-    // EXCEPTION: chat messages are also data-only (different reason — avoid system banner in foreground).
+    // CRITICAL: Chat messages are data-only in the initial message object.
+    // Incoming calls NOW include a notification block (not data-only) to ensure
+    // they wake the app on OEM devices (OnePlus, Xiaomi, etc.) when killed.
+    // EXCEPTION: chat messages start data-only but get a notification block added
+    // in the isChatMessage branch below (needed for background/killed delivery).
     const isIncomingCall = notification.data?.action === 'incoming_call';
     const isChatMessage  = notification.data?.action === 'new_message';
-    const isDataOnly     = isIncomingCall || isChatMessage;
+    const isDataOnly     = isChatMessage; // Only chat is data-only in initial object
 
     const message = {
-      // Data-only for calls and chats; notification block for everything else
+      // Data-only for chats; notification block for everything else INCLUDING calls
       ...(!isDataOnly ? {
         notification: {
           title: notification.title,
@@ -107,13 +107,30 @@ const sendPushNotification = async (notification) => {
       priority: 'high',
     };
 
-    // ── INCOMING CALL — full-screen intent, high-priority channel, data-only ──
+    // ── INCOMING CALL — high-priority with notification block to WAKE killed app ──
+    // On Chinese OEMs (Xiaomi, Oppo, Vivo, Realme, OnePlus) and some Samsung
+    // devices, data-only messages do NOT wake a killed app process. The fix is
+    // to include a notification block so Android's system FCM handler always
+    // wakes the app. QuickChatFirebaseService.onMessageReceived() still fires
+    // and replaces the system notification with our custom full-screen call UI.
     if (isIncomingCall) {
       message.android = {
         priority: 'high',
         ttl: 55 * 1000, // 55 s — matches PENDING_CALL_TTL_MS on the client
-        // data-only: NO notification block → Android delivers to our background
-        // handler which calls CallKeep.displayIncomingCall() to show the full-screen UI
+        notification: {
+          channelId: 'incoming_calls',
+          sound: 'default',
+          priority: 'max',
+          visibility: 'public',
+          tag: 'incoming_call',    // Tag ensures system banner and our custom notification share the same slot
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          vibrateTimingsMillis: [0, 1000, 500, 1000, 500, 1000],
+          // clickAction launches the app when user taps the system-rendered notification.
+          // On OnePlus/OEM killed state where onMessageReceived doesn't fire,
+          // this is the ONLY way the user can get into the call screen.
+          clickAction: 'INCOMING_CALL_ACTION',
+        },
       };
 
       // Add APNS configuration for iOS (VoIP push handled separately via PushKit;
@@ -136,7 +153,7 @@ const sendPushNotification = async (notification) => {
         },
       };
 
-      console.log('📞 Incoming call configured: data-only + high priority (full-screen intent path)');
+      console.log('📞 Incoming call configured: notification block + high priority (wakes killed app on OEMs)');
     } else if (isChatMessage) {
       // Chat messages NEED a notification block so Android/iOS displays the
       // system notification banner when the app is background or killed.
@@ -265,7 +282,7 @@ const sendMulticastNotification = async (notification) => {
 
     const isIncomingCall = notification.data?.action === 'incoming_call';
     const isChatMessage  = notification.data?.action === 'new_message';
-    const isDataOnly     = isIncomingCall || isChatMessage;
+    const isDataOnly     = isChatMessage; // Only chat is data-only now
 
     const message = {
       ...(!isDataOnly ? {
@@ -282,13 +299,27 @@ const sendMulticastNotification = async (notification) => {
       tokens: validTokens,
     };
 
-    // ── INCOMING CALL — data-only + high priority so Android background handler
-    // can call CallKeep.displayIncomingCall() and show the full-screen call UI
+    // ── INCOMING CALL — high-priority WITH notification block to WAKE killed app ──
+    // On OEM devices (Xiaomi, Oppo, Vivo, Realme, OnePlus, Samsung), data-only
+    // messages do NOT wake a killed app. Including a notification block ensures
+    // Android's system FCM handler wakes the process.
+    // QuickChatFirebaseService.onMessageReceived() still fires and replaces the
+    // system notification with the custom full-screen call UI.
     if (isIncomingCall) {
       message.android = {
         priority: 'high',
         ttl: 55 * 1000,
-        // NO notification block — data-only triggers CallKeep full-screen path
+        notification: {
+          channelId: 'incoming_calls',
+          sound: 'default',
+          priority: 'max',
+          visibility: 'public',
+          tag: 'incoming_call',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          vibrateTimingsMillis: [0, 1000, 500, 1000, 500, 1000],
+          clickAction: 'INCOMING_CALL_ACTION',
+        },
       };
       message.apns = {
         headers: {
@@ -307,7 +338,7 @@ const sendMulticastNotification = async (notification) => {
           },
         },
       };
-      console.log('📞 Multicast incoming call configured: data-only + high priority (full-screen intent path)');
+      console.log('📞 Multicast incoming call configured: notification block + high priority (wakes killed app)');
     } else if (isChatMessage) {
       // Chat messages need a notification block for background/killed delivery.
       // Foreground: JS handler cancels the system banner immediately.
