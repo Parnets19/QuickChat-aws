@@ -344,12 +344,43 @@ const startConsultation = async (req, res) => {
       });
     }
 
-    const provider = await User.findById(providerId).select("rates fullName");
+    const provider = await User.findById(providerId).select("rates fullName isInCall consultationStatus");
     if (!provider) {
       return res.status(404).json({
         success: false,
         message: "Provider not found",
       });
+    }
+
+    // 🚫 PROVIDER BUSY GUARD: don't ring a provider who is already in a call.
+    // (Previously only the legacy /consultations route checked this; the billing
+    // path didn't, so a busy provider could still be rung.)
+    if (provider.isInCall) {
+      console.log("🚫 CALL REJECTED - PROVIDER BUSY:", { providerId });
+      return res.status(409).json({
+        success: false,
+        message: "Provider is currently busy in another call. Please try again shortly.",
+        data: { reason: "provider_busy" },
+      });
+    }
+
+    // 🚫 CLIENT ALREADY-IN-CALL GUARD: prevent starting a second concurrent call
+    // while the caller already has an ongoing consultation.
+    try {
+      const existingOngoing = await Consultation.findOne({
+        user: userId,
+        status: "ongoing",
+      }).select("_id");
+      if (existingOngoing) {
+        console.log("🚫 CALL REJECTED - CLIENT ALREADY IN A CALL:", { userId, existing: existingOngoing._id });
+        return res.status(409).json({
+          success: false,
+          message: "You already have an ongoing call. Please end it before starting a new one.",
+          data: { reason: "already_in_call", consultationId: existingOngoing._id },
+        });
+      }
+    } catch (guardErr) {
+      console.warn("⚠️ already-in-call guard check failed (continuing):", guardErr.message);
     }
 
     let ratePerMinute =

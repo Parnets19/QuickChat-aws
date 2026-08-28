@@ -77,14 +77,18 @@ const sendPushNotification = async (notification) => {
       dataKeys: Object.keys(notification.data || {})
     });
 
-    // CRITICAL: Chat messages are data-only in the initial message object.
-    // Incoming calls NOW include a notification block (not data-only) to ensure
-    // they wake the app on OEM devices (OnePlus, Xiaomi, etc.) when killed.
-    // EXCEPTION: chat messages start data-only but get a notification block added
-    // in the isChatMessage branch below (needed for background/killed delivery).
+    // CRITICAL: Chat messages AND incoming calls are DATA-ONLY.
+    // A data-only high-priority message is the ONLY payload that GUARANTEES
+    // QuickChatFirebaseService.onMessageReceived() fires when the app is KILLED
+    // on every OEM (Xiaomi/Oppo/Vivo/OnePlus/Samsung). A message with a
+    // `notification` block is intercepted by the Android system FCM handler,
+    // which renders its own banner and (on most OEMs) NEVER calls
+    // onMessageReceived() — so the native ringtone, full-screen call UI,
+    // Telecom registration and PENDING_INCOMING_CALL write never run.
+    // This is exactly how WhatsApp/Truecaller deliver killed-state calls.
     const isIncomingCall = notification.data?.action === 'incoming_call';
     const isChatMessage  = notification.data?.action === 'new_message';
-    const isDataOnly     = isChatMessage; // Only chat is data-only in initial object
+    const isDataOnly     = isChatMessage || isIncomingCall;
 
     const message = {
       // Data-only for chats; notification block for everything else INCLUDING calls
@@ -114,27 +118,17 @@ const sendPushNotification = async (notification) => {
     // wakes the app. QuickChatFirebaseService.onMessageReceived() still fires
     // and replaces the system notification with our custom full-screen call UI.
     if (isIncomingCall) {
+      // DATA-ONLY high-priority — NO notification block.
+      // This guarantees QuickChatFirebaseService.onMessageReceived() fires even
+      // when the app is killed, so the native code can show the full-screen
+      // call UI + ringtone itself (WhatsApp/Truecaller behaviour).
       message.android = {
         priority: 'high',
         ttl: 55 * 1000, // 55 s — matches PENDING_CALL_TTL_MS on the client
-        notification: {
-          channelId: 'incoming_calls',
-          sound: 'default',
-          priority: 'max',
-          visibility: 'public',
-          tag: 'incoming_call',    // Tag ensures system banner and our custom notification share the same slot
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          vibrateTimingsMillis: [0, 1000, 500, 1000, 500, 1000],
-          // clickAction launches the app when user taps the system-rendered notification.
-          // On OnePlus/OEM killed state where onMessageReceived doesn't fire,
-          // this is the ONLY way the user can get into the call screen.
-          clickAction: 'INCOMING_CALL_ACTION',
-        },
       };
 
-      // Add APNS configuration for iOS (VoIP push handled separately via PushKit;
-      // this alert is the fallback for when VoIP cert is not yet configured)
+      // iOS: use a VoIP-style content-available push. (Real VoIP requires PushKit;
+      // this content-available alert is the interim path.)
       message.apns = {
         headers: {
           'apns-priority': '10',
@@ -153,7 +147,7 @@ const sendPushNotification = async (notification) => {
         },
       };
 
-      console.log('📞 Incoming call configured: notification block + high priority (wakes killed app on OEMs)');
+      console.log('📞 Incoming call configured: DATA-ONLY + high priority (guarantees onMessageReceived on killed app)');
     } else if (isChatMessage) {
       // Chat messages NEED a notification block so Android/iOS displays the
       // system notification banner when the app is background or killed.
@@ -282,7 +276,9 @@ const sendMulticastNotification = async (notification) => {
 
     const isIncomingCall = notification.data?.action === 'incoming_call';
     const isChatMessage  = notification.data?.action === 'new_message';
-    const isDataOnly     = isChatMessage; // Only chat is data-only now
+    // Both chat and incoming calls are DATA-ONLY so QuickChatFirebaseService
+    // .onMessageReceived() reliably fires on killed apps across all OEMs.
+    const isDataOnly     = isChatMessage || isIncomingCall;
 
     const message = {
       ...(!isDataOnly ? {
@@ -299,27 +295,15 @@ const sendMulticastNotification = async (notification) => {
       tokens: validTokens,
     };
 
-    // ── INCOMING CALL — high-priority WITH notification block to WAKE killed app ──
-    // On OEM devices (Xiaomi, Oppo, Vivo, Realme, OnePlus, Samsung), data-only
-    // messages do NOT wake a killed app. Including a notification block ensures
-    // Android's system FCM handler wakes the process.
-    // QuickChatFirebaseService.onMessageReceived() still fires and replaces the
-    // system notification with the custom full-screen call UI.
+    // ── INCOMING CALL — DATA-ONLY high-priority (no notification block) ──────────
+    // A notification block would be intercepted by Android's system FCM handler
+    // and, on most OEMs (Xiaomi/Oppo/Vivo/OnePlus/Samsung), onMessageReceived()
+    // would NEVER fire when killed — so the native full-screen call UI + ringtone
+    // wouldn't run. Data-only high-priority is the ONLY reliable killed-state path.
     if (isIncomingCall) {
       message.android = {
         priority: 'high',
         ttl: 55 * 1000,
-        notification: {
-          channelId: 'incoming_calls',
-          sound: 'default',
-          priority: 'max',
-          visibility: 'public',
-          tag: 'incoming_call',
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          vibrateTimingsMillis: [0, 1000, 500, 1000, 500, 1000],
-          clickAction: 'INCOMING_CALL_ACTION',
-        },
       };
       message.apns = {
         headers: {
@@ -338,7 +322,7 @@ const sendMulticastNotification = async (notification) => {
           },
         },
       };
-      console.log('📞 Multicast incoming call configured: notification block + high priority (wakes killed app)');
+      console.log('📞 Multicast incoming call configured: DATA-ONLY + high priority (guarantees onMessageReceived on killed app)');
     } else if (isChatMessage) {
       // Chat messages need a notification block for background/killed delivery.
       // Foreground: JS handler cancels the system banner immediately.

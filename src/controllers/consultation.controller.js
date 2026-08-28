@@ -403,7 +403,16 @@ const createConsultation = async (req, res, next) => {
             consultation._id
           );
 
-          if (currentConsultation && currentConsultation.status === "pending") {
+          // Only auto-cancel if STILL pending AND the provider never accepted.
+          // Guards against a false timeout firing on a call that already
+          // connected (accepted via the billing flow, which sets providerAccepted
+          // and moves status to ongoing/active).
+          const stillWaiting =
+            currentConsultation &&
+            currentConsultation.status === "pending" &&
+            !currentConsultation.providerAccepted;
+
+          if (stillWaiting) {
             console.log(
               `⏰ Auto-cancelling call ${consultation._id} - provider didn't answer`
             );
