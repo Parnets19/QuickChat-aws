@@ -208,11 +208,13 @@ const checkConsultationAffordability = async (req, res) => {
       });
     }
 
-    const ratePerMinute =
+    let ratePerMinute =
       provider.rates?.perMinute?.audioVideo ||
       provider.rates?.[consultationType] ||
       provider.rates?.audioVideo ||
       1; // Default 1 rupee per minute
+    // 💰 ENFORCE MINIMUM RATE: audio/video calls are never free (min ₹1/min)
+    if (ratePerMinute < 1) ratePerMinute = 1;
 
     console.log("💵 RATE CONFIGURATION - DETAILED:", {
       ratePerMinute,
@@ -350,11 +352,13 @@ const startConsultation = async (req, res) => {
       });
     }
 
-    const ratePerMinute =
+    let ratePerMinute =
       provider.rates?.perMinute?.audioVideo ||
       provider.rates?.[consultationType] ||
       provider.rates?.audioVideo ||
       1; // Default 1 rupee per minute
+    // 💰 ENFORCE MINIMUM RATE: audio/video calls are never free (min ₹1/min)
+    if (ratePerMinute < 1) ratePerMinute = 1;
 
     console.log("💰 RATE CONFIGURATION - DETAILED:", {
       consultationType,
@@ -447,15 +451,13 @@ const startConsultation = async (req, res) => {
           from: userId, // Add 'from' field for mobile app compatibility
           fromName: clientName, // Add fromName for mobile app compatibility
           amount: ratePerMinute,
-          isFree: ratePerMinute === 0,
+          isFree: false, // All audio/video calls are paid (min ₹1/min)
           timestamp: new Date(),
           source: "real-time-billing",
         });
 
         console.log(
-          `🔔 Ring notification sent to provider ${providerId} for ${consultationType} consultation (Rate: ₹${ratePerMinute}/min, Free: ${
-            ratePerMinute === 0
-          })`
+          `🔔 Ring notification sent to provider ${providerId} for ${consultationType} consultation (Rate: ₹${ratePerMinute}/min)`
         );
 
         // ── FCM Push Notification for background/killed state ─────────────
@@ -600,7 +602,7 @@ const startConsultation = async (req, res) => {
     console.log("✅ CONSULTATION STARTED SUCCESSFULLY:", {
       consultationId: consultation._id,
       ratePerMinute,
-      isFree: ratePerMinute === 0,
+      isFree: false,
       startTime: consultation.startTime,
       clientId: userId,
       providerId,
@@ -614,11 +616,8 @@ const startConsultation = async (req, res) => {
         ratePerMinute,
         providerName: provider.fullName,
         startTime: consultation.startTime,
-        isFree: ratePerMinute === 0,
-        message:
-          ratePerMinute === 0
-            ? `Free call started with ${provider.fullName}!`
-            : `Consultation started successfully with ${provider.fullName} at ₹${ratePerMinute}/min`,
+        isFree: false,
+        message: `Consultation started successfully with ${provider.fullName} at ₹${ratePerMinute}/min`,
       },
     });
   } catch (error) {
@@ -685,19 +684,13 @@ const acceptCall = async (req, res) => {
       consultation.billingStarted = true;
       consultation.lastBillingTime = now;
 
-      if (consultation.rate === 0) {
-        console.log(
-          "🆓 FREE CALL - Billing starts immediately with 0 charge"
-        );
-      } else {
-        console.log("💰 PAID CALL - Billing starts immediately");
-      }
+      console.log("💰 PAID CALL - Billing starts immediately");
 
       console.log("🎉 BOTH SIDES ACCEPTED - CALL STARTED:", {
         consultationId,
         startTime: now,
         rate: consultation.rate,
-        isFree: consultation.rate === 0,
+        isFree: false,
         clientAcceptedAt: consultation.clientAcceptedAt,
         providerAcceptedAt: consultation.providerAcceptedAt,
       });
@@ -707,10 +700,8 @@ const acceptCall = async (req, res) => {
         const callStartData = {
           consultationId: consultation._id,
           startTime: now,
-          isFree: consultation.rate === 0,
-          message: consultation.rate === 0
-            ? "Free call started! No charges will apply."
-            : `Call started! Billing is active at ₹${consultation.rate}/min.`,
+          isFree: false,
+          message: `Call started! Billing is active at ₹${consultation.rate}/min.`,
           timestamp: now,
         };
 
@@ -802,13 +793,11 @@ const acceptCall = async (req, res) => {
           consultation.clientAccepted && consultation.providerAccepted,
         billingStarted: consultation.billingStarted,
         startTime: consultation.startTime,
-        isFree: consultation.rate === 0,
+        isFree: false,
         message: consultation.billingStarted
-          ? consultation.rate === 0
-            ? "Call accepted! Free call - no charges will apply."
-            : "Call accepted! Billing has started at ₹" +
-              consultation.rate +
-              "/min"
+          ? "Call accepted! Billing has started at ₹" +
+            consultation.rate +
+            "/min"
           : "Call accepted! Waiting for client to join.",
       },
     });

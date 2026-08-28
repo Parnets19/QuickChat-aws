@@ -268,6 +268,12 @@ const createConsultation = async (req, res, next) => {
       }
     }
 
+    // 💰 ENFORCE MINIMUM RATE: audio/video calls are never free.
+    // Any resolved rate below ₹1/min is clamped up to ₹1/min.
+    if ((type === "audio" || type === "video") && rate < 1) {
+      rate = 1;
+    }
+
     // Get user info (handle both regular users and guests)
     let user;
     if (req.user?.isGuest) {
@@ -381,10 +387,11 @@ const createConsultation = async (req, res, next) => {
 
     const consultation = await Consultation.create(consultationData);
 
-    // Add auto-timeout for free calls (rate = 0) and audio/video calls
-    if (rate === 0 && (type === "audio" || type === "video")) {
+    // Add auto-timeout for audio/video calls: auto-cancel if the provider
+    // does not answer within 60 seconds (applies to every audio/video call).
+    if (type === "audio" || type === "video") {
       console.log(
-        `⏰ Setting up auto-timeout for free ${type} call:`,
+        `⏰ Setting up no-answer auto-timeout for ${type} call:`,
         consultation._id
       );
 
@@ -398,7 +405,7 @@ const createConsultation = async (req, res, next) => {
 
           if (currentConsultation && currentConsultation.status === "pending") {
             console.log(
-              `⏰ Auto-cancelling free call ${consultation._id} - provider didn't answer`
+              `⏰ Auto-cancelling call ${consultation._id} - provider didn't answer`
             );
 
             // Update consultation status to rejected
@@ -450,11 +457,11 @@ const createConsultation = async (req, res, next) => {
             }
 
             console.log(
-              `✅ Free call ${consultation._id} auto-cancelled due to timeout`
+              `✅ Call ${consultation._id} auto-cancelled due to timeout`
             );
           } else {
             console.log(
-              `⏰ Free call ${consultation._id} was already answered or ended`
+              `⏰ Call ${consultation._id} was already answered or ended`
             );
           }
         } catch (timeoutError) {
