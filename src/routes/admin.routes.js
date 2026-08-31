@@ -1017,9 +1017,17 @@ router.put('/live-streams/:id/force-end', async (req, res, next) => {
 
     // Notify via socket
     if (req.io) {
-      req.io.to(`live-stream:${req.params.id}`).emit('stream:force-ended', {
+      const room = `live-stream:${req.params.id}`;
+      const payload = {
+        liveStreamId: req.params.id,
         message: 'This stream has been terminated by admin.',
-      });
+        forcedByAdmin: true,
+      };
+      // Emit the event names the streamer/viewer clients actually listen for
+      // so the stream actually stops on their screens, plus the admin-specific one.
+      req.io.to(room).emit('live-stream:ended', payload);
+      req.io.to(room).emit('live-stream-ended', payload);
+      req.io.to(room).emit('stream:force-ended', payload);
     }
 
     res.json({ success: true, message: 'Stream force-ended' });
