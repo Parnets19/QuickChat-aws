@@ -861,6 +861,27 @@ const parseProviderReelId = (id) => {
   return { userId, field, index: parseInt(indexStr) };
 };
 
+// Helper: notify a reel owner when their reel is hidden/shown by admin
+const notifyReelOwner = async (ownerId, hidden, req) => {
+  if (!ownerId) return;
+  try {
+    const { createNotification } = require('../utils/notifications');
+    await createNotification({
+      userId: String(ownerId),
+      userType: 'user',
+      title: hidden ? 'Your reel was hidden' : 'Your reel is visible again',
+      message: hidden
+        ? 'An admin has hidden one of your reels. It is no longer visible to other users.'
+        : 'An admin has restored one of your reels. It is visible to other users again.',
+      type: 'system',
+      data: { action: hidden ? 'reel_hidden' : 'reel_shown' },
+      io: req.io,
+    });
+  } catch (e) {
+    console.error('Failed to notify reel owner:', e.message);
+  }
+};
+
 // PUT toggle reel active status (hide/show)
 router.put('/reels/:id/toggle', async (req, res, next) => {
   try {
@@ -885,8 +906,15 @@ router.put('/reels/:id/toggle', async (req, res, next) => {
       }
       user.markModified(providerRef.field);
       await user.save();
-      const nowHidden = typeof arr[providerRef.index] === 'object' ? arr[providerRef.index].hidden : false;
-      return res.json({ success: true, message: nowHidden ? 'Reel hidden' : 'Reel activated' });
+      const nowHidden = typeof arr[providerRef.index] === 'object' ? !!arr[providerRef.index].hidden : false;
+
+      notifyReelOwner(user._id, nowHidden, req);
+
+      return res.json({
+        success: true,
+        message: nowHidden ? 'Reel hidden' : 'Reel activated',
+        data: { _id: id, isActive: !nowHidden, ownerId: String(user._id) },
+      });
     }
 
     const { Reel } = require('../models');
@@ -894,7 +922,14 @@ router.put('/reels/:id/toggle', async (req, res, next) => {
     if (!reel) return res.status(404).json({ success: false, message: 'Reel not found' });
     reel.isActive = !reel.isActive;
     await reel.save();
-    res.json({ success: true, data: reel, message: reel.isActive ? 'Reel activated' : 'Reel hidden' });
+
+    notifyReelOwner(reel.user, !reel.isActive, req);
+
+    res.json({
+      success: true,
+      data: { _id: id, isActive: reel.isActive, ownerId: String(reel.user) },
+      message: reel.isActive ? 'Reel activated' : 'Reel hidden',
+    });
   } catch (error) { next(error); }
 });
 
