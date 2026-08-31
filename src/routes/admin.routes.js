@@ -738,64 +738,159 @@ router.delete('/reviews/:id', async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // GET all reels with filters
+// Includes BOTH real Reel documents AND provider profession/portfolio videos
+// (the same sources shown in the public reels feed).
 router.get('/reels', async (req, res, next) => {
   try {
     const { Reel } = require('../models');
+    const User = require('../models/User.model');
     const { page = 1, limit = 20, status = 'all', search, sortBy = 'newest' } = req.query;
 
-    const query = {};
-    if (status === 'active') query.isActive = true;
-    else if (status === 'hidden') query.isActive = false;
-
-    const sortOptions = {
-      newest: { createdAt: -1 },
-      oldest: { createdAt: 1 },
-      mostViewed: { views: -1 },
-      mostLiked: { 'likes': -1 },
-    };
-
-    let reels = await Reel.find(query)
+    // 1) Real Reel documents
+    const reelDocs = await Reel.find({})
       .populate('user', 'fullName profilePhoto profession')
-      .sort(sortOptions[sortBy] || sortOptions.newest)
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .limit(parseInt(limit))
       .lean();
 
+    let items = reelDocs.map(r => ({ ...r, isProviderReel: false }));
+
+    // 2) Provider profession/portfolio videos (stored on the user profile)
+    const providers = await User.find({
+      isServiceProvider: true,
+      $or: [
+        { 'professionVideo.0': { $exists: true } },
+        { 'portfolioMedia.0': { $exists: true } },
+      ],
+    }).select('_id fullName profilePhoto profession professionVideo portfolioMedia').lean();
+
+    providers.forEach(provider => {
+      (provider.professionVideo || []).forEach((video, index) => {
+        const url = typeof video === 'string' ? video : video.url;
+        if (!url) return;
+        items.push({
+          _id: `provider:${provider._id}:profession:${index}`,
+          user: { _id: provider._id, fullName: provider.fullName, profilePhoto: provider.profilePhoto, profession: provider.profession },
+          type: 'video',
+          videoUrl: url,
+          thumbnailUrl: (typeof video === 'object' && video.thumbnailUrl) || undefined,
+          caption: (typeof video === 'object' && video.caption) || provider.profession || 'Professional video',
+          likes: (typeof video === 'object' && video.likes) || [],
+          views: (typeof video === 'object' && video.views) || 0,
+          isActive: !(typeof video === 'object' && video.hidden),
+          createdAt: (typeof video === 'object' && video.createdAt) || provider._id.getTimestamp(),
+          isProviderReel: true,
+          source: 'professionVideo',
+          sourceIndex: index,
+        });
+      });
+
+      (provider.portfolioMedia || []).forEach((media, index) => {
+        const url = typeof media === 'string' ? media : media.url;
+        if (!url) return;
+        const mediaType = (typeof media === 'object' && media.type) || (url.match(/\.(mp4|webm|mov|mkv|3gp|avi)$/i) ? 'video' : 'image');
+        if (mediaType !== 'video') return; // only moderate videos here
+        items.push({
+          _id: `provider:${provider._id}:portfolio:${index}`,
+          user: { _id: provider._id, fullName: provider.fullName, profilePhoto: provider.profilePhoto, profession: provider.profession },
+          type: 'video',
+          videoUrl: url,
+          thumbnailUrl: (typeof media === 'object' && media.thumbnailUrl) || undefined,
+          caption: (typeof media === 'object' && media.caption) || provider.profession || '',
+          likes: (typeof media === 'object' && media.likes) || [],
+          views: (typeof media === 'object' && media.views) || 0,
+          isActive: !(typeof media === 'object' && media.hidden),
+          createdAt: (typeof media === 'object' && media.createdAt) || provider._id.getTimestamp(),
+          isProviderReel: true,
+          source: 'portfolioMedia',
+          sourceIndex: index,
+        });
+      });
+    });
+
+    // Filter by status
+    if (status === 'active') items = items.filter(i => i.isActive);
+    else if (status === 'hidden') items = items.filter(i => !i.isActive);
+
+    // Search
     if (search) {
       const s = search.toLowerCase();
-      reels = reels.filter(r =>
-        (r.caption || '').toLowerCase().includes(s) ||
-        (r.user?.fullName || '').toLowerCase().includes(s) ||
-        (r.tags || []).some(t => t.toLowerCase().includes(s))
+      items = items.filter(i =>
+        (i.caption || '').toLowerCase().includes(s) ||
+        (i.user?.fullName || '').toLowerCase().includes(s) ||
+        (i.tags || []).some(t => t.toLowerCase().includes(s))
       );
     }
 
-    const total = await Reel.countDocuments(query);
+    // Sort
+    const sorters = {
+      newest: (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+      oldest: (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
+      mostViewed: (a, b) => (b.views || 0) - (a.views || 0),
+      mostLiked: (a, b) => (b.likes?.length || 0) - (a.likes?.length || 0),
+    };
+    items.sort(sorters[sortBy] || sorters.newest);
 
-    // Stats
-    const totalReels = await Reel.countDocuments();
-    const activeReels = await Reel.countDocuments({ isActive: true });
-    const totalViews = await Reel.aggregate([{ $group: { _id: null, total: { $sum: '$views' } } }]);
+    // Stats (over the full merged set, before pagination)
+    const total = items.length;
+    const activeCount = items.filter(i => i.isActive).length;
+    const totalViews = items.reduce((sum, i) => sum + (i.views || 0), 0);
+
+    // Paginate
+    const start = (parseInt(page) - 1) * parseInt(limit);
+    const paged = items.slice(start, start + parseInt(limit));
 
     res.json({
       success: true,
-      data: reels,
+      data: paged,
       stats: {
-        total: totalReels,
-        active: activeReels,
-        hidden: totalReels - activeReels,
-        totalViews: totalViews[0]?.total || 0,
+        total,
+        active: activeCount,
+        hidden: total - activeCount,
+        totalViews,
       },
       pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
     });
   } catch (error) { next(error); }
 });
 
-// PUT toggle reel active status
+// Helper: parse a provider reel synthetic id → { userId, field, index }
+const parseProviderReelId = (id) => {
+  if (typeof id !== 'string' || !id.startsWith('provider:')) return null;
+  const [, userId, source, indexStr] = id.split(':');
+  const field = source === 'profession' ? 'professionVideo' : source === 'portfolio' ? 'portfolioMedia' : null;
+  if (!field) return null;
+  return { userId, field, index: parseInt(indexStr) };
+};
+
+// PUT toggle reel active status (hide/show)
 router.put('/reels/:id/toggle', async (req, res, next) => {
   try {
+    const { id } = req.params;
+    const providerRef = parseProviderReelId(id);
+
+    if (providerRef) {
+      // Provider profession/portfolio video → toggle a `hidden` flag on the media sub-doc
+      const User = require('../models/User.model');
+      const user = await User.findById(providerRef.userId);
+      if (!user) return res.status(404).json({ success: false, message: 'Provider not found' });
+      const arr = user[providerRef.field];
+      if (!Array.isArray(arr) || !arr[providerRef.index]) {
+        return res.status(404).json({ success: false, message: 'Reel not found' });
+      }
+      const item = arr[providerRef.index];
+      // Handle both string and object entries
+      if (typeof item === 'string') {
+        arr[providerRef.index] = { url: item, hidden: true };
+      } else {
+        item.hidden = !item.hidden;
+      }
+      user.markModified(providerRef.field);
+      await user.save();
+      const nowHidden = typeof arr[providerRef.index] === 'object' ? arr[providerRef.index].hidden : false;
+      return res.json({ success: true, message: nowHidden ? 'Reel hidden' : 'Reel activated' });
+    }
+
     const { Reel } = require('../models');
-    const reel = await Reel.findById(req.params.id);
+    const reel = await Reel.findById(id);
     if (!reel) return res.status(404).json({ success: false, message: 'Reel not found' });
     reel.isActive = !reel.isActive;
     await reel.save();
@@ -806,11 +901,29 @@ router.put('/reels/:id/toggle', async (req, res, next) => {
 // DELETE reel permanently
 router.delete('/reels/:id', async (req, res, next) => {
   try {
+    const { id } = req.params;
+    const providerRef = parseProviderReelId(id);
+
+    if (providerRef) {
+      // Remove the video from the provider's profile media array
+      const User = require('../models/User.model');
+      const user = await User.findById(providerRef.userId);
+      if (!user) return res.status(404).json({ success: false, message: 'Provider not found' });
+      const arr = user[providerRef.field];
+      if (!Array.isArray(arr) || !arr[providerRef.index]) {
+        return res.status(404).json({ success: false, message: 'Reel not found' });
+      }
+      arr.splice(providerRef.index, 1);
+      user.markModified(providerRef.field);
+      await user.save();
+      return res.json({ success: true, message: 'Reel deleted from provider profile' });
+    }
+
     const { Reel, ReelComment } = require('../models');
-    const reel = await Reel.findById(req.params.id);
+    const reel = await Reel.findById(id);
     if (!reel) return res.status(404).json({ success: false, message: 'Reel not found' });
-    await ReelComment.deleteMany({ reel: req.params.id });
-    await Reel.findByIdAndDelete(req.params.id);
+    await ReelComment.deleteMany({ reel: id });
+    await Reel.findByIdAndDelete(id);
     res.json({ success: true, message: 'Reel and its comments deleted' });
   } catch (error) { next(error); }
 });

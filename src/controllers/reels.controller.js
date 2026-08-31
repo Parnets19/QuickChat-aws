@@ -86,6 +86,8 @@ const getReels = async (req, res, next) => {
       // First, add items from professionVideo if any
       if (provider.professionVideo && Array.isArray(provider.professionVideo)) {
         provider.professionVideo.forEach((video, index) => {
+          // Skip items an admin has hidden
+          if (typeof video === 'object' && video.hidden) return;
           const videoUrl = typeof video === 'string' ? video : video.url;
           console.log('🔍 [Reels Debug] Creating profession reel for', provider.fullName, 'videoUrl:', videoUrl);
           providerPortfolioItems.push({
@@ -111,7 +113,11 @@ const getReels = async (req, res, next) => {
       // Then add items from portfolioMedia if any
       if (provider.portfolioMedia && Array.isArray(provider.portfolioMedia)) {
         provider.portfolioMedia.forEach((media, index) => {
+          // Skip items an admin has hidden
+          if (typeof media === 'object' && media.hidden) return;
           const mediaType = media.type || (media.url?.match(/\.(mp4|webm|mov)$/i) ? 'video' : 'image');
+          // Reels feed shows videos only — skip images
+          if (mediaType !== 'video') return;
           const url = typeof media === 'string' ? media : media.url;
           console.log('🔍 [Reels Debug] Creating portfolio reel for', provider.fullName, 'type:', mediaType, 'url:', url);
           providerPortfolioItems.push({
@@ -134,35 +140,15 @@ const getReels = async (req, res, next) => {
         });
       }
 
-      // If NO media at all, use profile photo as fallback
-      const hasNoMedia = 
-        (!provider.professionVideo || provider.professionVideo.length === 0) && 
-        (!provider.portfolioMedia || provider.portfolioMedia.length === 0);
-      
-      if (hasNoMedia && !userIdsWithReels.has(provider._id.toString())) {
-        providerPortfolioItems.push({
-          _id: `provider:${provider._id}:profile`,
-          user: provider,
-          type: 'image',
-          imageUrl: provider.profilePhoto,
-          caption: provider.bio || provider.profession || '',
-          likes: [],
-          comments: [],
-          views: 0,
-          shares: 0,
-          isActive: true,
-          createdAt: new Date(),
-          isProviderReel: true,
-          source: 'profile',
-          sourceIndex: 0
-        });
-      }
+      // Reels feed is video-only, so no profile-photo image fallback.
     });
 
     console.log('🔍 [Reels Debug] Created providerPortfolioItems:', providerPortfolioItems.length, providerPortfolioItems);
 
-    // Combine reels and provider portfolio items
-    let combinedItems = [...reels, ...providerPortfolioItems];
+    // Combine reels and provider portfolio items — videos only
+    let combinedItems = [...reels, ...providerPortfolioItems].filter(
+      item => item.type === 'video' && (item.videoUrl)
+    );
 
     // If user is logged in, prioritize items from followed users
     if (userId) {
