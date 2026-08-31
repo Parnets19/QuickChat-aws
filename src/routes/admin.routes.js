@@ -898,15 +898,17 @@ router.put('/reels/:id/toggle', async (req, res, next) => {
         return res.status(404).json({ success: false, message: 'Reel not found' });
       }
       const item = arr[providerRef.index];
+      let nowHidden;
       // Handle both string and object entries
       if (typeof item === 'string') {
-        arr[providerRef.index] = { url: item, hidden: true };
+        arr.set(providerRef.index, { url: item, hidden: true });
+        nowHidden = true;
       } else {
-        item.hidden = !item.hidden;
+        nowHidden = !item.hidden;
+        item.hidden = nowHidden;
       }
       user.markModified(providerRef.field);
       await user.save();
-      const nowHidden = typeof arr[providerRef.index] === 'object' ? !!arr[providerRef.index].hidden : false;
 
       notifyReelOwner(user._id, nowHidden, req);
 

@@ -67,6 +67,7 @@ const UserSchema = new mongoose.Schema(
           enum: ["image", "video"],
         },
         url: String,
+        hidden: { type: Boolean, default: false }, // admin-hidden from reels feed
         likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
         comments: [
           {
@@ -83,6 +84,7 @@ const UserSchema = new mongoose.Schema(
     professionVideo: [
       {
         url: String,
+        hidden: { type: Boolean, default: false }, // admin-hidden from reels feed
         likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
         comments: [
           {
