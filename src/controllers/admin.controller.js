@@ -358,7 +358,14 @@ const getAdminStats = async (req, res) => {
       pendingKyc,
       totalReports,
       pendingReports,
-      todayReports
+      todayReports,
+      totalCategories,
+      totalPhonepe,
+      totalReviews,
+      openSupportChats,
+      totalProfileEdits,
+      totalReels,
+      activeLiveStreams
     ] = await Promise.all([
       User.countDocuments({ isServiceProvider: false }),
       User.countDocuments({ isServiceProvider: true }),
@@ -402,7 +409,14 @@ const getAdminStats = async (req, res) => {
         createdAt: {
           $gte: new Date(new Date().setHours(0, 0, 0, 0))
         }
-      })
+      }),
+      require('../models/Category.model').countDocuments(),
+      require('../models/phonepe.model').countDocuments(),
+      require('../models/Review.model').countDocuments(),
+      require('../models/SupportChat.model').countDocuments({ status: { $in: ['open', 'in_progress'] } }),
+      require('../models/ProfileEditLog.model').countDocuments(),
+      require('../models/Reel.model').countDocuments(),
+      require('../models/LiveStream.model').countDocuments({ isActive: true })
     ]);
 
     // Get recent activity (last 7 days)
@@ -581,8 +595,21 @@ const getAdminStats = async (req, res) => {
           totalRevenue: totalRevenue[0]?.total || 0,
           todayRevenue: todayRevenue[0]?.total || 0,
           totalTransactions,
+          totalPhonepe,
           pendingWithdrawals,
           totalWithdrawals
+        },
+        content: {
+          totalCategories
+        },
+        platform: {
+          totalReviews,
+          openSupportChats
+        },
+        monitoring: {
+          totalProfileEdits,
+          totalReels,
+          activeLiveStreams
         },
         reports: {
           total: totalReports,
