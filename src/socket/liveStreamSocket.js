@@ -42,9 +42,15 @@ module.exports = (io) => {
         .populate('streamer', 'fullName profilePhoto')
         .populate('viewers.user', 'fullName profilePhoto');
       
-      // Calculate active viewers (those who haven't left, and exclude streamer)
+      // Calculate active viewers (those who haven't left, and exclude streamer).
+      // NOTE: admin viewers are Admin-model docs, so populate('viewers.user') on a
+      // ref:"User" field leaves viewer.user === null for them. Guard against null
+      // to avoid "Cannot read properties of null (reading 'toString')".
+      const streamerId = liveStream.streamer?._id
+        ? liveStream.streamer._id.toString()
+        : liveStream.streamer?.toString();
       const activeViewersCount = liveStream.viewers.filter(viewer => 
-        !viewer.leftAt && viewer.user.toString() !== liveStream.streamer.toString()
+        !viewer.leftAt && viewer.user && viewer.user.toString() !== streamerId
       ).length;
       
       // Notify everyone in the room that a user joined (including the sender)
@@ -93,9 +99,13 @@ module.exports = (io) => {
         .populate('streamer', 'fullName profilePhoto')
         .populate('viewers.user', 'fullName profilePhoto');
       
-      // Calculate active viewers (those who haven't left, and exclude streamer)
+      // Calculate active viewers (those who haven't left, and exclude streamer).
+      // Guard against null viewer.user (admin viewers don't populate against User).
+      const streamerId = liveStream.streamer?._id
+        ? liveStream.streamer._id.toString()
+        : liveStream.streamer?.toString();
       const activeViewersCount = liveStream.viewers.filter(viewer => 
-        !viewer.leftAt && viewer.user.toString() !== liveStream.streamer.toString()
+        !viewer.leftAt && viewer.user && viewer.user.toString() !== streamerId
       ).length;
       
       // Notify everyone in the room (including the sender)
