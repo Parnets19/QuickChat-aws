@@ -465,6 +465,20 @@ const createConsultation = async (req, res, next) => {
               );
             }
 
+            // 📵 MISSED CALL PUSH for the provider who didn't answer. The socket
+            // emits above only reach a live, foregrounded client — and a call
+            // going unanswered usually means the app is backgrounded or killed,
+            // so those events land nowhere. Deduped inside the helper, so it is
+            // harmless that the socket-layer timer may also call it.
+            const { sendMissedCallNotification } = require("../utils/missedCall");
+            await sendMissedCallNotification({
+              consultationId: consultation._id,
+              recipientId: providerId,
+              callerId: currentConsultation.user,
+              callType: type,
+              io,
+            });
+
             console.log(
               `✅ Call ${consultation._id} auto-cancelled due to timeout`
             );

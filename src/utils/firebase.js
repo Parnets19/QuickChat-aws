@@ -88,6 +88,7 @@ const sendPushNotification = async (notification) => {
     // This is exactly how WhatsApp/Truecaller deliver killed-state calls.
     const isIncomingCall = notification.data?.action === 'incoming_call';
     const isChatMessage  = notification.data?.action === 'new_message';
+    const isMissedCall   = notification.data?.action === 'missed_call';
     const isDataOnly     = isChatMessage || isIncomingCall;
 
     const message = {
@@ -183,6 +184,39 @@ const sendPushNotification = async (notification) => {
         },
       };
       console.log('💬 Chat message configured (notification + data, cancelable in foreground)');
+    } else if (isMissedCall) {
+      // ── MISSED CALL ────────────────────────────────────────────────────────
+      // Deliberately a NORMAL notification (not data-only): nobody answered, so
+      // the app is almost certainly backgrounded or killed and we want Android
+      // itself to render the tray entry without needing our process alive.
+      //
+      // Own channel so the user can control missed-call alerts separately from
+      // ringing calls (which bypass DND and play a ringtone) and from general
+      // notifications. If a device is running an older build without the
+      // 'missed_calls' channel, FCM falls back to the manifest's default channel
+      // id, so nothing is dropped.
+      message.android = {
+        priority: 'high',
+        notification: {
+          channelId: 'missed_calls',
+          sound: 'default',
+          priority: 'high',
+          body: notification.body,
+          // One entry per consultation — a retry can never stack duplicates.
+          tag: `missed_call_${notification.data?.consultationId || ''}`,
+        },
+      };
+      message.apns = {
+        headers: { 'apns-priority': '10' },
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            alert: { title: notification.title, body: notification.body },
+          },
+        },
+      };
+      console.log('📵 Missed call configured (notification + data on missed_calls channel)');
     } else {
       // For other notifications (wallet, admin, live-stream, broadcast etc.)
       message.android.notification = {
@@ -276,6 +310,7 @@ const sendMulticastNotification = async (notification) => {
 
     const isIncomingCall = notification.data?.action === 'incoming_call';
     const isChatMessage  = notification.data?.action === 'new_message';
+    const isMissedCall   = notification.data?.action === 'missed_call';
     // Both chat and incoming calls are DATA-ONLY so QuickChatFirebaseService
     // .onMessageReceived() reliably fires on killed apps across all OEMs.
     const isDataOnly     = isChatMessage || isIncomingCall;
@@ -355,6 +390,31 @@ const sendMulticastNotification = async (notification) => {
         },
       };
       console.log('💬 Multicast chat message configured (notification + data, cancelable in foreground)');
+    } else if (isMissedCall) {
+      // Missed call — normal notification on its own channel, so Android renders
+      // it even with the app killed (which is the whole point). See the
+      // single-token path above for the full rationale.
+      message.android = {
+        priority: 'high',
+        notification: {
+          channelId: 'missed_calls',
+          sound: 'default',
+          priority: 'high',
+          body: notification.body,
+          tag: `missed_call_${notification.data?.consultationId || ''}`,
+        },
+      };
+      message.apns = {
+        headers: { 'apns-priority': '10' },
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            alert: { title: notification.title, body: notification.body },
+          },
+        },
+      };
+      console.log('📵 Multicast missed call configured (missed_calls channel)');
     } else {
       // General notifications (wallet, admin, live-stream, broadcast)
       message.android = {

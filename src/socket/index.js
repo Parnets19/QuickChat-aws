@@ -1821,6 +1821,20 @@ const initializeSocket = (io) => {
               `⏰ Call timeout sent for consultation ${consultationId} to caller and receiver (user:${to})`
             );
 
+            // 📵 MISSED CALL PUSH — the socket events above only reach a live,
+            // foregrounded client. Nobody answered, so the receiver is very
+            // likely backgrounded or killed and saw none of them. Send a real
+            // push so they know they missed a call (deduped internally).
+            const { sendMissedCallNotification } = require("../utils/missedCall");
+            await sendMissedCallNotification({
+              consultationId,
+              recipientId: to,
+              callerId: userId,
+              callerName: fromName,
+              callType,
+              io,
+            });
+
             // Remove timeout from map
             callTimeouts.delete(consultationId);
           }, 60000);
@@ -1917,6 +1931,18 @@ const initializeSocket = (io) => {
             console.log(
               `⏰ Call timeout sent for consultation ${consultationId} to caller and receiver (user:${to})`
             );
+
+            // 📵 MISSED CALL PUSH — this is the provider-was-offline branch, so a
+            // push is the ONLY way to tell them. Deduped inside the helper.
+            const { sendMissedCallNotification } = require("../utils/missedCall");
+            await sendMissedCallNotification({
+              consultationId,
+              recipientId: to,
+              callerId: userId,
+              callerName: fromName,
+              callType,
+              io,
+            });
 
             callTimeouts.delete(consultationId);
           }, 60000);

@@ -111,6 +111,15 @@ const ConsultationSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Set once, atomically, when the "missed call" push has been sent to the
+    // recipient. Several independent 60 s no-answer timers can fire for the same
+    // consultation (socket call-request, consultation create, billing accept),
+    // so this is the claim flag that keeps the user from getting 2-3 identical
+    // missed-call notifications. See utils/missedCall.js.
+    missedCallNotifiedAt: {
+      type: Date,
+      default: null,
+    },
     endReason: {
       type: String,
       enum: [

@@ -619,6 +619,20 @@ const startConsultation = async (req, res) => {
               `📢 Auto-cancellation notifications sent to both parties`
             );
           }
+
+          // 📵 MISSED CALL PUSH for the provider. The "consultation:cancelled"
+          // emit above only dismisses a ringing screen on a live client; if the
+          // provider's app was backgrounded or killed (the usual reason a call
+          // goes unanswered) they were never told anything. Deduped internally,
+          // so the other 60 s timers calling this too is harmless.
+          const { sendMissedCallNotification } = require("../utils/missedCall");
+          await sendMissedCallNotification({
+            consultationId: consultation._id,
+            recipientId: providerId,
+            callerId: userId,
+            callType: consultationType,
+            io,
+          });
         } else {
           console.log(
             `⚠️ Auto-cancellation skipped - consultation status: ${currentConsultation?.status}, providerAccepted: ${currentConsultation?.providerAccepted}`

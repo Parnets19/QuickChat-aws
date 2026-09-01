@@ -83,14 +83,39 @@ const notificationTemplates = {
     return result;
   },
 
-  callMissed: async (userId, userType, consultationId, callerName, io) => {
+  /**
+   * Missed call — sent to the person who did NOT answer, after the 60 s
+   * no-answer timeout. Always routed through utils/missedCall.js so it is sent
+   * exactly once per consultation.
+   *
+   * Unlike incomingCall this is a NORMAL notification (not data-only), so the OS
+   * renders it in the tray by itself when the app is backgrounded or killed —
+   * which is the whole point: the socket "call-timeout" event that used to be
+   * the only signal reaches nobody in that state.
+   *
+   * Every data value must be a string: FCM rejects non-string data fields.
+   */
+  callMissed: async (userId, userType, consultationId, callerName, io, options = {}) => {
+    const callType = options.callType || 'audio';
+    const label = callType === 'video' ? 'video call' : 'call';
+
     return await createNotification({
       userId,
       userType,
       title: 'Missed Call',
-      message: `You missed a call from ${callerName}`,
+      message: `You missed a ${label} from ${callerName}`,
       type: 'consultation',
-      data: { consultationId, callerName, action: 'missed_call' },
+      data: {
+        type: 'consultation',
+        action: 'missed_call',
+        consultationId: String(consultationId),
+        callerName: String(callerName || ''),
+        fromName: String(callerName || ''),
+        from: options.from ? String(options.from) : '',
+        callerId: options.from ? String(options.from) : '',
+        callType: String(callType),
+        missedAt: new Date().toISOString(),
+      },
       io
     });
   },
