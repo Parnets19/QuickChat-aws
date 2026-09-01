@@ -2,6 +2,27 @@
 const { LiveStream, User } = require('../models');
 
 module.exports = (io) => {
+  // Count the LIVE viewers actually connected to the stream's socket room,
+  // excluding the streamer. Using live room membership (instead of the DB
+  // viewers array) means the count self-corrects when someone closes the tab
+  // or disconnects — socket.io removes them from the room automatically, so
+  // stale "leftAt: null" records can no longer inflate the number. Distinct
+  // userIds are counted so a viewer with multiple tabs still counts once.
+  const getLiveViewerCount = (liveStreamId, streamerId) => {
+    const room = io.sockets.adapter.rooms.get(`live-stream:${liveStreamId}`);
+    if (!room) return 0;
+    const uniqueUserIds = new Set();
+    for (const socketId of room) {
+      const s = io.sockets.sockets.get(socketId);
+      const uid = s?.data?.userId;
+      if (!uid) continue;
+      if (streamerId && uid.toString() === streamerId.toString()) continue; // exclude streamer
+      if (s?.data?.user?.isAdminAccount === true) continue; // exclude admin monitors
+      uniqueUserIds.add(uid.toString());
+    }
+    return uniqueUserIds.size;
+  };
+
   // Live stream socket handlers
   const joinLiveStreamRoom = async (socket, data) => {
     try {
@@ -42,16 +63,13 @@ module.exports = (io) => {
         .populate('streamer', 'fullName profilePhoto')
         .populate('viewers.user', 'fullName profilePhoto');
       
-      // Calculate active viewers (those who haven't left, and exclude streamer).
-      // NOTE: admin viewers are Admin-model docs, so populate('viewers.user') on a
-      // ref:"User" field leaves viewer.user === null for them. Guard against null
-      // to avoid "Cannot read properties of null (reading 'toString')".
+      // Count live viewers from actual socket-room membership (excludes streamer,
+      // self-corrects on disconnect). This replaces the old DB-array count that
+      // over-counted stale viewers who left without calling /leave.
       const streamerId = liveStream.streamer?._id
         ? liveStream.streamer._id.toString()
         : liveStream.streamer?.toString();
-      const activeViewersCount = liveStream.viewers.filter(viewer => 
-        !viewer.leftAt && viewer.user && viewer.user.toString() !== streamerId
-      ).length;
+      const activeViewersCount = getLiveViewerCount(liveStreamId, streamerId);
       
       // Notify everyone in the room that a user joined (including the sender)
       io.to(`live-stream:${liveStreamId}`).emit('live-stream:viewer-joined', {
@@ -99,14 +117,12 @@ module.exports = (io) => {
         .populate('streamer', 'fullName profilePhoto')
         .populate('viewers.user', 'fullName profilePhoto');
       
-      // Calculate active viewers (those who haven't left, and exclude streamer).
-      // Guard against null viewer.user (admin viewers don't populate against User).
+      // Count live viewers from actual socket-room membership. socket.leave()
+      // above already removed this socket, so the count reflects the departure.
       const streamerId = liveStream.streamer?._id
         ? liveStream.streamer._id.toString()
         : liveStream.streamer?.toString();
-      const activeViewersCount = liveStream.viewers.filter(viewer => 
-        !viewer.leftAt && viewer.user && viewer.user.toString() !== streamerId
-      ).length;
+      const activeViewersCount = getLiveViewerCount(liveStreamId, streamerId);
       
       // Notify everyone in the room (including the sender)
       io.to(`live-stream:${liveStreamId}`).emit('live-stream:viewer-left', {
@@ -248,6 +264,68 @@ module.exports = (io) => {
     }
   };
 
+  // Called on socket "disconnecting" (fires while socket.rooms still lists the
+  // rooms). When a viewer closes their tab without emitting live-stream:leave,
+  // this updates the DB and broadcasts a fresh viewer count so the streamer's
+  // number goes down instead of staying stale.
+  const handleDisconnecting = async (socket) => {
+    try {
+      const userId = socket.data.userId;
+      if (!userId) return;
+
+      // Find any live-stream rooms this socket is currently in
+      const liveRooms = [];
+      for (const room of socket.rooms) {
+        if (typeof room === 'string' && room.startsWith('live-stream:')) {
+          liveRooms.push(room.slice('live-stream:'.length));
+        }
+      }
+      if (liveRooms.length === 0) return;
+
+      for (const liveStreamId of liveRooms) {
+        try {
+          const liveStream = await LiveStream.findById(liveStreamId);
+          if (!liveStream) continue;
+
+          // Mark this viewer as left (best-effort; final billing handled elsewhere)
+          const viewerIndex = liveStream.viewers.findIndex(
+            (v) => v.user && v.user.toString() === userId.toString()
+          );
+          if (viewerIndex !== -1 && !liveStream.viewers[viewerIndex].leftAt) {
+            liveStream.viewers[viewerIndex].leftAt = new Date();
+            await liveStream.save();
+          }
+
+          const streamerId = liveStream.streamer?.toString();
+          // This socket hasn't been removed from the room yet (disconnecting),
+          // so exclude it explicitly when counting.
+          const room = io.sockets.adapter.rooms.get(`live-stream:${liveStreamId}`);
+          const uniqueUserIds = new Set();
+          if (room) {
+            for (const socketId of room) {
+              if (socketId === socket.id) continue; // exclude the leaving socket
+              const s = io.sockets.sockets.get(socketId);
+              const uid = s?.data?.userId;
+              if (!uid) continue;
+              if (streamerId && uid.toString() === streamerId.toString()) continue;
+              if (s?.data?.user?.isAdminAccount === true) continue;
+              uniqueUserIds.add(uid.toString());
+            }
+          }
+
+          io.to(`live-stream:${liveStreamId}`).emit('live-stream:viewer-left', {
+            userId,
+            viewerCount: uniqueUserIds.size,
+          });
+        } catch (innerErr) {
+          console.error('Error handling live-stream disconnect for', liveStreamId, innerErr.message);
+        }
+      }
+    } catch (error) {
+      console.error('Error in handleDisconnecting (live stream):', error);
+    }
+  };
+
   return {
     joinLiveStreamRoom,
     leaveLiveStreamRoom,
@@ -257,5 +335,6 @@ module.exports = (io) => {
     handleWebRTCIceCandidate,
     handleReadyToReceive,
     handleLike,
+    handleDisconnecting,
   };
 };

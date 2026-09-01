@@ -2585,6 +2585,12 @@ const initializeSocket = (io) => {
     socket.on('webrtc:ready-to-receive', (data) => {
       if (data && data.liveStreamId) return liveStreamHandlers.handleReadyToReceive(socket, data);
     });
+    // Update live-stream viewer counts when a viewer disconnects (closes tab)
+    // without emitting live-stream:leave. Uses "disconnecting" so socket.rooms
+    // still lists the live-stream rooms.
+    socket.on('disconnecting', () => {
+      liveStreamHandlers.handleDisconnecting(socket);
+    });
     // ===== END LIVE STREAM SOCKET HANDLERS =====
 
     // Handle disconnect
