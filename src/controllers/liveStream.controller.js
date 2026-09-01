@@ -310,7 +310,9 @@ const joinLiveStream = async (req, res, next) => {
     }
     
     // Admins can join any live stream for free (monitoring). They are never billed.
-    const isAdmin = req.user.role === "admin";
+    // Admins authenticate via the Admin model, so detect them by isAdminAccount
+    // (set by the protect middleware), NOT by a "role" field which they don't have.
+    const isAdmin = req.user.isAdminAccount === true || req.user.isAdmin === true;
     
     // Check wallet balance if ratePerMinute > 0 (skip entirely for admins)
     if (!isAdmin && liveStream.ratePerMinute > 0) {
@@ -419,7 +421,7 @@ const markViewerConnected = async (req, res, next) => {
     liveStream.viewers[viewerIndex].webrtcConnectedAt = now;
     
     // Admins watch for free: never start billing for them.
-    if (req.user.role === "admin") {
+    if (req.user.isAdminAccount === true || req.user.isAdmin === true) {
       liveStream.viewers[viewerIndex].billingStarted = false;
       liveStream.viewers[viewerIndex].isPaid = true;
     } else {
@@ -467,7 +469,7 @@ const processLiveStreamBilling = async (req, res, next) => {
     const viewer = liveStream.viewers[viewerIndex];
     
     // Admins watch for free — never charge them.
-    if (req.user.role === "admin") {
+    if (req.user.isAdminAccount === true || req.user.isAdmin === true) {
       return res.status(200).json({
         success: true,
         message: "Admin viewer, no billing",

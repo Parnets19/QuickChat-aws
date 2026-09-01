@@ -36,6 +36,34 @@ const initializeSocket = (io) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       console.log("Socket token decoded successfully for user:", decoded.id);
 
+      // Handle admin users (Admin model). Admin JWTs carry isAdmin:true and no mobile.
+      // Without this branch the code below runs User.findById(admin.id) which returns
+      // null, so admin sockets were being rejected with "User not found" — that's why
+      // admins couldn't join live streams over socket.
+      if (decoded.isAdmin && !decoded.mobile) {
+        const Admin = require("../models/Admin.model");
+        const admin = await Admin.findById(decoded.id);
+        if (!admin) {
+          console.log(
+            "Socket authentication failed: Admin not found for ID:",
+            decoded.id
+          );
+          return next(new Error("Admin not found"));
+        }
+
+        console.log("Socket authentication successful for admin:", admin.email);
+        socket.data.userId = admin._id.toString();
+        socket.data.user = {
+          _id: admin._id.toString(),
+          fullName: admin.fullName || admin.email || "Admin",
+          email: admin.email,
+          isAdmin: true,
+          isAdminAccount: true,
+          isServiceProvider: false,
+        };
+        return next();
+      }
+
       // Handle guest users
       if (decoded.isGuest) {
         // Fetch guest details from database
