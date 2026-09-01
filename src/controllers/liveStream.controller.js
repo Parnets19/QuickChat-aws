@@ -309,8 +309,11 @@ const joinLiveStream = async (req, res, next) => {
       });
     }
     
-    // Check wallet balance if ratePerMinute > 0
-    if (liveStream.ratePerMinute > 0) {
+    // Admins can join any live stream for free (monitoring). They are never billed.
+    const isAdmin = req.user.role === "admin";
+    
+    // Check wallet balance if ratePerMinute > 0 (skip entirely for admins)
+    if (!isAdmin && liveStream.ratePerMinute > 0) {
       const viewerUser = await User.findById(userId);
       if (!viewerUser || viewerUser.wallet < liveStream.ratePerMinute) {
         return res.status(400).json({
@@ -327,6 +330,10 @@ const joinLiveStream = async (req, res, next) => {
     if (existingViewerIndex !== -1) {
       // User already joined, check if they left before
       liveStream.viewers[existingViewerIndex].leftAt = null;
+      // Ensure an admin viewer stays flagged non-billable
+      if (isAdmin) {
+        liveStream.viewers[existingViewerIndex].isPaid = true;
+      }
       await liveStream.save();
       
       // Calculate active viewers count (exclude streamer)
@@ -350,10 +357,11 @@ const joinLiveStream = async (req, res, next) => {
       });
     }
     
-    // Add new viewer
+    // Add new viewer. Admins are flagged isPaid so final/periodic billing skips them.
     liveStream.viewers.push({
       user: userId,
       joinedAt: new Date(),
+      isPaid: isAdmin ? true : false,
     });
     await liveStream.save();
     
@@ -409,8 +417,15 @@ const markViewerConnected = async (req, res, next) => {
     
     const now = new Date();
     liveStream.viewers[viewerIndex].webrtcConnectedAt = now;
-    liveStream.viewers[viewerIndex].billingStarted = true;
-    liveStream.viewers[viewerIndex].lastBillingTime = now;
+    
+    // Admins watch for free: never start billing for them.
+    if (req.user.role === "admin") {
+      liveStream.viewers[viewerIndex].billingStarted = false;
+      liveStream.viewers[viewerIndex].isPaid = true;
+    } else {
+      liveStream.viewers[viewerIndex].billingStarted = true;
+      liveStream.viewers[viewerIndex].lastBillingTime = now;
+    }
     
     await liveStream.save();
     
@@ -450,6 +465,14 @@ const processLiveStreamBilling = async (req, res, next) => {
     }
     
     const viewer = liveStream.viewers[viewerIndex];
+    
+    // Admins watch for free — never charge them.
+    if (req.user.role === "admin") {
+      return res.status(200).json({
+        success: true,
+        message: "Admin viewer, no billing",
+      });
+    }
     
     // If rate is 0, no billing needed
     if (liveStream.ratePerMinute === 0) {
