@@ -5,6 +5,7 @@ const {
   getGuestWallets,
   getAllTransactions,
   getAllWithdrawals,
+  exportWithdrawals,
   approveWithdrawal,
   rejectWithdrawal,
   processWithdrawal
@@ -27,6 +28,10 @@ router.get('/transactions', getAllTransactions);
 
 // Withdrawal management
 router.get('/withdrawals', getAllWithdrawals);
+// Excel-openable CSV export with full bank details, for bulk bank transfers.
+// Declared before '/withdrawals/:id/...' routes; it is a GET so there is no
+// clash, but keeping it adjacent to the list route keeps the intent obvious.
+router.get('/withdrawals/export', exportWithdrawals);
 router.put('/withdrawals/:id/approve', approveWithdrawal);
 router.put('/withdrawals/:id/reject', rejectWithdrawal);
 router.put('/withdrawals/:id/process', processWithdrawal);

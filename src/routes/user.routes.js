@@ -4,6 +4,7 @@ const {
   updateProfile,
   uploadProfilePhoto,
   uploadAadhar,
+  uploadProfessionalCertificate,
   uploadPortfolio,
   becomeProvider,
   updateProviderSettings,
@@ -48,6 +49,13 @@ router.post(
   ]),
   uploadAadhar
 );
+// Optional professional certificate (doctors, lawyers, ...) — public during
+// registration. Uses `upload` so PDFs/DOC/DOCX pass the filter, not just images.
+router.post(
+  '/upload-professional-certificate',
+  upload.single('certificate'),
+  uploadProfessionalCertificate
+);
 // Public portfolio upload (used during registration — no auth token yet)
 router.post('/upload-portfolio-public', uploadMedia.single('photo'), uploadPortfolio);
 
@@ -83,6 +91,13 @@ router.post(
     { name: 'back', maxCount: 1 }, // Optional
   ]),
   uploadAadhar
+);
+// One-time certificate upload for providers who registered before the field
+// existed. Rejected by the controller if one is already on file.
+router.post(
+  '/professional-certificate',
+  upload.single('certificate'),
+  uploadProfessionalCertificate
 );
 router.get('/dashboard', getDashboard);
 

@@ -1945,6 +1945,15 @@ const endConsultation = async (req, res) => {
         timestamp: new Date(),
       };
 
+      // The provider additionally gets their post-credit wallet balance so the
+      // client can show the "Congratulations" celebration with a fresh balance
+      // without a second round-trip. Deliberately kept OUT of the shared payload
+      // so the consulting user never receives the provider's balance.
+      const providerEndedData = {
+        ...consultationEndedData,
+        providerWallet: finalProvider?.wallet ?? null,
+      };
+
       // Notify both client and provider
       io.to(`user:${consultation.user}`).emit(
         "consultation:completed",
@@ -1952,7 +1961,7 @@ const endConsultation = async (req, res) => {
       );
       io.to(`user:${consultation.provider}`).emit(
         "consultation:completed",
-        consultationEndedData
+        providerEndedData
       );
 
       // CRITICAL: Also emit consultation:ended for web frontend compatibility
@@ -1962,7 +1971,7 @@ const endConsultation = async (req, res) => {
       );
       io.to(`user:${consultation.provider}`).emit(
         "consultation:ended",
-        consultationEndedData
+        providerEndedData
       );
 
       // Also emit status change event for dashboard sync
@@ -1993,6 +2002,9 @@ const endConsultation = async (req, res) => {
         totalAmount: consultation.totalAmount,
         providerEarnings: finalProviderEarnings,
         isFirstEarning,
+        // Fresh provider wallet balance after this consultation's credit. Only
+        // meaningful to the provider; the client simply ignores it.
+        providerWallet: finalProvider?.wallet ?? null,
         endTime: consultation.endTime,
         message: "Consultation ended successfully",
       },
@@ -2173,6 +2185,17 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
       totalAmount: consultation.totalAmount,
     });
 
+    // The provider still earned on this consultation even though it ended for
+    // lack of client funds, so report the same earnings snapshot the normal
+    // end-of-consultation path reports. Read-only — no billing decisions here.
+    const settledProvider = await User.findById(consultation.provider)
+      .select("hasFirstEarning earnings wallet")
+      .lean();
+    const settledProviderEarnings =
+      consultation.totalAmount > 0
+        ? Math.round(consultation.totalAmount * PROVIDER_SHARE_RATE * 100) / 100
+        : 0;
+
     // 🔔 EMIT SOCKET EVENTS FOR FRONTEND SYNC
     if (io) {
       const consultationEndedData = {
@@ -2180,9 +2203,19 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
         status: "completed",
         duration: consultation.duration,
         totalAmount: consultation.totalAmount,
+        providerEarnings: settledProviderEarnings,
+        isFirstEarning:
+          settledProvider?.hasFirstEarning === true &&
+          consultation.totalAmount > 0,
         endTime: consultation.endTime,
         endReason: "insufficient_funds",
         timestamp: new Date(),
+      };
+
+      // Provider-only copy carrying their post-credit wallet balance.
+      const providerEndedData = {
+        ...consultationEndedData,
+        providerWallet: settledProvider?.wallet ?? null,
       };
 
       // Notify both client and provider
@@ -2192,7 +2225,7 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
       );
       io.to(`user:${consultation.provider}`).emit(
         "consultation:completed",
-        consultationEndedData
+        providerEndedData
       );
 
       // CRITICAL: Also emit consultation:ended for web frontend compatibility
@@ -2202,7 +2235,7 @@ const endConsultationDueToInsufficientFunds = async (consultationId) => {
       );
       io.to(`user:${consultation.provider}`).emit(
         "consultation:ended",
-        consultationEndedData
+        providerEndedData
       );
 
       // Also emit status change event for dashboard sync
@@ -2317,7 +2350,7 @@ const getConsultationStatus = async (req, res) => {
     const userId = req.user.id || req.user._id;
 
     const consultation = await Consultation.findById(consultationId)
-      .populate("provider", "fullName profilePhoto rates hasFirstEarning")
+      .populate("provider", "fullName profilePhoto rates hasFirstEarning wallet")
       .populate("user", "fullName profilePhoto");
 
     if (!consultation) {
@@ -2353,12 +2386,22 @@ const getConsultationStatus = async (req, res) => {
       consultation.provider?.hasFirstEarning === true &&
       providerEarnings > 0;
 
+    const payload = consultation.toObject();
+    // `wallet` is populated only so a provider can be told their fresh balance.
+    // Strip it off the embedded provider object so it can never reach the
+    // consulting user, then re-attach it top-level for the provider alone.
+    const providerWallet = payload.provider?.wallet ?? null;
+    if (payload.provider && typeof payload.provider === "object") {
+      delete payload.provider.wallet;
+    }
+
     res.json({
       success: true,
       data: {
-        ...consultation.toObject(),
+        ...payload,
         providerEarnings,
         isFirstEarning,
+        ...(isProvider ? { providerWallet } : {}),
       },
     });
   } catch (error) {

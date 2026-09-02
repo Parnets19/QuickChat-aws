@@ -817,7 +817,7 @@ const getKycRequestById = async (req, res) => {
     const { id } = req.params;
 
     const kycRequest = await User.findById(id)
-      .select('fullName email mobile dateOfBirth gender place profession education hobbies skills languagesKnown bio aadharNumber aadharDocuments profilePhoto professionVideo portfolioMedia portfolioLinks serviceCategories consultationModes rates availability bankDetails providerVerificationStatus verificationNotes verifiedAt verifiedBy createdAt updatedAt')
+      .select('fullName email mobile dateOfBirth gender place profession education hobbies skills languagesKnown bio aadharNumber aadharDocuments professionalCertificate profilePhoto professionVideo portfolioMedia portfolioLinks serviceCategories consultationModes rates availability bankDetails providerVerificationStatus verificationNotes verifiedAt verifiedBy createdAt updatedAt')
       .populate('verifiedBy', 'fullName email')
       .populate('serviceCategories')
       .lean();

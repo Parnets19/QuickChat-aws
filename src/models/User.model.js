@@ -59,6 +59,16 @@ const UserSchema = new mongoose.Schema(
       front: String,
       back: String,
     },
+    // OPTIONAL professional certificate for licensed providers (doctors, lawyers,
+    // chartered accountants, etc). Write-once: it is captured at registration (or
+    // via a one-time authenticated upload) and is deliberately absent from the
+    // updateProfile / updateProviderSettings whitelists, so it can never be
+    // edited from the app or web once set. Only an admin can clear it.
+    professionalCertificate: {
+      url: String,
+      name: String,
+      uploadedAt: Date,
+    },
     profilePhoto: String,
     portfolioMedia: [
       {

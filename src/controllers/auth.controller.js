@@ -195,6 +195,7 @@ const register = async (req, res, next) => {
       availability,
       profilePhoto,
       aadharDocuments,
+      professionalCertificate,
       portfolioMedia,
       portfolioLinks,
       bankDetails,
@@ -298,6 +299,16 @@ const register = async (req, res, next) => {
     if (bio) userData.bio = bio;
     if (profilePhoto) userData.profilePhoto = profilePhoto;
     if (aadharDocuments) userData.aadharDocuments = aadharDocuments;
+    // Optional professional certificate (doctors, lawyers, ...). Accepted only
+    // here at registration — there is no update path, which is what makes it
+    // uneditable afterwards.
+    if (professionalCertificate?.url) {
+      userData.professionalCertificate = {
+        url: professionalCertificate.url,
+        name: professionalCertificate.name || '',
+        uploadedAt: new Date(),
+      };
+    }
     if (portfolioMedia && portfolioMedia.length > 0)
       userData.portfolioMedia = portfolioMedia;
     if (portfolioLinks && portfolioLinks.length > 0)

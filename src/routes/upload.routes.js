@@ -2,6 +2,7 @@ const express = require('express');
 const {
   uploadProfilePhoto,
   uploadAadhar,
+  uploadProfessionalCertificate,
   uploadPortfolio,
 } = require('../controllers/user.controller');
 const { uploadImage, uploadMedia, upload } = require('../middlewares/upload');
@@ -17,6 +18,13 @@ router.post(
     { name: 'back', maxCount: 1 }, // Optional
   ]),
   uploadAadhar
+);
+// Optional professional certificate (doctors, lawyers, ...). Uses `upload` rather
+// than `uploadImage` so PDFs and DOC/DOCX are accepted alongside images.
+router.post(
+  '/professional-certificate',
+  upload.single('certificate'),
+  uploadProfessionalCertificate
 );
 router.post('/portfolio', uploadMedia.single('photo'), uploadPortfolio);
 

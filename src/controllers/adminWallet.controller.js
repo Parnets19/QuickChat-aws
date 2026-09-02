@@ -442,6 +442,46 @@ const getAllTransactions = async (req, res) => {
   }
 };
 
+// Build the Mongo filter for withdrawal queries.
+// Shared by the paginated list and the export so a downloaded sheet always
+// matches exactly what the admin is looking at on screen.
+const buildWithdrawalFilter = ({
+  status = 'all',
+  userType = 'all',
+  startDate = null,
+  endDate = null,
+} = {}) => {
+  const filter = {};
+
+  if (status && status !== 'all') {
+    filter.status = status;
+  }
+
+  if (userType && userType !== 'all') {
+    filter.userType = userType;
+  }
+
+  // Date range on the request date. Either bound may be supplied on its own.
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate) {
+      const from = new Date(startDate);
+      if (!isNaN(from.getTime())) filter.createdAt.$gte = from;
+    }
+    if (endDate) {
+      const to = new Date(endDate);
+      if (!isNaN(to.getTime())) {
+        // Include the whole end day when a bare date (YYYY-MM-DD) is given.
+        if (String(endDate).length <= 10) to.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = to;
+      }
+    }
+    if (Object.keys(filter.createdAt).length === 0) delete filter.createdAt;
+  }
+
+  return filter;
+};
+
 // Get all withdrawal requests
 const getAllWithdrawals = async (req, res) => {
   try {
@@ -452,19 +492,13 @@ const getAllWithdrawals = async (req, res) => {
       userType = 'all',
       search = '',
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      startDate = null,
+      endDate = null
     } = req.query;
 
     // Build filter query
-    const filter = {};
-    
-    if (status !== 'all') {
-      filter.status = status;
-    }
-
-    if (userType !== 'all') {
-      filter.userType = userType;
-    }
+    const filter = buildWithdrawalFilter({ status, userType, startDate, endDate });
 
     // Build sort object
     const sort = {};
@@ -531,6 +565,154 @@ const getAllWithdrawals = async (req, res) => {
       success: false,
       message: 'Failed to fetch withdrawals',
       error: error.message
+    });
+  }
+};
+
+// ─── Withdrawal export (Excel-openable CSV) ──────────────────────────────────
+// Hard cap so one export can never try to buffer the whole collection.
+const WITHDRAWAL_EXPORT_LIMIT = 20000;
+
+// Escape a value for a CSV cell.
+// Also neutralises CSV/Excel formula injection: a cell starting with = + - @ or a
+// control char is executed by Excel, so a user-supplied name like
+// "=HYPERLINK(...)" would run on the admin's machine. Prefixing with a single
+// quote makes Excel treat it as text.
+const csvCell = (value) => {
+  if (value === null || value === undefined) return '';
+  let str = String(value);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  // Escape embedded quotes and always quote — safe for commas and newlines.
+  return `"${str.replace(/"/g, '""')}"`;
+};
+
+// Account numbers and IFSC codes must survive Excel untouched: a plain long
+// number becomes scientific notation and leading zeros get stripped, which would
+// corrupt a bank transfer. `="..."` forces Excel to treat it as literal text.
+// The value is reduced to bank-safe characters first so it cannot break out of
+// the formula.
+const csvTextCell = (value) => {
+  if (value === null || value === undefined || value === '') return '';
+  const safe = String(value).replace(/[^A-Za-z0-9/\-_]/g, '');
+  if (!safe) return '';
+  return `"=""${safe}"""`;
+};
+
+const formatDateTime = (date) =>
+  date ? new Date(date).toISOString().replace('T', ' ').slice(0, 19) : '';
+
+// @desc    Export withdrawals (with bank details) as a CSV Excel can open
+// @route   GET /api/admin/wallet/withdrawals/export
+// @access  Admin only (protect + adminOnly applied at the router)
+//
+// Intended for bulk bank transfers: one row per withdrawal with the full
+// unmasked bank details and the NET amount to pay. Accepts the same
+// status/userType/startDate/endDate filters as the list endpoint so the sheet
+// matches the screen.
+const exportWithdrawals = async (req, res) => {
+  try {
+    const {
+      status = 'all',
+      userType = 'all',
+      startDate = null,
+      endDate = null,
+      sortBy = 'createdAt',
+      sortOrder = 'asc',
+    } = req.query;
+
+    const filter = buildWithdrawalFilter({ status, userType, startDate, endDate });
+
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    const withdrawals = await Withdrawal.find(filter)
+      .populate('user', 'fullName email mobile name')
+      .populate('reviewedBy', 'fullName email')
+      .populate('processedBy', 'fullName email')
+      .sort(sort)
+      .limit(WITHDRAWAL_EXPORT_LIMIT)
+      .lean();
+
+    const headers = [
+      'Request Date (UTC)',
+      'Withdrawal ID',
+      'Bank Txn Ref',
+      'User Type',
+      'Name',
+      'Mobile',
+      'Email',
+      'Payment Method',
+      'Amount',
+      'Processing Fee',
+      'Net Payable',
+      'Account Holder Name',
+      'Account Number',
+      'IFSC Code',
+      'Bank Name',
+      'UPI ID',
+      'Status',
+      'Reviewed At (UTC)',
+      'Processed At (UTC)',
+      'Admin Notes',
+      'Rejection Reason',
+    ];
+
+    const rows = withdrawals.map((w) => {
+      const bank = w.bankDetails || {};
+      const account = w.user || {};
+      return [
+        csvCell(formatDateTime(w.createdAt)),
+        csvCell(String(w._id)),
+        csvCell(w.transactionId),
+        // 'User' is a provider in this system; label it for the admin.
+        csvCell(w.userType === 'Guest' ? 'Guest' : 'Provider'),
+        csvCell(account.fullName || account.name),
+        csvCell(account.mobile),
+        csvCell(account.email),
+        csvCell(w.paymentMethod),
+        csvCell(typeof w.amount === 'number' ? w.amount.toFixed(2) : ''),
+        csvCell(typeof w.processingFee === 'number' ? w.processingFee.toFixed(2) : '0.00'),
+        csvCell(typeof w.netAmount === 'number' ? w.netAmount.toFixed(2) : ''),
+        csvCell(bank.accountHolderName),
+        csvTextCell(bank.accountNumber),
+        csvTextCell(bank.ifscCode),
+        csvCell(bank.bankName),
+        csvCell(bank.upiId),
+        csvCell(w.status),
+        csvCell(formatDateTime(w.reviewedAt)),
+        csvCell(formatDateTime(w.processedAt)),
+        csvCell(w.adminNotes),
+        csvCell(w.rejectionReason),
+      ].join(',');
+    });
+
+    const csv = [headers.map(csvCell).join(','), ...rows].join('\r\n');
+
+    // Bank details are sensitive — leave an audit trail of who exported what.
+    console.log('📥 ADMIN EXPORT: withdrawals', {
+      adminId: req.user?._id,
+      rows: withdrawals.length,
+      filter,
+      truncated: withdrawals.length === WITHDRAWAL_EXPORT_LIMIT,
+    });
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    const suffix = status && status !== 'all' ? `-${status}` : '';
+    const filename = `withdrawals${suffix}-${stamp}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    // Leading BOM so Excel detects UTF-8 and renders ₹ and non-Latin names.
+    return res.status(200).send(`\uFEFF${csv}`);
+  } catch (error) {
+    console.error('Error exporting withdrawals:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to export withdrawals',
+      error: error.message,
     });
   }
 };
@@ -945,6 +1127,7 @@ module.exports = {
   getGuestWallets,
   getAllTransactions,
   getAllWithdrawals,
+  exportWithdrawals,
   approveWithdrawal,
   rejectWithdrawal,
   processWithdrawal

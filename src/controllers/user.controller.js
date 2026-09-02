@@ -286,6 +286,82 @@ const uploadAadhar = async (req, res, next) => {
   }
 };
 
+// @desc    Upload an OPTIONAL professional certificate (doctors, lawyers, etc.)
+// @route   POST /api/upload/professional-certificate  (public, during registration)
+// @route   POST /api/users/upload-professional-certificate  (public, app registration)
+// @route   POST /api/users/professional-certificate  (authenticated, one-time)
+// @access  Public during registration / Private afterwards
+//
+// Write-once by design. When called with an authenticated user who already has a
+// certificate on file the request is rejected, and the field is absent from every
+// profile-update whitelist — so a provider can never change or remove it. Only an
+// admin can clear it.
+const uploadProfessionalCertificate = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return next(new AppError('Please upload your professional certificate', 400));
+    }
+
+    // Reject an overwrite before spending a Cloudinary upload on it.
+    if (req.user?._id) {
+      const existing = await User.findById(req.user._id).select(
+        'professionalCertificate'
+      );
+      if (existing?.professionalCertificate?.url) {
+        return next(
+          new AppError(
+            'A professional certificate is already on file and cannot be changed. Please contact support.',
+            400
+          )
+        );
+      }
+    }
+
+    const result = await uploadToCloudinary(
+      req.file.path,
+      'skillhub/certificates'
+    );
+
+    if (!result || !result.url) {
+      return next(
+        new AppError('Certificate upload failed - no URL returned', 500)
+      );
+    }
+
+    const professionalCertificate = {
+      url: result.url,
+      name: req.file.originalname || '',
+      uploadedAt: new Date(),
+    };
+
+    // Persist immediately when authenticated. During registration there is no
+    // token yet, so we just hand the URL back and register() stores it.
+    let saved = null;
+    if (req.user?._id) {
+      const user = await User.findByIdAndUpdate(
+        req.user._id,
+        { professionalCertificate },
+        { new: true }
+      ).select('professionalCertificate');
+      saved = user?.professionalCertificate || null;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Professional certificate uploaded successfully.',
+      data: {
+        professionalCertificate: saved || professionalCertificate,
+        // Flat aliases so both clients can read the value however they prefer.
+        url: professionalCertificate.url,
+        name: professionalCertificate.name,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Professional certificate upload error:', error);
+    next(error);
+  }
+};
+
 // @desc    Upload portfolio media
 // @route   POST /api/users/portfolio
 // @access  Private
@@ -1339,7 +1415,7 @@ const searchProviders = async (req, res, next) => {
 const getUserDocuments = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id).select(
-      "profilePhoto aadharDocuments portfolioMedia portfolioLinks aadharNumber isAadharVerified"
+      "profilePhoto aadharDocuments professionalCertificate portfolioMedia portfolioLinks aadharNumber isAadharVerified providerVerificationStatus"
     );
 
     if (!user) {
@@ -1459,6 +1535,26 @@ const getUserDocuments = async (req, res, next) => {
       });
     }
 
+    // Professional Certificate (optional, read-only — no edit/delete handler
+    // exists for it, so the UI renders it as locked)
+    if (user.professionalCertificate?.url) {
+      const fileSize = await getFileSize(user.professionalCertificate.url);
+      documents.push({
+        id: "professional-certificate",
+        name: user.professionalCertificate.name || "Professional Certificate",
+        type: "certificate",
+        url: ensureFullUrl(user.professionalCertificate.url),
+        size: fileSize,
+        date:
+          user.professionalCertificate.uploadedAt ||
+          user.updatedAt ||
+          user.createdAt ||
+          currentDate,
+        status: user.providerVerificationStatus === "verified" ? "verified" : "pending",
+        readOnly: true,
+      });
+    }
+
     // Portfolio Media
     if (user.portfolioMedia && user.portfolioMedia.length > 0) {
       for (let index = 0; index < user.portfolioMedia.length; index++) {
@@ -1536,6 +1632,14 @@ const updateDocument = async (req, res, next) => {
       if (user.portfolioMedia && user.portfolioMedia[index]) {
         user.portfolioMedia[index].url = result.url;
       }
+    } else if (documentId === "professional-certificate") {
+      // Write-once by design — a provider cannot replace their certificate.
+      return next(
+        new AppError(
+          "Your professional certificate cannot be changed. Please contact support.",
+          400
+        )
+      );
     } else {
       return next(new AppError("Invalid document ID", 400));
     }
@@ -1583,6 +1687,14 @@ const deleteDocument = async (req, res, next) => {
       if (user.portfolioMedia && user.portfolioMedia[index]) {
         user.portfolioMedia.splice(index, 1);
       }
+    } else if (documentId === "professional-certificate") {
+      // Write-once by design — a provider cannot remove their certificate.
+      return next(
+        new AppError(
+          "Your professional certificate cannot be removed. Please contact support.",
+          400
+        )
+      );
     } else {
       return next(new AppError("Invalid document ID", 400));
     }
@@ -1957,6 +2069,7 @@ module.exports = {
   updateProfile,
   uploadProfilePhoto,
   uploadAadhar,
+  uploadProfessionalCertificate,
   uploadPortfolio,
   becomeProvider,
   updateProviderSettings,
