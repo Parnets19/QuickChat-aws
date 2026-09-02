@@ -1,5 +1,6 @@
 
 const { LiveStream, User } = require('../models');
+const { settleViewerExit } = require('../controllers/liveStream.controller');
 
 module.exports = (io) => {
   // Count the LIVE viewers actually connected to the stream's socket room,
@@ -42,18 +43,46 @@ module.exports = (io) => {
         return;
       }
       
+      // Classify the joiner so billing knows which wallet to charge (or to skip
+      // them entirely). Without this, a viewer who only ever joined over the
+      // socket was invisible to billing.
+      const isAdminViewer = socket.data.user?.isAdminAccount === true;
+      const isStreamer =
+        liveStream.streamer && liveStream.streamer.toString() === userId.toString();
+      const viewerType = socket.data.user?.isGuest === true ? 'Guest' : 'User';
+
       // Check if user is already in the viewers list
       const existingViewerIndex = liveStream.viewers.findIndex(viewer => viewer.user.toString() === userId.toString());
       
       if (existingViewerIndex === -1) {
-        // Add the user as a new viewer
-        liveStream.viewers.push({
-          user: userId,
-          joinedAt: new Date(),
-        });
+        // The streamer is not a viewer of their own stream. Adding them here
+        // inflated `totalViewers` (the pre-save hook uses viewers.length), so
+        // hosted-stream analytics were always off by one.
+        if (!isStreamer) {
+          liveStream.viewers.push({
+            user: userId,
+            viewerType,
+            isAdminViewer,
+            joinedAt: new Date(),
+            isPaid: isAdminViewer,
+          });
+        }
       } else {
         // If the user was a viewer who left, rejoin them
-        liveStream.viewers[existingViewerIndex].leftAt = null;
+        const existingViewer = liveStream.viewers[existingViewerIndex];
+        existingViewer.leftAt = null;
+        existingViewer.viewerType = viewerType;
+        existingViewer.isAdminViewer = isAdminViewer;
+        if (isAdminViewer) {
+          existingViewer.isPaid = true;
+          existingViewer.billingStarted = false;
+        } else if (!isStreamer) {
+          // Re-arm billing for the new session. Carrying isPaid=true over from
+          // the previous session would exempt them from billing permanently.
+          existingViewer.isPaid = false;
+          existingViewer.billingStarted = false;
+          existingViewer.webrtcConnectedAt = null;
+        }
       }
       
       await liveStream.save();
@@ -107,9 +136,12 @@ module.exports = (io) => {
       const viewerIndex = liveStream.viewers.findIndex(viewer => viewer.user.toString() === userId.toString());
 
       if (viewerIndex !== -1) {
-        // Mark the viewer as left
+        // Mark the viewer as left AND settle what they owe. Previously this path
+        // only stamped leftAt, so any partial minute since the last successful
+        // /process-billing call was never charged.
         liveStream.viewers[viewerIndex].leftAt = new Date();
         await liveStream.save();
+        await settleViewerExit(liveStreamId, userId);
       }
       
       // Populate to get active viewers
@@ -287,13 +319,16 @@ module.exports = (io) => {
           const liveStream = await LiveStream.findById(liveStreamId);
           if (!liveStream) continue;
 
-          // Mark this viewer as left (best-effort; final billing handled elsewhere)
+          // Mark this viewer as left and settle their outstanding balance. A
+          // closed tab used to mean the time since the last /process-billing
+          // call was free.
           const viewerIndex = liveStream.viewers.findIndex(
             (v) => v.user && v.user.toString() === userId.toString()
           );
           if (viewerIndex !== -1 && !liveStream.viewers[viewerIndex].leftAt) {
             liveStream.viewers[viewerIndex].leftAt = new Date();
             await liveStream.save();
+            await settleViewerExit(liveStreamId, userId);
           }
 
           const streamerId = liveStream.streamer?.toString();

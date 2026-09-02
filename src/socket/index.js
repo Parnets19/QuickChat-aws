@@ -915,11 +915,26 @@ const initializeSocket = (io) => {
               const isGuest = await Guest.findById(recipientId);
               const userType = isGuest ? 'guest' : 'user';
 
+              // Wording depends on who cancelled. When the CLIENT hangs up while
+              // ringing, the provider genuinely missed a call. When the PROVIDER
+              // cancels, the client did not miss anything — calling that a
+              // "Missed Call" (as this did for both cases) was simply wrong.
+              const providerCancelled = cancelledByRole === 'provider';
+              const pushTitle = providerCancelled ? 'Call Ended' : 'Missed Call';
+              const pushBody = providerCancelled
+                ? `${cancelledByName} ended the call`
+                : `You missed a call from ${cancelledByName}`;
+
+              // This push is DATA-ONLY (see utils/firebase.js). It exists to make
+              // QuickChatFirebaseService run natively so the ringtone stops, the
+              // ringing notification/screen is dismissed and the missed-call entry
+              // is posted — none of which can happen from a socket event when the
+              // receiver's app is backgrounded or killed.
               await notificationTemplates.custom(
                 recipientId,
                 userType,
-                'Missed Call',
-                `${cancelledByName} cancelled the call`,
+                pushTitle,
+                pushBody,
                 'consultation',
                 {
                   type:           'consultation',
@@ -928,12 +943,30 @@ const initializeSocket = (io) => {
                   cancelledByName,
                   cancelledBy:    cancelledByRole,
                   fromName:       cancelledByName,
+                  callerName:     cancelledByName,
+                  callType:       String(consultation.type || 'audio'),
                   reason:         'manual_cancel',
                 },
                 io,
                 { saveToDatabase: false },
               );
               console.log(`✅ BACKEND: call_cancelled FCM push sent to ${recipientId}`);
+
+              // Log a real missed call for the provider when the caller hung up
+              // while it was still ringing. Goes through the shared helper so it
+              // is persisted (visible in the notifications list) and deduped
+              // against the 60 s no-answer timer.
+              if (!providerCancelled) {
+                const { sendMissedCallNotification } = require('../utils/missedCall');
+                await sendMissedCallNotification({
+                  consultationId: data.consultationId,
+                  recipientId,
+                  callerId: userId,
+                  callerName: cancelledByName,
+                  callType: consultation.type,
+                  io,
+                });
+              }
             } catch (e) {
               console.error('❌ BACKEND: Failed to send call_cancelled FCM push:', e.message);
             }

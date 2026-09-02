@@ -1,8 +1,21 @@
 const mongoose = require('mongoose');
-const { LiveStream, User, Transaction } = require('../models');
+const { LiveStream, User, Guest, Transaction } = require('../models');
 const { createNotification } = require('../utils/notifications');
 
 const PLATFORM_COMMISSION_RATE = 0.10;
+
+// How often the server independently settles live-stream billing.
+const BILLING_MONITOR_INTERVAL_MS = 30 * 1000;
+
+// Socket.IO instance, injected from server.js. The background billing monitor
+// needs it both to emit updates and to read live room membership (the only
+// trustworthy signal for "is this viewer still watching"). Deliberately NOT
+// named `io`, because several request handlers declare a local `const io`.
+let socketIOInstance = null;
+const setSocketIO = (socketIO) => {
+  socketIOInstance = socketIO;
+};
+const getIO = () => socketIOInstance;
 
 // Billing minute rounding: ignore ≤10s (grace period), round to nearest minute for the rest.
 // Examples: 10s→0min, 70s (1m10s)→1min, 110s (1m50s)→2min, 130s (2m10s)→2min
@@ -39,104 +52,493 @@ const preciseMoneyCalculation = (amount1, amount2, operation) => {
   return Math.round(resultCents) / 100;
 };
 
-// Helper function to process final billing for a viewer
-const processFinalBilling = async (liveStream, viewer, now, io) => {
-  if (!viewer.isPaid && viewer.webrtcConnectedAt && liveStream.ratePerMinute > 0) {
-    const billingStartTime = viewer.webrtcConnectedAt;
-    const durationInSeconds = Math.floor(((viewer.leftAt || now) - billingStartTime) / 1000);
-    const durationInMinutes = billableMinutes(durationInSeconds);
-    const lastBilledMinutes = viewer.duration ? billableMinutes(viewer.duration) : 0;
-    const minutesToBill = durationInMinutes - lastBilledMinutes;
+// ---------------------------------------------------------------------------
+// BILLING ENGINE
+// ---------------------------------------------------------------------------
+// Every rupee that moves for a live stream moves through settleViewerBilling().
+// The HTTP endpoint, the server-side monitor, the leave endpoint, the socket
+// disconnect handler and end-of-stream all call this one function, so they can
+// never drift apart the way the old duplicated implementations did.
 
-    if (minutesToBill > 0) {
-      const amountToBill = preciseMoneyCalculation(minutesToBill, liveStream.ratePerMinute, "multiply");
+const streamerIdOf = (liveStream) =>
+  (liveStream.streamer?._id || liveStream.streamer)?.toString();
 
-      // Get viewer and streamer users
-      const viewerUser = await User.findById(viewer.user);
-      const streamerUser = await User.findById(liveStream.streamer);
+const getViewerModel = (viewerType) => (viewerType === 'Guest' ? Guest : User);
 
-      if (viewerUser && streamerUser) {
-        // Only deduct if viewer has enough balance
-        if (viewerUser.wallet >= amountToBill) {
-          // Deduct from viewer
-          viewerUser.wallet = preciseMoneyCalculation(viewerUser.wallet, amountToBill, "subtract");
-          viewerUser.totalSpent = preciseMoneyCalculation(viewerUser.totalSpent, amountToBill, "add");
-          await viewerUser.save();
+const displayNameOf = (account) =>
+  account?.fullName || account?.name || 'user';
 
-          // Credit to streamer (minus commission)
-          const platformCommission = preciseMoneyCalculation(amountToBill, PLATFORM_COMMISSION_RATE, "multiply");
-          const streamerEarnings = preciseMoneyCalculation(amountToBill, platformCommission, "subtract");
-          streamerUser.earnings = preciseMoneyCalculation(streamerUser.earnings, streamerEarnings, "add");
-          streamerUser.wallet = preciseMoneyCalculation(streamerUser.wallet, streamerEarnings, "add");
-          await streamerUser.save();
+/**
+ * Distinct user ids currently connected to a stream's socket room.
+ * Room membership is the only self-correcting presence signal: socket.io removes
+ * a socket automatically on disconnect, so stale `leftAt: null` viewer records
+ * cannot inflate it.
+ */
+const roomUserIds = (liveStreamId) => {
+  const socketIO = getIO();
+  if (!socketIO) return null; // unknown — callers must treat this as "no data"
+  const ids = new Set();
+  const room = socketIO.sockets.adapter.rooms.get(`live-stream:${liveStreamId}`);
+  if (!room) return ids;
+  for (const socketId of room) {
+    const s = socketIO.sockets.sockets.get(socketId);
+    if (s?.data?.userId) ids.add(s.data.userId.toString());
+  }
+  return ids;
+};
 
-          // Calculate total minutes for the whole session so far
-          const totalMinutes = durationInMinutes;
-          const newAmountToPay = preciseMoneyCalculation(viewer.amountToPay || 0, amountToBill, "add");
+/**
+ * Live viewer count for a stream, excluding the streamer and the admin monitor.
+ * Mirrors getLiveViewerCount in socket/liveStreamSocket.js so both layers report
+ * the same number to clients.
+ */
+const liveViewerCount = (liveStreamId, streamerId) => {
+  const socketIO = getIO();
+  if (!socketIO) return null;
+  const room = socketIO.sockets.adapter.rooms.get(`live-stream:${liveStreamId}`);
+  if (!room) return 0;
+  const ids = new Set();
+  for (const socketId of room) {
+    const s = socketIO.sockets.sockets.get(socketId);
+    const uid = s?.data?.userId;
+    if (!uid) continue;
+    if (streamerId && uid.toString() === streamerId.toString()) continue;
+    if (s?.data?.user?.isAdminAccount === true) continue;
+    ids.add(uid.toString());
+  }
+  return ids.size;
+};
 
-          // Upsert a single transaction per viewer per live stream (update if exists, create if not)
-          await Transaction.findOneAndUpdate(
-            { user: viewer.user, category: "live-stream", consultationId: liveStream._id, type: "debit" },
-            {
-              $set: {
-                amount: newAmountToPay,
-                balance: viewerUser.wallet,
-                description: `Live stream with ${streamerUser.fullName} - ${totalMinutes} minute(s) @ ₹${liveStream.ratePerMinute}/min`,
-                status: "completed",
-                paymentMethod: "wallet",
-                userType: "User",
-              },
-              $setOnInsert: {
-                user: viewer.user,
-                category: "live-stream",
-                type: "debit",
-                consultationId: liveStream._id,
-              },
-            },
-            { upsert: true, new: true }
-          );
+/**
+ * Evict a viewer from a stream's socket room.
+ *
+ * Without this, a viewer whose wallet ran dry kept receiving media: the server
+ * stamped `leftAt` (so the billing monitor skipped them from then on) but left
+ * them in the room, and cutting the WebRTC feed depended entirely on the
+ * STREAMER's client noticing `live-stream:viewer-left` and closing the peer
+ * connection. If the streamer's client missed that event the viewer watched for
+ * free, permanently unbilled. Forcing the leave server-side removes that trust.
+ */
+const evictViewerFromRoom = async (liveStreamId, userId) => {
+  const socketIO = getIO();
+  if (!socketIO) return;
+  const room = `live-stream:${liveStreamId}`;
+  try {
+    // Tell the client to tear its own WebRTC/session down first, then remove it
+    // from the room so it stops receiving any further stream traffic.
+    socketIO.to(`user:${userId}`).emit('live-stream:force-leave', {
+      liveStreamId,
+      reason: 'insufficient_funds',
+    });
+    await socketIO.in(`user:${userId}`).socketsLeave(room);
+  } catch (error) {
+    console.error(`❌ Failed to evict viewer ${userId} from ${room}:`, error.message);
+  }
+};
 
-          // Upsert a single transaction per streamer per live stream (update if exists, create if not)
-          const totalStreamerEarnings = preciseMoneyCalculation(
-            (await Transaction.findOne({ user: liveStream.streamer, category: "live-stream", consultationId: liveStream._id, type: "credit" }))?.amount || 0,
-            streamerEarnings,
-            "add"
-          );
-          await Transaction.findOneAndUpdate(
-            { user: liveStream.streamer, category: "live-stream", consultationId: liveStream._id, type: "credit" },
-            {
-              $set: {
-                amount: totalStreamerEarnings,
-                balance: streamerUser.wallet,
-                description: `Live stream earnings from ${viewerUser.fullName} - ${totalMinutes} minute(s) @ ₹${liveStream.ratePerMinute}/min`,
-                status: "completed",
-                paymentMethod: "wallet",
-                userType: "User",
-              },
-              $setOnInsert: {
-                user: liveStream.streamer,
-                category: "live-stream",
-                type: "credit",
-                consultationId: liveStream._id,
-              },
-            },
-            { upsert: true, new: true }
-          );
+// Guards against the monitor and a client request billing the same viewer at
+// the same instant (which would double-charge). Both run in this process, so an
+// in-memory key set is sufficient.
+const billingLocks = new Set();
 
-          // Update viewer
-          viewer.duration = durationInSeconds;
-          viewer.amountToPay = newAmountToPay;
-          viewer.isPaid = true;
-          viewer.lastBillingTime = now;
-          // FIXED: Add streamer earnings (after commission), not full amount
-          liveStream.totalEarnings = preciseMoneyCalculation(liveStream.totalEarnings, streamerEarnings, "add");
-        }
+/**
+ * Is this viewer someone we are allowed to charge at all?
+ * The streamer is in the viewers array in some code paths, and the admin
+ * account watches for free.
+ */
+const isBillableViewer = (liveStream, viewer) => {
+  if (!viewer || !viewer.user) return false;
+  if (viewer.isAdminViewer === true) return false;
+  const streamerId = streamerIdOf(liveStream);
+  if (streamerId && viewer.user.toString() === streamerId) return false;
+  return true;
+};
+
+/**
+ * Open a fresh billing segment for a viewer: billing runs from `at` and the
+ * per-segment counters start at zero. Used on WebRTC connect, on rejoin, and by
+ * the monitor when a client never reported a connection.
+ */
+const anchorBillingSegment = (viewer, at) => {
+  viewer.webrtcConnectedAt = at;
+  viewer.billingStarted = true;
+  viewer.lastBillingTime = at;
+  viewer.billedMinutes = 0;
+  viewer.segmentSeconds = 0;
+  viewer.isPaid = false;
+};
+
+/**
+ * Minutes already charged in the current segment. Falls back to the legacy
+ * `duration`-derived value for viewer records written before segment accounting
+ * existed, so streams in flight across a deploy are not re-billed from zero.
+ */
+const minutesAlreadyBilled = (viewer) => {
+  const usesSegmentAccounting = typeof viewer.segmentSeconds === 'number';
+  if (usesSegmentAccounting) return viewer.billedMinutes || 0;
+  return viewer.duration ? billableMinutes(viewer.duration) : 0;
+};
+
+/**
+ * Seconds of the current segment already reflected in `duration`. Legacy records
+ * kept `duration` as segment-elapsed rather than cumulative, so treat their
+ * whole `duration` as the segment.
+ */
+const segmentSecondsOf = (viewer) =>
+  typeof viewer.segmentSeconds === 'number' ? viewer.segmentSeconds : (viewer.duration || 0);
+
+/**
+ * Charge a viewer for whole minutes accrued since the last settlement, and
+ * credit the streamer their share.
+ *
+ * Mutates `viewer` (a subdocument) but does NOT save `liveStream` — the caller
+ * saves, so a loop over many viewers is one write instead of N.
+ *
+ * @returns {Promise<{billed: boolean, reason?: string, amountBilled: number,
+ *                    shortOfFunds: boolean, balance: number|null}>}
+ */
+const settleViewerBilling = async (liveStream, viewer, options = {}) => {
+  const { final = false, now = new Date() } = options;
+  const noop = (reason) => ({ billed: false, reason, amountBilled: 0, shortOfFunds: false, balance: null });
+
+  const rate = liveStream.ratePerMinute || 0;
+
+  if (!isBillableViewer(liveStream, viewer)) return noop('not-billable');
+  if (rate <= 0) return noop('free-stream');
+  // No billing anchor means we never confirmed the viewer was actually watching,
+  // so there is nothing legitimate to charge for.
+  if (!viewer.billingStarted || !viewer.webrtcConnectedAt) return noop('billing-not-started');
+
+  const lockKey = `${liveStream._id}:${viewer.user}`;
+  if (billingLocks.has(lockKey)) return noop('already-billing');
+  billingLocks.add(lockKey);
+
+  try {
+    const endAt = final ? (viewer.leftAt || now) : now;
+    const elapsedSeconds = Math.max(
+      0,
+      Math.floor((new Date(endAt) - new Date(viewer.webrtcConnectedAt)) / 1000)
+    );
+    const elapsedMinutes = billableMinutes(elapsedSeconds);
+    const alreadyBilled = minutesAlreadyBilled(viewer);
+    const minutesToBill = elapsedMinutes - alreadyBilled;
+
+    // Fold this segment's newly elapsed seconds into the cumulative watch time.
+    const newSegmentSeconds = Math.max(0, elapsedSeconds - segmentSecondsOf(viewer));
+    const advanceWatchTime = () => {
+      viewer.duration = (viewer.duration || 0) + newSegmentSeconds;
+      viewer.segmentSeconds = elapsedSeconds;
+    };
+
+    if (minutesToBill <= 0) {
+      advanceWatchTime();
+      viewer.billedMinutes = alreadyBilled;
+      if (final) viewer.isPaid = true;
+      return noop('nothing-due');
+    }
+
+    const ViewerModel = getViewerModel(viewer.viewerType);
+    const viewerAccount = await ViewerModel.findById(viewer.user);
+    const streamerAccount = await User.findById(streamerIdOf(liveStream));
+
+    if (!viewerAccount || !streamerAccount) {
+      console.warn(
+        `⚠️ LIVE BILLING: account missing (viewer=${viewer.user}, streamer=${streamerIdOf(liveStream)}) — skipping`
+      );
+      return noop('account-not-found');
+    }
+
+    const fullAmount = preciseMoneyCalculation(minutesToBill, rate, 'multiply');
+    const walletBefore = viewerAccount.wallet || 0;
+    // Take whatever the wallet can cover. The old code skipped the debit
+    // entirely when the balance fell short, which meant a viewer who ran out of
+    // money kept watching for free.
+    const amountToBill = Math.min(fullAmount, walletBefore);
+    const shortOfFunds = amountToBill < fullAmount;
+
+    let streamerEarnings = 0;
+
+    if (amountToBill > 0) {
+      // --- Debit the viewer (the joiner) ---
+      viewerAccount.wallet = preciseMoneyCalculation(walletBefore, amountToBill, 'subtract');
+      viewerAccount.totalSpent = preciseMoneyCalculation(viewerAccount.totalSpent || 0, amountToBill, 'add');
+      await viewerAccount.save();
+
+      // --- Credit the streamer, net of platform commission ---
+      const platformCommission = preciseMoneyCalculation(amountToBill, PLATFORM_COMMISSION_RATE, 'multiply');
+      streamerEarnings = preciseMoneyCalculation(amountToBill, platformCommission, 'subtract');
+      streamerAccount.earnings = preciseMoneyCalculation(streamerAccount.earnings || 0, streamerEarnings, 'add');
+      streamerAccount.wallet = preciseMoneyCalculation(streamerAccount.wallet || 0, streamerEarnings, 'add');
+      await streamerAccount.save();
+
+      const newAmountToPay = preciseMoneyCalculation(viewer.amountToPay || 0, amountToBill, 'add');
+      const liveStreamObjId = liveStream._id;
+      const totalMinutes = alreadyBilled + minutesToBill;
+
+      // One rolling debit row per viewer per stream.
+      await Transaction.findOneAndUpdate(
+        { user: viewer.user, category: 'live-stream', consultationId: liveStreamObjId, type: 'debit' },
+        {
+          $set: {
+            amount: newAmountToPay,
+            balance: viewerAccount.wallet,
+            description: `Live stream with ${displayNameOf(streamerAccount)} - ${totalMinutes} minute(s) @ ₹${rate}/min`,
+            status: 'completed',
+            paymentMethod: 'wallet',
+            userType: viewer.viewerType || 'User',
+            'metadata.providerId': streamerAccount._id,
+            'metadata.duration': totalMinutes,
+            'metadata.rate': rate,
+            'metadata.newBalance': viewerAccount.wallet,
+          },
+          $setOnInsert: {
+            user: viewer.user,
+            category: 'live-stream',
+            type: 'debit',
+            consultationId: liveStreamObjId,
+          },
+        },
+        { upsert: true, new: true }
+      );
+
+      // One rolling credit row per streamer per stream.
+      const existingCredit = await Transaction.findOne({
+        user: streamerAccount._id,
+        category: 'live-stream',
+        consultationId: liveStreamObjId,
+        type: 'credit',
+      });
+      const totalStreamerEarnings = preciseMoneyCalculation(
+        existingCredit?.amount || 0,
+        streamerEarnings,
+        'add'
+      );
+      await Transaction.findOneAndUpdate(
+        { user: streamerAccount._id, category: 'live-stream', consultationId: liveStreamObjId, type: 'credit' },
+        {
+          $set: {
+            amount: totalStreamerEarnings,
+            balance: streamerAccount.wallet,
+            description: `Live stream earnings from ${displayNameOf(viewerAccount)} - ${totalMinutes} minute(s) @ ₹${rate}/min`,
+            status: 'completed',
+            paymentMethod: 'wallet',
+            userType: 'User',
+            'metadata.duration': totalMinutes,
+            'metadata.rate': rate,
+            'metadata.newBalance': streamerAccount.wallet,
+          },
+          $setOnInsert: {
+            user: streamerAccount._id,
+            category: 'live-stream',
+            type: 'credit',
+            consultationId: liveStreamObjId,
+          },
+        },
+        { upsert: true, new: true }
+      );
+
+      viewer.amountToPay = newAmountToPay;
+      liveStream.totalEarnings = preciseMoneyCalculation(
+        liveStream.totalEarnings || 0,
+        streamerEarnings,
+        'add'
+      );
+
+      console.log('💰 LIVE STREAM BILLED:', {
+        liveStreamId: liveStream._id.toString(),
+        viewer: viewer.user.toString(),
+        viewerType: viewer.viewerType || 'User',
+        minutesToBill,
+        rate,
+        amountToBill,
+        partial: shortOfFunds,
+        walletBefore,
+        walletAfter: viewerAccount.wallet,
+        streamerEarnings,
+      });
+    }
+
+    // Advance the counters even on a partial charge — the session is being
+    // terminated below, so these minutes must never be billed twice.
+    viewer.billedMinutes = alreadyBilled + minutesToBill;
+    advanceWatchTime();
+    viewer.lastBillingTime = now;
+    if (final) viewer.isPaid = true;
+
+    if (shortOfFunds) {
+      // Out of money: end this viewer's session.
+      if (!viewer.leftAt) viewer.leftAt = now;
+      viewer.isPaid = true;
+      const socketIO = getIO();
+      if (socketIO) {
+        socketIO.to(`user:${viewer.user}`).emit('live-stream:insufficient-funds', {
+          liveStreamId: liveStream._id,
+          message: 'Insufficient wallet balance, you have been removed from the live stream',
+          currentBalance: viewerAccount.wallet,
+        });
+      }
+
+      // Evict BEFORE broadcasting the count so the number already reflects the
+      // departure.
+      await evictViewerFromRoom(liveStream._id, viewer.user);
+
+      if (socketIO) {
+        const viewerCount = liveViewerCount(liveStream._id, streamerIdOf(liveStream));
+        socketIO.to(`live-stream:${liveStream._id}`).emit('live-stream:viewer-left', {
+          userId: viewer.user,
+          // Always include the count. Web clients ignore the event when this is
+          // missing, which left the streamer's viewer number frozen.
+          ...(viewerCount === null ? {} : { viewerCount }),
+        });
       }
     } else {
-      // Already billed all minutes
-      viewer.isPaid = true;
+      const socketIO = getIO();
+      if (socketIO) {
+        socketIO.to(`user:${viewer.user}`).emit('live-stream:billing-update', {
+          liveStreamId: liveStream._id,
+          currentBalance: viewerAccount.wallet,
+          totalCharged: viewer.amountToPay,
+          duration: viewer.duration,
+          ratePerMinute: rate,
+        });
+        socketIO.to(`user:${streamerAccount._id}`).emit('live-stream:earnings-update', {
+          liveStreamId: liveStream._id,
+          totalEarnings: liveStream.totalEarnings,
+          lastCredit: streamerEarnings,
+        });
+      }
+    }
+
+    return {
+      billed: amountToBill > 0,
+      amountBilled: amountToBill,
+      shortOfFunds,
+      balance: viewerAccount.wallet,
+    };
+  } finally {
+    billingLocks.delete(lockKey);
+  }
+};
+
+// Kept as a thin wrapper so the end/leave call sites read the same as before.
+const processFinalBilling = async (liveStream, viewer, now) =>
+  settleViewerBilling(liveStream, viewer, { final: true, now });
+
+/**
+ * Settle a viewer who exited over a socket (tab close, network drop, explicit
+ * leave event). Loads, bills and saves on its own because socket handlers have
+ * no request/response cycle to hang the write off.
+ */
+const settleViewerExit = async (liveStreamId, userId) => {
+  try {
+    const liveStream = await LiveStream.findById(liveStreamId);
+    if (!liveStream) return;
+
+    const viewer = liveStream.viewers.find(
+      (v) => v.user && v.user.toString() === userId.toString()
+    );
+    if (!viewer) return;
+
+    const now = new Date();
+    if (!viewer.leftAt) viewer.leftAt = now;
+    await processFinalBilling(liveStream, viewer, now);
+    await liveStream.save();
+  } catch (error) {
+    console.error('❌ Error settling live-stream viewer exit:', error.message);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// SERVER-SIDE BILLING MONITOR
+// ---------------------------------------------------------------------------
+/**
+ * Authoritative billing loop. Live-stream billing used to depend entirely on
+ * the viewer's client posting /process-billing every 60s, so a backgrounded
+ * tab, a failed /viewer-connected call, or a WebRTC state that never reached
+ * "connected" all meant the joiner watched for free. This loop bills from the
+ * server using socket-room membership as the presence signal, mirroring the
+ * watchdog that already protects 1:1 consultation billing.
+ */
+const liveStreamBillingTick = async () => {
+  const activeStreams = await LiveStream.find({
+    isActive: true,
+    ratePerMinute: { $gt: 0 },
+  });
+
+  if (activeStreams.length === 0) return;
+
+  const socketIO = getIO();
+
+  for (const liveStream of activeStreams) {
+    try {
+      // Distinct user ids currently connected to this stream's socket room.
+      const presentUserIds = roomUserIds(liveStream._id);
+
+      const now = new Date();
+      let dirty = false;
+
+      for (const viewer of liveStream.viewers) {
+        if (viewer.leftAt) continue;
+        if (!isBillableViewer(liveStream, viewer)) continue;
+
+        const isPresent = presentUserIds ? presentUserIds.has(viewer.user.toString()) : true;
+
+        if (!isPresent) {
+          // Gone without a clean leave — settle whatever is owed and close out.
+          viewer.leftAt = now;
+          await processFinalBilling(liveStream, viewer, now);
+          dirty = true;
+          if (socketIO) {
+            const viewerCount = liveViewerCount(liveStream._id, streamerIdOf(liveStream));
+            socketIO.to(`live-stream:${liveStream._id}`).emit('live-stream:viewer-left', {
+              userId: viewer.user,
+              ...(viewerCount === null ? {} : { viewerCount }),
+            });
+          }
+          continue;
+        }
+
+        if (!viewer.billingStarted || !viewer.webrtcConnectedAt) {
+          // The client never reported a WebRTC connection, but the viewer is
+          // demonstrably in the room. Anchor billing at *now* rather than at
+          // joinedAt so they are never retro-charged for time we did not
+          // observe.
+          anchorBillingSegment(viewer, now);
+          dirty = true;
+          console.log(
+            `⏱️ LIVE BILLING: anchored billing for viewer ${viewer.user} on stream ${liveStream._id} (client never reported connect)`
+          );
+          continue;
+        }
+
+        const result = await settleViewerBilling(liveStream, viewer, { now });
+        if (result.billed || result.shortOfFunds) dirty = true;
+      }
+
+      if (dirty) await liveStream.save();
+    } catch (streamError) {
+      console.error(
+        `❌ LIVE BILLING: error processing stream ${liveStream._id}:`,
+        streamError.message
+      );
     }
   }
+};
+
+let billingMonitorHandle = null;
+const startLiveStreamBillingMonitor = () => {
+  if (billingMonitorHandle) return billingMonitorHandle;
+  console.log(
+    `🖥️ Starting server-side live-stream billing monitor (every ${BILLING_MONITOR_INTERVAL_MS / 1000}s)`
+  );
+  billingMonitorHandle = setInterval(async () => {
+    try {
+      await liveStreamBillingTick();
+    } catch (error) {
+      console.error('❌ LIVE BILLING monitor error:', error.message);
+    }
+  }, BILLING_MONITOR_INTERVAL_MS);
+  return billingMonitorHandle;
 };
 
 // @desc Start a live stream
@@ -160,9 +562,22 @@ const startLiveStream = async (req, res, next) => {
       });
     }
 
-    // Get streamer's rate
+    // Resolve the per-minute rate viewers will be charged. An explicit rate in
+    // the request wins; otherwise fall back to the streamer's configured live
+    // rate. `rates.live` defaults to 0, and a rate of 0 disables billing
+    // entirely — which is the most common reason "nobody gets charged".
     const streamer = await User.findById(userId);
-    const streamRate = ratePerMinute || streamer.rates.live || 0;
+    const requestedRate = Number(ratePerMinute);
+    const streamRate =
+      Number.isFinite(requestedRate) && requestedRate > 0
+        ? requestedRate
+        : Number(streamer.rates?.live) || 0;
+
+    if (streamRate <= 0) {
+      console.warn(
+        `⚠️ LIVE STREAM: ${streamer.fullName} (${userId}) is starting a stream with ratePerMinute=0 — viewers will NOT be billed. Set rates.live to enable billing.`
+      );
+    }
 
     const liveStream = await LiveStream.create({
       streamer: userId,
@@ -217,6 +632,13 @@ const startLiveStream = async (req, res, next) => {
     res.status(201).json({
       success: true,
       data: liveStream,
+      billingEnabled: streamRate > 0,
+      ...(streamRate > 0
+        ? {}
+        : {
+            warning:
+              'Your live rate is ₹0/min, so viewers will not be charged. Set your live rate in profile settings to earn from live streams.',
+          }),
     });
   } catch (error) {
     next(error);
@@ -262,7 +684,7 @@ const endLiveStream = async (req, res, next) => {
       if (!viewer.leftAt) {
         viewer.leftAt = now;
       }
-      await processFinalBilling(liveStream, viewer, now, io);
+      await processFinalBilling(liveStream, viewer, now);
     }
 
     liveStream.isActive = false;
@@ -313,11 +735,13 @@ const joinLiveStream = async (req, res, next) => {
     // Admins authenticate via the Admin model, so detect them by isAdminAccount
     // (set by the protect middleware), NOT by a "role" field which they don't have.
     const isAdmin = req.user.isAdminAccount === true || req.user.isAdmin === true;
+    const viewerType = req.user.isGuest === true ? 'Guest' : 'User';
     
     // Check wallet balance if ratePerMinute > 0 (skip entirely for admins)
     if (!isAdmin && liveStream.ratePerMinute > 0) {
-      const viewerUser = await User.findById(userId);
-      if (!viewerUser || viewerUser.wallet < liveStream.ratePerMinute) {
+      const ViewerModel = getViewerModel(viewerType);
+      const viewerUser = await ViewerModel.findById(userId);
+      if (!viewerUser || (viewerUser.wallet || 0) < liveStream.ratePerMinute) {
         return res.status(400).json({
           success: false,
           message: `Insufficient wallet balance. You need at least ₹${liveStream.ratePerMinute} to join this live stream.`,
@@ -330,11 +754,23 @@ const joinLiveStream = async (req, res, next) => {
       viewer.user.toString() === userId.toString());
     
     if (existingViewerIndex !== -1) {
+      const existingViewer = liveStream.viewers[existingViewerIndex];
       // User already joined, check if they left before
-      liveStream.viewers[existingViewerIndex].leftAt = null;
-      // Ensure an admin viewer stays flagged non-billable
+      existingViewer.leftAt = null;
+      existingViewer.viewerType = viewerType;
+      existingViewer.isAdminViewer = isAdmin;
       if (isAdmin) {
-        liveStream.viewers[existingViewerIndex].isPaid = true;
+        // Ensure an admin viewer stays flagged non-billable
+        existingViewer.isPaid = true;
+        existingViewer.billingStarted = false;
+      } else {
+        // Re-arm billing for this rejoin. Leaving `isPaid` true from the last
+        // session would permanently exempt them from final billing.
+        existingViewer.isPaid = false;
+        // Re-anchor on the next /viewer-connected call or monitor tick so the
+        // gap between sessions is not billed.
+        existingViewer.webrtcConnectedAt = null;
+        existingViewer.billingStarted = false;
       }
       await liveStream.save();
       
@@ -359,12 +795,19 @@ const joinLiveStream = async (req, res, next) => {
       });
     }
     
-    // Add new viewer. Admins are flagged isPaid so final/periodic billing skips them.
-    liveStream.viewers.push({
-      user: userId,
-      joinedAt: new Date(),
-      isPaid: isAdmin ? true : false,
-    });
+    // Add new viewer. Admins are flagged non-billable so periodic/final billing
+    // skips them entirely. The streamer is never recorded as a viewer of their
+    // own stream, otherwise `totalViewers` (viewers.length) is off by one.
+    const isOwnStream = streamerIdOf(liveStream) === userId.toString();
+    if (!isOwnStream) {
+      liveStream.viewers.push({
+        user: userId,
+        viewerType,
+        isAdminViewer: isAdmin,
+        joinedAt: new Date(),
+        isPaid: isAdmin ? true : false,
+      });
+    }
     await liveStream.save();
     
     // Calculate active viewers count (exclude streamer)
@@ -418,22 +861,30 @@ const markViewerConnected = async (req, res, next) => {
     }
     
     const now = new Date();
-    liveStream.viewers[viewerIndex].webrtcConnectedAt = now;
-    
+    const viewer = liveStream.viewers[viewerIndex];
+    const isAdmin = req.user.isAdminAccount === true || req.user.isAdmin === true;
+
     // Admins watch for free: never start billing for them.
-    if (req.user.isAdminAccount === true || req.user.isAdmin === true) {
-      liveStream.viewers[viewerIndex].billingStarted = false;
-      liveStream.viewers[viewerIndex].isPaid = true;
-    } else {
-      liveStream.viewers[viewerIndex].billingStarted = true;
-      liveStream.viewers[viewerIndex].lastBillingTime = now;
+    if (isAdmin) {
+      viewer.isAdminViewer = true;
+      viewer.webrtcConnectedAt = now;
+      viewer.billingStarted = false;
+      viewer.isPaid = true;
+    } else if (!viewer.billingStarted || !viewer.webrtcConnectedAt) {
+      // Only anchor once per segment. A duplicate call from a reconnecting
+      // client must not reset the clock, or the viewer would ride out the rest
+      // of the stream unbilled by restarting the minute counter every time.
+      viewer.viewerType = req.user.isGuest === true ? 'Guest' : 'User';
+      anchorBillingSegment(viewer, now);
     }
-    
+
     await liveStream.save();
     
     res.status(200).json({
       success: true,
       message: "Viewer connected",
+      billingEnabled: liveStream.ratePerMinute > 0 && !isAdmin,
+      ratePerMinute: liveStream.ratePerMinute,
     });
   } catch (error) {
     next(error);
@@ -443,11 +894,15 @@ const markViewerConnected = async (req, res, next) => {
 // @desc Process real-time billing for live stream viewer
 // @route POST /api/live-streams/:id/process-billing
 // @access Private
+// NOTE: this endpoint is now only an accelerator. The server-side billing
+// monitor settles every active viewer on its own schedule, so a client that
+// stops calling this (backgrounded tab, dead interval, network blip) no longer
+// gets to watch for free.
 const processLiveStreamBilling = async (req, res, next) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
-    
+
     const liveStream = await LiveStream.findById(id);
     if (!liveStream) {
       return res.status(404).json({
@@ -455,178 +910,75 @@ const processLiveStreamBilling = async (req, res, next) => {
         message: "Live stream not found",
       });
     }
-    
-    const viewerIndex = liveStream.viewers.findIndex(viewer => 
+
+    const viewerIndex = liveStream.viewers.findIndex(viewer =>
       viewer.user.toString() === userId.toString());
-      
+
     if (viewerIndex === -1) {
       return res.status(400).json({
         success: false,
         message: "You are not in this live stream",
       });
     }
-    
+
     const viewer = liveStream.viewers[viewerIndex];
-    
+    const isAdmin = req.user.isAdminAccount === true || req.user.isAdmin === true;
+
     // Admins watch for free — never charge them.
-    if (req.user.isAdminAccount === true || req.user.isAdmin === true) {
+    if (isAdmin) {
+      if (viewer.isAdminViewer !== true) {
+        viewer.isAdminViewer = true;
+        viewer.isPaid = true;
+        viewer.billingStarted = false;
+        await liveStream.save();
+      }
       return res.status(200).json({
         success: true,
         message: "Admin viewer, no billing",
       });
     }
-    
-    // If rate is 0, no billing needed
-    if (liveStream.ratePerMinute === 0) {
+
+    if (liveStream.ratePerMinute <= 0) {
       return res.status(200).json({
         success: true,
         message: "Free live stream, no billing needed",
       });
     }
-    
-    // Check if billing has started and webrtc is connected
+
+    const now = new Date();
+
+    // A viewer hitting this endpoint is definitionally watching, so anchor
+    // billing if the /viewer-connected call never landed.
     if (!viewer.billingStarted || !viewer.webrtcConnectedAt) {
+      viewer.viewerType = req.user.isGuest === true ? 'Guest' : 'User';
+      anchorBillingSegment(viewer, now);
+      await liveStream.save();
       return res.status(200).json({
         success: true,
-        message: "Billing not started yet",
+        message: "Billing started",
+        data: { duration: viewer.duration || 0, totalCharged: viewer.amountToPay || 0 },
       });
     }
-    
-    const now = new Date();
-    const billingStartTime = viewer.webrtcConnectedAt;
-    const elapsedMs = now - billingStartTime;
-    const elapsedSeconds = Math.floor(elapsedMs / 1000);
-    const elapsedMinutes = billableMinutes(elapsedSeconds);
-    const lastBilledMinutes = viewer.duration ? billableMinutes(viewer.duration) : 0;
-    
-    if (elapsedMinutes > lastBilledMinutes) {
-      const minutesToBill = elapsedMinutes - lastBilledMinutes;
-      const amountToBill = preciseMoneyCalculation(minutesToBill, liveStream.ratePerMinute, "multiply");
-      
-      // Get viewer and streamer users
-      const viewerUser = await User.findById(userId);
-      const streamerUser = await User.findById(liveStream.streamer);
-      
-      if (!viewerUser || !streamerUser) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-      
-      // Check if viewer has enough balance
-      if (viewerUser.wallet < amountToBill) {
-        // Not enough balance, end viewer's session
-        viewer.leftAt = now;
-        viewer.duration = elapsedSeconds;
-        await liveStream.save();
-        
-        // Notify via socket
-        const io = req.app.get('io');
-        if (io) {
-          io.to(`user:${userId}`).emit('live-stream:insufficient-funds', {
-            liveStreamId: id,
-            message: "Insufficient wallet balance, you have been removed from the live stream",
-          });
-          io.to(`live-stream:${id}`).emit('live-stream:viewer-left', {
-            userId,
-          });
-        }
-        
-        return res.status(400).json({
-          success: false,
-          message: "Insufficient wallet balance",
-          consultationEnded: true,
-        });
-      }
-      
-      // Deduct from viewer
-      viewerUser.wallet = preciseMoneyCalculation(viewerUser.wallet, amountToBill, "subtract");
-      viewerUser.totalSpent = preciseMoneyCalculation(viewerUser.totalSpent, amountToBill, "add");
-      await viewerUser.save();
-      
-      // Credit to streamer (minus commission)
-      const platformCommission = preciseMoneyCalculation(amountToBill, PLATFORM_COMMISSION_RATE, "multiply");
-      const streamerEarnings = preciseMoneyCalculation(amountToBill, platformCommission, "subtract");
-      streamerUser.earnings = preciseMoneyCalculation(streamerUser.earnings, streamerEarnings, "add");
-      streamerUser.wallet = preciseMoneyCalculation(streamerUser.wallet, streamerEarnings, "add");
-      await streamerUser.save();
-      
-      // Calculate total accumulated amount for this session
-      const newAmountToPay = preciseMoneyCalculation(viewer.amountToPay || 0, amountToBill, "add");
 
-      // Upsert a single transaction per viewer per live stream (update if exists, create if not)
-      const liveStreamObjId = new mongoose.Types.ObjectId(id);
-      await Transaction.findOneAndUpdate(
-        { user: userId, category: "live-stream", consultationId: liveStreamObjId, type: "debit" },
-        {
-          $set: {
-            amount: newAmountToPay,
-            balance: viewerUser.wallet,
-            description: `Live stream with ${streamerUser.fullName} - ${elapsedMinutes} minute(s) @ ₹${liveStream.ratePerMinute}/min`,
-            status: "completed",
-            paymentMethod: "wallet",
-            userType: "User",
-          },
-          $setOnInsert: {
-            user: userId,
-            category: "live-stream",
-            type: "debit",
-            consultationId: liveStreamObjId,
-          },
-        },
-        { upsert: true, new: true }
-      );
+    const result = await settleViewerBilling(liveStream, viewer, { now });
+    await liveStream.save();
 
-      // Upsert a single transaction per streamer per live stream (update if exists, create if not)
-      const existingStreamerTx = await Transaction.findOne({ user: liveStream.streamer, category: "live-stream", consultationId: liveStreamObjId, type: "credit" });
-      const totalStreamerEarnings = preciseMoneyCalculation(existingStreamerTx?.amount || 0, streamerEarnings, "add");
-      await Transaction.findOneAndUpdate(
-        { user: liveStream.streamer, category: "live-stream", consultationId: liveStreamObjId, type: "credit" },
-        {
-          $set: {
-            amount: totalStreamerEarnings,
-            balance: streamerUser.wallet,
-            description: `Live stream earnings from ${viewerUser.fullName} - ${elapsedMinutes} minute(s) @ ₹${liveStream.ratePerMinute}/min`,
-            status: "completed",
-            paymentMethod: "wallet",
-            userType: "User",
-          },
-          $setOnInsert: {
-            user: liveStream.streamer,
-            category: "live-stream",
-            type: "credit",
-            consultationId: liveStreamObjId,
-          },
-        },
-        { upsert: true, new: true }
-      );
-
-      // Update viewer
-      viewer.duration = elapsedSeconds;
-      viewer.amountToPay = newAmountToPay;
-      viewer.lastBillingTime = now;
-      // FIXED: Add streamer earnings (after commission), not full amount
-      liveStream.totalEarnings = preciseMoneyCalculation(liveStream.totalEarnings, streamerEarnings, "add");
-      await liveStream.save();
-      
-      // Emit billing update via socket
-      const io = req.app.get('io');
-      if (io) {
-        io.to(`user:${userId}`).emit('live-stream:billing-update', {
-          liveStreamId: id,
-          currentBalance: viewerUser.wallet,
-          totalCharged: viewer.amountToPay,
-          duration: elapsedSeconds,
-        });
-      }
+    if (result.shortOfFunds) {
+      return res.status(400).json({
+        success: false,
+        message: "Insufficient wallet balance",
+        consultationEnded: true,
+        currentBalance: result.balance,
+      });
     }
-    
-    res.status(200).json({
+
+    return res.status(200).json({
       success: true,
       data: {
         duration: viewer.duration,
         totalCharged: viewer.amountToPay,
+        currentBalance: result.balance,
+        ratePerMinute: liveStream.ratePerMinute,
       },
     });
   } catch (error) {
@@ -667,7 +1019,7 @@ const leaveLiveStream = async (req, res, next) => {
     
     // Process final billing for this viewer
     const io = req.app.get('io');
-    await processFinalBilling(liveStream, liveStream.viewers[viewerIndex], now, io);
+    await processFinalBilling(liveStream, liveStream.viewers[viewerIndex], now);
     
     await liveStream.save();
     
@@ -818,4 +1170,10 @@ module.exports = {
   getLiveStreamHistory,
   markViewerConnected,
   processLiveStreamBilling,
+  // Billing internals used by the socket layer and server bootstrap
+  setSocketIO,
+  startLiveStreamBillingMonitor,
+  liveStreamBillingTick,
+  settleViewerExit,
+  anchorBillingSegment,
 };

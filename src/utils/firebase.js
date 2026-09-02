@@ -89,7 +89,24 @@ const sendPushNotification = async (notification) => {
     const isIncomingCall = notification.data?.action === 'incoming_call';
     const isChatMessage  = notification.data?.action === 'new_message';
     const isMissedCall   = notification.data?.action === 'missed_call';
-    const isDataOnly     = isChatMessage || isIncomingCall;
+    const isCallCancelled = notification.data?.action === 'call_cancelled';
+
+    // ── Why missed_call and call_cancelled are DATA-ONLY ─────────────────────
+    // Both mean "stop ringing NOW". That work is done by
+    // QuickChatFirebaseService.onMessageReceived() natively: stop the looping
+    // ringtone, stop vibration, cancel the incoming-call notification, close the
+    // native ringing screen, clear PENDING_INCOMING_CALL and post the missed-call
+    // notification.
+    //
+    // A message carrying a `notification` block is intercepted by Android's own
+    // FCM handler, which renders a banner and — on most OEMs — NEVER calls
+    // onMessageReceived while the app is backgrounded or killed. That is exactly
+    // why the phone kept ringing after the caller hung up, and why no missed-call
+    // entry appeared: the payload looked fine, but our native handler never ran.
+    //
+    // Data-only means the service always runs and posts the visible notification
+    // itself (see postMissedCallNotification).
+    const isDataOnly     = isChatMessage || isIncomingCall || isMissedCall || isCallCancelled;
 
     const message = {
       // Data-only for chats; notification block for everything else INCLUDING calls
@@ -184,39 +201,31 @@ const sendPushNotification = async (notification) => {
         },
       };
       console.log('💬 Chat message configured (notification + data, cancelable in foreground)');
-    } else if (isMissedCall) {
-      // ── MISSED CALL ────────────────────────────────────────────────────────
-      // Deliberately a NORMAL notification (not data-only): nobody answered, so
-      // the app is almost certainly backgrounded or killed and we want Android
-      // itself to render the tray entry without needing our process alive.
-      //
-      // Own channel so the user can control missed-call alerts separately from
-      // ringing calls (which bypass DND and play a ringtone) and from general
-      // notifications. If a device is running an older build without the
-      // 'missed_calls' channel, FCM falls back to the manifest's default channel
-      // id, so nothing is dropped.
+    } else if (isMissedCall || isCallCancelled) {
+      // ── MISSED CALL / CALL CANCELLED — DATA-ONLY, high priority ────────────
+      // No notification block on purpose (see the isDataOnly comment above): the
+      // native service must run to stop the ringtone and dismiss the ringing UI,
+      // and it posts the visible "Missed call from X" notification itself on the
+      // 'missed_calls' channel.
       message.android = {
         priority: 'high',
-        notification: {
-          channelId: 'missed_calls',
-          sound: 'default',
-          priority: 'high',
-          body: notification.body,
-          // One entry per consultation — a retry can never stack duplicates.
-          tag: `missed_call_${notification.data?.consultationId || ''}`,
-        },
+        ttl: 60 * 1000, // pointless to deliver a "stop ringing" later than the call
       };
+      // iOS has no equivalent native handler, so keep a visible alert there.
       message.apns = {
-        headers: { 'apns-priority': '10' },
+        headers: { 'apns-priority': '10', 'apns-push-type': 'alert' },
         payload: {
           aps: {
             sound: 'default',
             badge: 1,
+            'content-available': 1,
             alert: { title: notification.title, body: notification.body },
           },
         },
       };
-      console.log('📵 Missed call configured (notification + data on missed_calls channel)');
+      console.log(
+        `📵 ${isMissedCall ? 'Missed call' : 'Call cancelled'} configured: DATA-ONLY + high priority (native handler stops the ringtone)`
+      );
     } else {
       // For other notifications (wallet, admin, live-stream, broadcast etc.)
       message.android.notification = {
@@ -311,9 +320,11 @@ const sendMulticastNotification = async (notification) => {
     const isIncomingCall = notification.data?.action === 'incoming_call';
     const isChatMessage  = notification.data?.action === 'new_message';
     const isMissedCall   = notification.data?.action === 'missed_call';
-    // Both chat and incoming calls are DATA-ONLY so QuickChatFirebaseService
-    // .onMessageReceived() reliably fires on killed apps across all OEMs.
-    const isDataOnly     = isChatMessage || isIncomingCall;
+    const isCallCancelled = notification.data?.action === 'call_cancelled';
+    // Chats, incoming calls, missed calls and cancellations are all DATA-ONLY so
+    // QuickChatFirebaseService.onMessageReceived() reliably fires on killed apps
+    // across all OEMs (it stops the ringtone and posts the missed-call entry).
+    const isDataOnly     = isChatMessage || isIncomingCall || isMissedCall || isCallCancelled;
 
     const message = {
       ...(!isDataOnly ? {
@@ -390,31 +401,28 @@ const sendMulticastNotification = async (notification) => {
         },
       };
       console.log('💬 Multicast chat message configured (notification + data, cancelable in foreground)');
-    } else if (isMissedCall) {
-      // Missed call — normal notification on its own channel, so Android renders
-      // it even with the app killed (which is the whole point). See the
+    } else if (isMissedCall || isCallCancelled) {
+      // Missed call / cancellation — DATA-ONLY so the native service runs, stops
+      // the ringtone and posts the missed-call notification itself. See the
       // single-token path above for the full rationale.
       message.android = {
         priority: 'high',
-        notification: {
-          channelId: 'missed_calls',
-          sound: 'default',
-          priority: 'high',
-          body: notification.body,
-          tag: `missed_call_${notification.data?.consultationId || ''}`,
-        },
+        ttl: 60 * 1000,
       };
       message.apns = {
-        headers: { 'apns-priority': '10' },
+        headers: { 'apns-priority': '10', 'apns-push-type': 'alert' },
         payload: {
           aps: {
             sound: 'default',
             badge: 1,
+            'content-available': 1,
             alert: { title: notification.title, body: notification.body },
           },
         },
       };
-      console.log('📵 Multicast missed call configured (missed_calls channel)');
+      console.log(
+        `📵 Multicast ${isMissedCall ? 'missed call' : 'call cancelled'} configured: DATA-ONLY + high priority`
+      );
     } else {
       // General notifications (wallet, admin, live-stream, broadcast)
       message.android = {

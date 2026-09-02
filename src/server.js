@@ -95,6 +95,13 @@ initializeSocket(io);
 const { setSocketIO } = require('./controllers/realTimeBilling.controller');
 setSocketIO(io);
 
+// Live-stream billing needs io too: it reads socket-room membership to decide
+// which viewers are actually watching, and emits wallet/earnings updates.
+const {
+  setSocketIO: setLiveStreamSocketIO,
+} = require('./controllers/liveStream.controller');
+setLiveStreamSocketIO(io);
+
 // Make io accessible in req
 app.set('io', io);
 
@@ -255,6 +262,14 @@ const startServer = async () => {
   }, 30000); // 30 seconds
 
   console.log('🔄 Auto-processing of completed consultations enabled (every 30 seconds)');
+
+  // Server-authoritative live-stream billing. Charging used to depend entirely
+  // on the viewer's client posting /process-billing every 60s, so a dead
+  // interval meant the joiner watched for free.
+  const {
+    startLiveStreamBillingMonitor,
+  } = require('./controllers/liveStream.controller');
+  startLiveStreamBillingMonitor();
 
   httpServer.listen(PORT, () => {
     logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);

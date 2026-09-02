@@ -28,7 +28,22 @@ const LiveStreamSchema = new mongoose.Schema(
       {
         user: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
+          refPath: "viewers.viewerType",
+        },
+        // Guests have their own collection and their own wallet, so billing has
+        // to know which model to load. Defaults to "User" so existing documents
+        // keep resolving exactly as before.
+        viewerType: {
+          type: String,
+          enum: ["User", "Guest"],
+          default: "User",
+        },
+        // The single admin account watches for free (monitoring). Flagged
+        // explicitly so background billing can identify them without an
+        // authenticated request in hand.
+        isAdminViewer: {
+          type: Boolean,
+          default: false,
         },
         joinedAt: Date,
         webrtcConnectedAt: Date,
@@ -36,6 +51,23 @@ const LiveStreamSchema = new mongoose.Schema(
         duration: {
           type: Number, // in seconds
           default: 0,
+        },
+        // Whole minutes already charged within the CURRENT billing segment (a
+        // segment starts at `webrtcConnectedAt` and is reset on rejoin). This is
+        // the authoritative "how much have we billed" counter. Deriving it from
+        // `duration` (the old approach) was unsafe because `duration` is also
+        // overwritten on the insufficient-funds path, which could re-bill or
+        // skip minutes.
+        billedMinutes: {
+          type: Number,
+          default: 0,
+        },
+        // Seconds of the current segment already folded into `duration`. Set to
+        // 0 whenever a segment is anchored; `null` marks a pre-existing document
+        // written before segment accounting existed.
+        segmentSeconds: {
+          type: Number,
+          default: null,
         },
         amountToPay: {
           type: Number,
