@@ -72,9 +72,12 @@ const notificationTemplates = {
         isConference:   options?.isConference ? 'true' : 'false',
 
         // ── Android notification hints ───────────────────────────────────────
+        // NOTE: this push is DATA-ONLY, so Android never reads channelId from
+        // here — the native service picks the channel itself. Kept in sync with
+        // IncomingCallNotificationModule.CHANNEL_ID to avoid confusion.
         sound:          'default',
         priority:       'high',
-        channelId:      'incoming_calls',
+        channelId:      'incoming_calls_v2',
       },
       io,
     });
