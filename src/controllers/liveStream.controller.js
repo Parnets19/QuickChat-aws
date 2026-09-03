@@ -201,10 +201,15 @@ const settleViewerBilling = async (liveStream, viewer, options = {}) => {
   const { final = false, now = new Date() } = options;
   const noop = (reason) => ({ billed: false, reason, amountBilled: 0, shortOfFunds: false, balance: null });
 
-  const rate = liveStream.ratePerMinute || 0;
+  // 💰 ENFORCE MINIMUM RATE: live streams are never free (min ₹1/min). This
+  // mirrors the audio/video call rule and covers legacy/in-flight streams that
+  // were created with ratePerMinute=0 before the minimum was enforced at start.
+  let rate = liveStream.ratePerMinute || 0;
+  if (rate < 1) rate = 1;
 
   if (!isBillableViewer(liveStream, viewer)) return noop('not-billable');
-  if (rate <= 0) return noop('free-stream');
+  // rate is now guaranteed >= 1, so there is no free-stream branch — every
+  // billable viewer is charged at least ₹1/min.
   // No billing anchor means we never confirmed the viewer was actually watching,
   // so there is nothing legitimate to charge for.
   if (!viewer.billingStarted || !viewer.webrtcConnectedAt) return noop('billing-not-started');
@@ -460,9 +465,12 @@ const settleViewerExit = async (liveStreamId, userId) => {
  * watchdog that already protects 1:1 consultation billing.
  */
 const liveStreamBillingTick = async () => {
+  // NOTE: no ratePerMinute filter here. settleViewerBilling enforces a ₹1/min
+  // minimum, so even a stream stored with ratePerMinute=0 (legacy/in-flight
+  // before the minimum was enforced at creation) must still be monitored and
+  // billed. Filtering on rate > 0 here would silently exempt those streams.
   const activeStreams = await LiveStream.find({
     isActive: true,
-    ratePerMinute: { $gt: 0 },
   });
 
   if (activeStreams.length === 0) return;
@@ -499,14 +507,29 @@ const liveStreamBillingTick = async () => {
         }
 
         if (!viewer.billingStarted || !viewer.webrtcConnectedAt) {
-          // The client never reported a WebRTC connection, but the viewer is
-          // demonstrably in the room. Anchor billing at *now* rather than at
-          // joinedAt so they are never retro-charged for time we did not
-          // observe.
+          // The viewer is in the room but the client has not yet reported a
+          // WebRTC connection. Do NOT bill immediately on join — that would
+          // charge people who are still connecting or only previewing. Give the
+          // real `viewer-connected` / `webrtc:connected` event a grace period to
+          // arrive and anchor billing at the true connect time. Only if that
+          // event never lands (and the viewer is demonstrably still present)
+          // does the monitor self-anchor as a fallback, so a genuine viewer is
+          // never watched for free. Anchoring at *now* (not joinedAt) means the
+          // grace-period seconds are not retro-charged.
+          const joinedAt = viewer.joinedAt ? new Date(viewer.joinedAt) : null;
+          const secondsSinceJoin = joinedAt ? Math.floor((now - joinedAt) / 1000) : Infinity;
+          const CONNECT_GRACE_SECONDS = 60;
+
+          if (secondsSinceJoin < CONNECT_GRACE_SECONDS) {
+            // Still within grace window — wait for the client's connect event.
+            continue;
+          }
+
           anchorBillingSegment(viewer, now);
           dirty = true;
           console.log(
-            `⏱️ LIVE BILLING: anchored billing for viewer ${viewer.user} on stream ${liveStream._id} (client never reported connect)`
+            `⏱️ LIVE BILLING: fallback-anchored billing for viewer ${viewer.user} on stream ${liveStream._id} ` +
+            `(no connect event after ${secondsSinceJoin}s in room)`
           );
           continue;
         }
@@ -568,15 +591,19 @@ const startLiveStream = async (req, res, next) => {
     // entirely — which is the most common reason "nobody gets charged".
     const streamer = await User.findById(userId);
     const requestedRate = Number(ratePerMinute);
-    const streamRate =
+    let streamRate =
       Number.isFinite(requestedRate) && requestedRate > 0
         ? requestedRate
         : Number(streamer.rates?.live) || 0;
 
-    if (streamRate <= 0) {
-      console.warn(
-        `⚠️ LIVE STREAM: ${streamer.fullName} (${userId}) is starting a stream with ratePerMinute=0 — viewers will NOT be billed. Set rates.live to enable billing.`
+    // 💰 ENFORCE MINIMUM RATE: live streams are never free (min ₹1/min). If the
+    // streamer has no configured live rate, default to ₹1/min so viewers are
+    // always billed rather than watching for free.
+    if (streamRate < 1) {
+      console.log(
+        `💰 LIVE STREAM: ${streamer.fullName} (${userId}) had ratePerMinute=${streamRate} — defaulting to ₹1/min minimum.`
       );
+      streamRate = 1;
     }
 
     const liveStream = await LiveStream.create({
@@ -938,12 +965,9 @@ const processLiveStreamBilling = async (req, res, next) => {
       });
     }
 
-    if (liveStream.ratePerMinute <= 0) {
-      return res.status(200).json({
-        success: true,
-        message: "Free live stream, no billing needed",
-      });
-    }
+    // NOTE: no "free stream" short-circuit here. settleViewerBilling enforces a
+    // ₹1/min minimum, so even a legacy stream stored with ratePerMinute=0 is
+    // billed. Returning early on rate<=0 would let those viewers watch free.
 
     const now = new Date();
 
