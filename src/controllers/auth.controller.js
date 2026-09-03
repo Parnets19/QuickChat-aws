@@ -931,10 +931,17 @@ const resetPassword = async (req, res, next) => {
 // @access  Public
 const verifyResetOtp = async (req, res, next) => {
   try {
-    const { email, otp } = req.body;
-    if (!email || !otp) return next(new AppError("Email and OTP are required", 400));
+    const { email, mobile, otp } = req.body;
+    // The app resets by mobile, the web by email — support both.
+    if ((!email && !mobile) || !otp) {
+      return next(new AppError("Mobile/email and OTP are required", 400));
+    }
 
-    const otpDoc = await OTP.findOne({ email, otp, purpose: "password-reset", isVerified: false });
+    const query = { otp, purpose: "password-reset", isVerified: false };
+    if (mobile) query.mobile = mobile;
+    if (email) query.email = email;
+
+    const otpDoc = await OTP.findOne(query);
     if (!otpDoc) return next(new AppError("Invalid OTP", 400));
     if (otpDoc.expiresAt < new Date()) return next(new AppError("OTP has expired", 400));
 
@@ -1017,6 +1024,78 @@ const verifySecurityQuestion = async (req, res, next) => {
   }
 };
 
+// @desc    Send an OTP so a user can reset a forgotten password
+// @route   POST /api/auth/forgot-password-otp
+// @access  Public
+// Mirrors sendOTP but is dedicated to the password-reset flow: it requires that
+// an account actually exists for the given mobile/email, and always stores the
+// OTP under purpose "password-reset" so verify-reset-otp / reset-password find it.
+const forgotPasswordOtp = async (req, res, next) => {
+  try {
+    const { mobile, email } = req.body;
+
+    if (!mobile && !email) {
+      return next(new AppError("Mobile number or email is required", 400));
+    }
+
+    // The account must exist — don't send reset OTPs to unregistered numbers.
+    const userQuery = {};
+    if (mobile) userQuery.mobile = mobile;
+    if (email) userQuery.email = email;
+
+    const user = await User.findOne(userQuery);
+    if (!user) {
+      return next(
+        new AppError(
+          "No account found with these details. Please check and try again.",
+          404
+        )
+      );
+    }
+
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Clear any previous password-reset OTPs for this identity.
+    if (mobile) {
+      await OTP.deleteMany({ mobile, purpose: "password-reset" });
+    }
+    if (email) {
+      await OTP.deleteMany({ email, purpose: "password-reset" });
+    }
+
+    await OTP.create({
+      mobile,
+      email,
+      otp,
+      type: email && !mobile ? "email" : "mobile",
+      purpose: "password-reset",
+      expiresAt,
+    });
+
+    // Deliver via the same channels as registration OTPs.
+    if (email && !mobile) {
+      sendOTPEmail(email, otp, "password-reset");
+    } else if (mobile) {
+      sendOTPSMS(mobile, otp);
+    }
+
+    const responseData = {
+      success: true,
+      message: `OTP sent successfully to ${email && !mobile ? email : mobile}`,
+    };
+
+    if (process.env.NODE_ENV === "development") {
+      responseData.dummyOtp = otp;
+      responseData.message += ` (Development: Use OTP: ${otp})`;
+    }
+
+    res.status(200).json(responseData);
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Check if a mobile number belongs to a regular user/provider account
 // @route   GET /api/auth/check-mobile/:mobile
 // @access  Public
@@ -1053,6 +1132,7 @@ module.exports = {
   guestLogin,
   resetPassword,
   verifyResetOtp,
+  forgotPasswordOtp,
   getSecurityQuestion,
   verifySecurityQuestion,
   checkMobile,

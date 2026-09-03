@@ -12,6 +12,7 @@ const {
   guestLogin,
   resetPassword,
   verifyResetOtp,
+  forgotPasswordOtp,
   getSecurityQuestion,
   verifySecurityQuestion,
   checkMobile,
@@ -27,6 +28,7 @@ router.post('/register', authLimiter, register);
 router.post('/login', process.env.NODE_ENV === 'development' ? (req, res, next) => next() : authLimiter, login);
 router.post('/login-otp', authLimiter, loginWithOTP);
 router.post('/guest-login', authLimiter, guestLogin);
+router.post('/forgot-password-otp', otpLimiter, forgotPasswordOtp);
 router.post('/reset-password', resetPassword);
 router.post('/verify-reset-otp', verifyResetOtp);
 router.post('/get-security-question', getSecurityQuestion);
