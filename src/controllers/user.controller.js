@@ -1415,7 +1415,7 @@ const searchProviders = async (req, res, next) => {
 const getUserDocuments = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id).select(
-      "profilePhoto aadharDocuments professionalCertificate portfolioMedia portfolioLinks aadharNumber isAadharVerified providerVerificationStatus"
+      "profilePhoto aadharDocuments professionalCertificate portfolioMedia professionVideo portfolioLinks aadharNumber isAadharVerified providerVerificationStatus"
     );
 
     if (!user) {
@@ -1506,12 +1506,13 @@ const getUserDocuments = async (req, res, next) => {
       });
     }
 
-    // Aadhar Documents
+    // Government ID (Aadhar). Labelled "Government ID" to match the register
+    // screen and the documents-page category wording.
     if (user.aadharDocuments?.front) {
       const fileSize = await getFileSize(user.aadharDocuments.front);
       documents.push({
         id: "aadhar-front",
-        name: "Aadhar Card (Front)",
+        name: "Government ID (Front)",
         type: "id",
         url: ensureFullUrl(user.aadharDocuments.front),
         size: fileSize,
@@ -1525,7 +1526,7 @@ const getUserDocuments = async (req, res, next) => {
       const fileSize = await getFileSize(user.aadharDocuments.back);
       documents.push({
         id: "aadhar-back",
-        name: "Aadhar Card (Back)",
+        name: "Government ID (Back)",
         type: "id",
         url: ensureFullUrl(user.aadharDocuments.back),
         size: fileSize,
@@ -1541,7 +1542,10 @@ const getUserDocuments = async (req, res, next) => {
       const fileSize = await getFileSize(user.professionalCertificate.url);
       documents.push({
         id: "professional-certificate",
-        name: user.professionalCertificate.name || "Professional Certificate",
+        // Show a consistent label as the card title; keep the raw uploaded
+        // filename separately so it can still be surfaced if needed.
+        name: "Professional Certificate",
+        fileName: user.professionalCertificate.name || "",
         type: "certificate",
         url: ensureFullUrl(user.professionalCertificate.url),
         size: fileSize,
@@ -1571,6 +1575,31 @@ const getUserDocuments = async (req, res, next) => {
           date: user.updatedAt || user.createdAt || currentDate,
           status: "verified",
           mediaType: media.type,
+        });
+      }
+    }
+
+    // Professional / intro videos (stored in professionVideo). These are shown
+    // on the documents page too — previously they were never returned, so a
+    // registered profession video did not appear anywhere in the provider's
+    // document list.
+    if (user.professionVideo && user.professionVideo.length > 0) {
+      for (let index = 0; index < user.professionVideo.length; index++) {
+        const video = user.professionVideo[index];
+        if (!video?.url) continue;
+        const fileSize = await getFileSize(video.url);
+        documents.push({
+          id: `profession-video-${index}`,
+          name:
+            index === 0
+              ? "Professional Video (Intro)"
+              : `Professional Video ${index + 1}`,
+          type: "profession-video",
+          url: ensureFullUrl(video.url),
+          size: fileSize,
+          date: user.updatedAt || user.createdAt || currentDate,
+          status: "verified",
+          mediaType: "video",
         });
       }
     }
