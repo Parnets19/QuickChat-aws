@@ -2554,6 +2554,185 @@ const emergencyEndConsultation = async (req, res) => {
 };
 
 /**
+ * SERVER-SIDE PER-MINUTE CHARGER
+ *
+ * Deducts any whole minutes that have elapsed but have not yet been billed for
+ * an ongoing consultation, crediting the provider and writing ledger entries.
+ *
+ * This exists so billing works even when the client never emits `webrtc:connected`
+ * or never calls POST /billing/bill-minute. It touches NO call/WebRTC connection
+ * logic — it only reads the consultation clock and moves money.
+ *
+ * Idempotency: `consultation.duration` records how many whole minutes have already
+ * been billed. Each tick we compute how many whole minutes have elapsed since the
+ * billing clock started and only charge the difference, so running every 30s (or
+ * alongside the client's own bill-minute calls) never double-charges.
+ *
+ * @param {object} consultation - A live Mongoose consultation document (status "ongoing").
+ * @param {Date}   now          - Current time (passed in so the whole tick is consistent).
+ * @returns {Promise<boolean>}  - true if a charge was applied this tick.
+ */
+const chargeElapsedMinutes = async (consultation, now) => {
+  try {
+    const ratePerMinute = consultation.rate || 0;
+    if (ratePerMinute <= 0) return false; // free/invalid rate — nothing to charge
+
+    // BILLING CLOCK: prefer the true media-connect time. If the client never
+    // reported it (the exact failure that broke billing), self-anchor to the
+    // accept time so a connected, accepted call is still billed. We persist the
+    // anchor so the HTTP bill-minute path and endConsultation agree with us.
+    if (!consultation.webrtcConnectedAt) {
+      // SAFETY: only self-anchor when there is evidence the call is actually
+      // live — i.e. both participants are present in the consultation socket
+      // room. This avoids charging a call that was accepted but whose media
+      // never connected (both would not be sitting in the room together).
+      const room = io?.sockets?.adapter?.rooms?.get(`consultation:${consultation._id}`);
+      const participantsInRoom = room ? room.size : 0;
+      if (participantsInRoom < 2) {
+        // Not enough evidence the call is live yet — skip this tick. If the
+        // client's own webrtc:connected arrives later, it anchors correctly;
+        // if not, we re-check next tick while both parties remain in the room.
+        return false;
+      }
+
+      consultation.webrtcConnectedAt = consultation.bothSidesAcceptedAt || consultation.startTime || now;
+      consultation.billingStarted = true;
+      await consultation.save();
+      console.log(
+        `⏱️ SERVER CHARGER: Auto-anchored billing clock for ${consultation._id} at ${consultation.webrtcConnectedAt.toISOString()} ` +
+        `(client never reported webrtc:connected; ${participantsInRoom} participants in room)`
+      );
+    }
+
+    const billingStartTime = consultation.webrtcConnectedAt;
+    const elapsedSeconds = Math.floor((now - billingStartTime) / 1000);
+    if (elapsedSeconds < 60) return false; // less than a full minute — nothing owed yet
+
+    // Whole minutes that SHOULD have been billed by now, minus what we already billed.
+    const wholeMinutesElapsed = Math.floor(elapsedSeconds / 60);
+    const alreadyBilledMinutes = consultation.duration || 0;
+    const minutesToBill = wholeMinutesElapsed - alreadyBilledMinutes;
+    if (minutesToBill <= 0) return false; // already up to date (client billed, or nothing owed)
+
+    // Load the CLIENT (payer) with a fresh wallet read.
+    const isGuest = consultation.userType === "Guest";
+    const UserModel = isGuest ? Guest : User;
+    const clientUser = await UserModel.findById(consultation.user);
+    if (!clientUser) {
+      console.log(`⚠️ SERVER CHARGER: Client not found for ${consultation._id}`);
+      return false;
+    }
+
+    const currentWallet = clientUser.wallet || 0;
+    // Only charge what the client can actually afford this tick; the termination
+    // check later in the monitor handles ending the call when funds run out.
+    const affordableMinutes = Math.floor(currentWallet / ratePerMinute);
+    const billableMinutes = Math.min(minutesToBill, affordableMinutes);
+    if (billableMinutes <= 0) return false; // can't afford even 1 minute — let terminator handle it
+
+    const amountToBill = preciseMoneyCalculation(billableMinutes, ratePerMinute, "multiply");
+
+    // ── Deduct from client ────────────────────────────────────────────────
+    clientUser.wallet = Math.max(0, preciseMoneyCalculation(currentWallet, amountToBill, "subtract"));
+    clientUser.totalSpent = preciseMoneyCalculation(clientUser.totalSpent || 0, amountToBill, "add");
+    await clientUser.save();
+
+    // ── Accumulate on consultation (NEVER overwrite) ──────────────────────
+    consultation.duration = alreadyBilledMinutes + billableMinutes;
+    consultation.totalAmount = preciseMoneyCalculation(consultation.totalAmount || 0, amountToBill, "add");
+    consultation.lastBillingTime = now;
+    await consultation.save();
+
+    console.log(
+      `💸 SERVER CHARGER: Billed ₹${amountToBill} (${billableMinutes} min) for ${consultation._id}. ` +
+      `Client wallet ₹${currentWallet} → ₹${clientUser.wallet}`
+    );
+
+    // ── Credit provider + write ledger ────────────────────────────────────
+    const provider = await User.findById(consultation.provider);
+    if (provider && amountToBill > 0) {
+      const platformCommission = preciseMoneyCalculation(amountToBill, PLATFORM_COMMISSION_RATE, "multiply");
+      const providerEarnings = preciseMoneyCalculation(amountToBill, platformCommission, "subtract");
+      const previousProviderWallet = provider.wallet || 0;
+
+      provider.earnings = preciseMoneyCalculation(provider.earnings || 0, providerEarnings, "add");
+      provider.wallet = preciseMoneyCalculation(previousProviderWallet, providerEarnings, "add");
+      await provider.save();
+
+      await Transaction.create([
+        {
+          user: clientUser._id,
+          userType: isGuest ? "Guest" : "User",
+          consultationId: consultation._id,
+          type: "debit",
+          category: "consultation",
+          amount: amountToBill,
+          balance: clientUser.wallet,
+          description: `Call charge - ${billableMinutes} minute(s) @ ₹${ratePerMinute}/min with ${provider.fullName}`,
+          status: "completed",
+          paymentMethod: "wallet",
+          metadata: {
+            providerId: provider._id,
+            providerName: provider.fullName,
+            duration: billableMinutes,
+            rate: ratePerMinute,
+            previousBalance: currentWallet,
+            newBalance: clientUser.wallet,
+            source: "server-charger",
+          },
+        },
+        {
+          user: provider._id,
+          userType: "User",
+          consultationId: consultation._id,
+          type: "credit",
+          category: "consultation",
+          amount: providerEarnings,
+          balance: provider.wallet,
+          description: `Earnings from call - ${billableMinutes} minute(s) @ ₹${ratePerMinute}/min with ${clientUser.name || clientUser.fullName}`,
+          status: "completed",
+          paymentMethod: "wallet",
+          metadata: {
+            clientId: clientUser._id,
+            clientName: clientUser.name || clientUser.fullName,
+            duration: billableMinutes,
+            rate: ratePerMinute,
+            grossAmount: amountToBill,
+            platformCommission,
+            netAmount: providerEarnings,
+            previousBalance: previousProviderWallet,
+            newBalance: provider.wallet,
+            source: "server-charger",
+          },
+        },
+      ]);
+
+      console.log(`📝 SERVER CHARGER: Transactions recorded for ${consultation._id}`);
+    }
+
+    // ── Emit the same real-time billing update the client path emits ──────
+    const remainingAffordableMinutes = Math.floor(clientUser.wallet / ratePerMinute);
+    emitBillingUpdate(consultation._id.toString(), {
+      consultationId: consultation._id,
+      currentBalance: clientUser.wallet,
+      totalCharged: consultation.totalAmount || 0,
+      duration: consultation.duration || 0,
+      remainingMinutes: remainingAffordableMinutes,
+      remainingSeconds: remainingAffordableMinutes * 60,
+      canContinue: remainingAffordableMinutes > 0,
+      warningThreshold: remainingAffordableMinutes <= 1,
+      ratePerMinute,
+      source: "server-charger",
+    });
+
+    return true;
+  } catch (err) {
+    console.error(`❌ SERVER CHARGER error for ${consultation?._id}:`, err.message);
+    return false;
+  }
+};
+
+/**
  * SERVER-SIDE WALLET MONITORING
  * Runs independently to catch frontend failures and prevent unlimited calls
  */
@@ -2564,11 +2743,16 @@ const startServerSideWalletMonitoring = () => {
 
   setInterval(async () => {
     try {
-      // Find all ongoing consultations with billing started
+      // Find all ongoing consultations that both sides have accepted.
+      // NOTE: we intentionally do NOT require `billingStarted: true` here.
+      // billingStarted is only set by the HTTP accept path or the client's
+      // `webrtc:connected` socket event — the very things that were failing and
+      // leaving calls unbilled. By keying only on bothSidesAcceptedAt, the server
+      // charger can self-anchor the billing clock and set billingStarted itself,
+      // so an accepted+connected call is always billed regardless of client behavior.
       const ongoingConsultations = await Consultation.find({
         status: "ongoing",
-        billingStarted: true,
-        bothSidesAcceptedAt: { $exists: true },
+        bothSidesAcceptedAt: { $exists: true, $ne: null },
       });
 
       if (ongoingConsultations.length === 0) {
@@ -2581,6 +2765,15 @@ const startServerSideWalletMonitoring = () => {
 
       for (const consultation of ongoingConsultations) {
         const now = new Date();
+
+        // ── SERVER-SIDE PER-MINUTE CHARGE ──────────────────────────────────
+        // Deduct any owed whole minutes for this call. This is the fix for
+        // billing not happening: it works even when the client never emits
+        // `webrtc:connected` or never calls /billing/bill-minute. Idempotent —
+        // it only charges minutes not already reflected in consultation.duration,
+        // so it coexists safely with the client's own bill-minute calls.
+        await chargeElapsedMinutes(consultation, now);
+
         const callDurationSeconds = Math.floor(
           (now - consultation.bothSidesAcceptedAt) / 1000
         );
