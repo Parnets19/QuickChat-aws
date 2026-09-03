@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
 const adminGuestController = require('../controllers/adminGuest.controller');
+const adminExportController = require('../controllers/adminExport.controller');
 const broadcastController = require('../controllers/broadcastNotification.controller');
 const { protect, adminOnly } = require('../middlewares/auth');
 
@@ -23,8 +24,13 @@ router.get('/test', (req, res) => {
 router.use(protect);
 router.use(adminOnly);
 
-// Provider management routes
+// Provider management routes.
+// NOTE on ordering: every '/export' route below is declared BEFORE the matching
+// '/:id' route. Express matches in declaration order, so '/providers/:id' would
+// otherwise swallow '/providers/export' and try to look up a user with the id
+// "export".
 router.get('/providers', adminController.getAllProviders);
+router.get('/providers/export', adminExportController.exportProviders);
 router.get('/providers/:id', adminController.getProviderById);
 router.put('/providers/:id', adminController.updateProvider);
 router.put('/providers/:id/status', adminController.updateProviderStatus);
@@ -87,6 +93,7 @@ router.delete('/users/:id', async (req, res, next) => {
 
 // Guest management routes
 router.get('/guests', adminGuestController.getAllGuests);
+router.get('/guests/export', adminExportController.exportGuests);
 router.get('/guests/statistics', adminGuestController.getGuestStatistics);
 router.get('/guests/:id', adminGuestController.getGuestById);
 router.put('/guests/:id', adminGuestController.updateGuest);
@@ -98,6 +105,7 @@ router.get('/stats', adminController.getAdminStats);
 
 // KYC management routes
 router.get('/kyc', adminController.getKycRequests);
+router.get('/kyc/export', adminExportController.exportKycRequests);
 router.get('/kyc/:id', adminController.getKycRequestById);
 router.put('/kyc/:id/verify', adminController.verifyKycRequest);
 
@@ -637,6 +645,9 @@ router.delete('/notifications/:id', async (req, res, next) => {
 // ██  REVIEW MANAGEMENT                                                       ██
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// CSV export of reviews matching the current filters (all pages)
+router.get('/reviews/export', adminExportController.exportReviews);
+
 // GET all reviews with filters
 router.get('/reviews', async (req, res, next) => {
   try {
@@ -969,6 +980,9 @@ router.delete('/reels/:id', async (req, res, next) => {
 // ██  LIVE STREAM MONITORING                                                  ██
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// CSV export of live streams matching the current filters (all pages)
+router.get('/live-streams/export', adminExportController.exportLiveStreams);
+
 // GET all live streams (active + history)
 router.get('/live-streams', async (req, res, next) => {
   try {
@@ -1037,6 +1051,10 @@ router.put('/live-streams/:id/force-end', async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // ██  CONSULTATION MONITORING                                                 ██
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// CSV export of consultations matching the current filters (all pages).
+// Declared before '/consultations/:id' so it is not treated as an id lookup.
+router.get('/consultations/export', adminExportController.exportConsultations);
 
 // GET active/ongoing consultations
 router.get('/consultations', async (req, res, next) => {
@@ -1242,6 +1260,9 @@ router.post('/consultations/:id/refund', async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // ██  PROFILE EDIT LOGS (Audit Trail)                                         ██
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// CSV export of profile edit logs, one row per changed field
+router.get('/profile-edits/export', adminExportController.exportProfileEdits);
 
 // GET all profile edit logs
 router.get('/profile-edits', async (req, res, next) => {

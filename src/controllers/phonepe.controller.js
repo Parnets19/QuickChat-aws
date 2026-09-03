@@ -447,6 +447,92 @@ class PhonePeController {
     }
   }
 
+  // ── Export All Payments as an Excel-openable CSV (Admin) ──────────────────
+  // Same status/search filters as getallpayment (both filter at the DB level, so
+  // search IS honoured), but covering every matching row rather than one page.
+  async exportallpayment(req, res) {
+    const {
+      DEFAULT_EXPORT_LIMIT,
+      csvCell,
+      csvTextCell,
+      formatDateTime,
+      money,
+      sendCsv,
+      csvError,
+    } = require('../utils/csvExport');
+
+    try {
+      const status = req.query.status;
+      const search = req.query.search;
+
+      const filter = {};
+      const conditions = [];
+
+      if (status && status !== 'all') {
+        if (status === 'InProgress') {
+          conditions.push({
+            $or: [
+              { status: { $exists: false } },
+              { status: null },
+              { status: '' },
+              { status: 'InProgress' },
+            ],
+          });
+        } else {
+          conditions.push({ status });
+        }
+      }
+
+      if (search) {
+        conditions.push({
+          $or: [
+            { username: { $regex: search, $options: 'i' } },
+            { Mobile: { $regex: search, $options: 'i' } },
+            { orderId: { $regex: search, $options: 'i' } },
+            { transactionId: { $regex: search, $options: 'i' } },
+          ],
+        });
+      }
+
+      if (conditions.length > 0) filter.$and = conditions;
+
+      const data = await phonePeTransactionModel
+        .find(filter)
+        .sort({ _id: -1 })
+        .limit(DEFAULT_EXPORT_LIMIT)
+        .lean();
+
+      const headers = [
+        'Created (UTC)', 'Record ID', 'Order ID', 'Transaction ID',
+        'User Name', 'Mobile', 'Amount', 'Status',
+      ];
+
+      const rows = data.map((t) => [
+        // These records may predate timestamps; fall back to the ObjectId time.
+        csvCell(formatDateTime(t.createdAt || (t._id?.getTimestamp && t._id.getTimestamp()))),
+        csvCell(String(t._id)),
+        csvTextCell(t.orderId),
+        csvTextCell(t.transactionId),
+        csvCell(t.username),
+        csvTextCell(t.Mobile),
+        csvCell(money(Number(t.amount))),
+        // Blank/absent status is what the UI shows as "InProgress".
+        csvCell(t.status || 'InProgress'),
+      ].join(','));
+
+      return sendCsv(res, {
+        filename: 'phonepe-transactions',
+        suffix: status && status !== 'all' ? status : '',
+        headers,
+        rows,
+        req,
+        audit: { filter, truncated: data.length === DEFAULT_EXPORT_LIMIT },
+      });
+    } catch (err) {
+      return csvError(res, 'PhonePe transactions', err);
+    }
+  }
+
   // ── Legacy makepayment ────────────────────────────────────────────────────
   async makepayment(req, res) {
     try {

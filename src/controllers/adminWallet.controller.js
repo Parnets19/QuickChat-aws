@@ -1,5 +1,15 @@
 const { User, Guest, Transaction, Withdrawal, Consultation } = require('../models');
 const { createNotification } = require('../utils/notifications');
+const {
+  DEFAULT_EXPORT_LIMIT,
+  csvCell,
+  csvTextCell,
+  formatDateTime,
+  money,
+  buildDateRange,
+  sendCsv,
+  csvError,
+} = require('../utils/csvExport');
 
 // Get platform wallet overview
 const getWalletOverview = async (req, res) => {
@@ -286,6 +296,167 @@ const getGuestWallets = async (req, res) => {
   }
 };
 
+// Build the Mongo filter for the provider/guest wallet lists.
+// `search` IS safe to include here: both list endpoints filter at the DB level.
+const buildWalletFilter = ({
+  isProvider,
+  search = '',
+  minBalance = 0,
+  maxBalance = null,
+} = {}) => {
+  const filter = isProvider ? { isServiceProvider: true } : {};
+
+  if (search) {
+    // Guests have `name`; providers have `fullName`. Include both so one helper
+    // serves either collection.
+    filter.$or = [
+      { fullName: { $regex: search, $options: 'i' } },
+      { name: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+      { mobile: { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  if (minBalance > 0) {
+    filter.wallet = { $gte: parseFloat(minBalance) };
+  }
+  if (maxBalance) {
+    filter.wallet = { ...filter.wallet, $lte: parseFloat(maxBalance) };
+  }
+
+  return filter;
+};
+
+// @desc    Export provider wallet balances as a CSV Excel can open
+// @route   GET /api/admin/wallet/providers/export
+// @access  Admin only
+const exportProviderWallets = async (req, res) => {
+  try {
+    const { search = '', sortBy = 'wallet', sortOrder = 'desc', minBalance = 0, maxBalance = null } = req.query;
+
+    const filter = buildWalletFilter({ isProvider: true, search, minBalance, maxBalance });
+    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
+    const providers = await User.find(filter)
+      .select('fullName email mobile profession wallet earnings status lastActive createdAt')
+      .sort(sort)
+      .limit(DEFAULT_EXPORT_LIMIT)
+      .lean();
+
+    const headers = [
+      'Joined (UTC)', 'Provider ID', 'Name', 'Mobile', 'Email', 'Profession',
+      'Wallet Balance', 'Total Earnings', 'Status', 'Last Active (UTC)',
+    ];
+
+    const rows = providers.map((p) => [
+      csvCell(formatDateTime(p.createdAt)),
+      csvCell(String(p._id)),
+      csvCell(p.fullName),
+      csvCell(p.mobile),
+      csvCell(p.email),
+      csvCell(p.profession),
+      csvCell(money(p.wallet)),
+      csvCell(money(p.earnings)),
+      csvCell(p.status),
+      csvCell(formatDateTime(p.lastActive)),
+    ].join(','));
+
+    return sendCsv(res, {
+      filename: 'provider-wallets',
+      headers,
+      rows,
+      req,
+      audit: { filter, truncated: providers.length === DEFAULT_EXPORT_LIMIT },
+    });
+  } catch (error) {
+    return csvError(res, 'provider wallets', error);
+  }
+};
+
+// @desc    Export guest wallet balances as a CSV Excel can open
+// @route   GET /api/admin/wallet/guests/export
+// @access  Admin only
+const exportGuestWallets = async (req, res) => {
+  try {
+    const { search = '', sortBy = 'wallet', sortOrder = 'desc', minBalance = 0, maxBalance = null } = req.query;
+
+    const filter = buildWalletFilter({ isProvider: false, search, minBalance, maxBalance });
+    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
+    const guests = await Guest.find(filter)
+      .select('name mobile wallet totalSpent status lastActive createdAt')
+      .sort(sort)
+      .limit(DEFAULT_EXPORT_LIMIT)
+      .lean();
+
+    const headers = [
+      'Joined (UTC)', 'Guest ID', 'Name', 'Mobile',
+      'Wallet Balance', 'Total Spent', 'Status', 'Last Active (UTC)',
+    ];
+
+    const rows = guests.map((g) => [
+      csvCell(formatDateTime(g.createdAt)),
+      csvCell(String(g._id)),
+      csvCell(g.name),
+      csvCell(g.mobile),
+      csvCell(money(g.wallet)),
+      csvCell(money(g.totalSpent)),
+      csvCell(g.status),
+      csvCell(formatDateTime(g.lastActive)),
+    ].join(','));
+
+    return sendCsv(res, {
+      filename: 'guest-wallets',
+      headers,
+      rows,
+      req,
+      audit: { filter, truncated: guests.length === DEFAULT_EXPORT_LIMIT },
+    });
+  } catch (error) {
+    return csvError(res, 'guest wallets', error);
+  }
+};
+
+// Build the Mongo filter for transaction queries.
+// Shared by the paginated list and the export so a downloaded sheet always
+// matches what the admin is looking at on screen.
+//
+// NOTE: `search` is deliberately not part of this filter. The list endpoint
+// applies it in memory AFTER pagination (it matches populated user fields), so it
+// cannot be reproduced against the full result set. The export therefore ignores
+// search and says so in the UI.
+const buildTransactionFilter = ({
+  userType = 'all',
+  type = 'all',
+  category = 'all',
+  status = 'all',
+  startDate = null,
+  endDate = null,
+  minAmount = null,
+  maxAmount = null,
+} = {}) => {
+  const filter = {};
+
+  if (userType && userType !== 'all') filter.userType = userType;
+  if (type && type !== 'all') filter.type = type;
+  if (category && category !== 'all') filter.category = category;
+  if (status && status !== 'all') filter.status = status;
+
+  // Previously this only applied when BOTH bounds were present, so filtering by
+  // just a start date or just an end date silently returned everything.
+  const createdAt = buildDateRange(startDate, endDate);
+  if (createdAt) filter.createdAt = createdAt;
+
+  if (minAmount) {
+    filter.amount = { $gte: parseFloat(minAmount) };
+  }
+  if (maxAmount) {
+    filter.amount = { ...filter.amount, $lte: parseFloat(maxAmount) };
+  }
+
+  return filter;
+};
+
 // Get all transactions with filtering
 const getAllTransactions = async (req, res) => {
   try {
@@ -303,39 +474,9 @@ const getAllTransactions = async (req, res) => {
       maxAmount = null
     } = req.query;
 
-    // Build filter query
-    const filter = {};
-    
-    if (userType !== 'all') {
-      filter.userType = userType;
-    }
-
-    if (type !== 'all') {
-      filter.type = type;
-    }
-
-    if (category !== 'all') {
-      filter.category = category;
-    }
-
-    if (status !== 'all') {
-      filter.status = status;
-    }
-
-    if (startDate && endDate) {
-      filter.createdAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
-    }
-
-    if (minAmount) {
-      filter.amount = { $gte: parseFloat(minAmount) };
-    }
-
-    if (maxAmount) {
-      filter.amount = { ...filter.amount, $lte: parseFloat(maxAmount) };
-    }
+    const filter = buildTransactionFilter({
+      userType, type, category, status, startDate, endDate, minAmount, maxAmount,
+    });
 
     // Execute query with pagination
     const skip = (page - 1) * limit;
@@ -442,6 +583,105 @@ const getAllTransactions = async (req, res) => {
   }
 };
 
+// @desc    Export transactions as a CSV Excel can open
+// @route   GET /api/admin/wallet/transactions/export
+// @access  Admin only (protect + adminOnly applied at the router)
+//
+// Accepts the same filters as the list endpoint (minus `search`, see
+// buildTransactionFilter) so the sheet matches the screen. Covers every row
+// matching the filters, not just the current page.
+const exportTransactions = async (req, res) => {
+  try {
+    const {
+      userType = 'all',
+      type = 'all',
+      category = 'all',
+      status = 'all',
+      startDate = null,
+      endDate = null,
+      minAmount = null,
+      maxAmount = null,
+      sortOrder = 'desc',
+    } = req.query;
+
+    const filter = buildTransactionFilter({
+      userType, type, category, status, startDate, endDate, minAmount, maxAmount,
+    });
+
+    const transactions = await Transaction.find(filter)
+      .populate('user', 'fullName email mobile name')
+      .populate('consultationId', 'type status')
+      .populate('processedBy', 'fullName email')
+      .sort({ createdAt: sortOrder === 'asc' ? 1 : -1 })
+      .limit(DEFAULT_EXPORT_LIMIT)
+      .lean();
+
+    const headers = [
+      'Date & Time (UTC)',
+      'Transaction ID',
+      'Internal ID',
+      'User Type',
+      'Name',
+      'Mobile',
+      'Email',
+      'Type',
+      'Category',
+      'Amount',
+      'Balance After',
+      'Status',
+      'Payment Method',
+      'Payment Gateway',
+      'Gateway Txn ID',
+      'Description',
+      'Consultation Type',
+      'Consultation Status',
+      'Duration (min)',
+      'Rate',
+      'Processed By',
+    ];
+
+    const rows = transactions.map((t) => {
+      const account = t.user || {};
+      const meta = t.metadata || {};
+      return [
+        csvCell(formatDateTime(t.createdAt)),
+        csvTextCell(t.transactionId),
+        csvCell(String(t._id)),
+        // 'User' is a provider or client in the User collection; Guest is separate.
+        csvCell(t.userType === 'Guest' ? 'Guest' : 'User'),
+        csvCell(account.fullName || account.name),
+        csvCell(account.mobile),
+        csvCell(account.email),
+        csvCell(t.type),
+        csvCell(t.category),
+        csvCell(money(t.amount)),
+        csvCell(money(t.balance)),
+        csvCell(t.status),
+        csvCell(t.paymentMethod),
+        csvCell(t.paymentGateway),
+        csvTextCell(t.gatewayTransactionId),
+        csvCell(t.description),
+        csvCell(t.consultationId?.type),
+        csvCell(t.consultationId?.status),
+        csvCell(meta.duration),
+        csvCell(money(meta.rate)),
+        csvCell(t.processedBy?.fullName),
+      ].join(',');
+    });
+
+    return sendCsv(res, {
+      filename: 'transactions',
+      suffix: type && type !== 'all' ? type : (status && status !== 'all' ? status : ''),
+      headers,
+      rows,
+      req,
+      audit: { filter, truncated: transactions.length === DEFAULT_EXPORT_LIMIT },
+    });
+  } catch (error) {
+    return csvError(res, 'transactions', error);
+  }
+};
+
 // Build the Mongo filter for withdrawal queries.
 // Shared by the paginated list and the export so a downloaded sheet always
 // matches exactly what the admin is looking at on screen.
@@ -462,22 +702,8 @@ const buildWithdrawalFilter = ({
   }
 
   // Date range on the request date. Either bound may be supplied on its own.
-  if (startDate || endDate) {
-    filter.createdAt = {};
-    if (startDate) {
-      const from = new Date(startDate);
-      if (!isNaN(from.getTime())) filter.createdAt.$gte = from;
-    }
-    if (endDate) {
-      const to = new Date(endDate);
-      if (!isNaN(to.getTime())) {
-        // Include the whole end day when a bare date (YYYY-MM-DD) is given.
-        if (String(endDate).length <= 10) to.setHours(23, 59, 59, 999);
-        filter.createdAt.$lte = to;
-      }
-    }
-    if (Object.keys(filter.createdAt).length === 0) delete filter.createdAt;
-  }
+  const createdAt = buildDateRange(startDate, endDate);
+  if (createdAt) filter.createdAt = createdAt;
 
   return filter;
 };
@@ -570,38 +796,10 @@ const getAllWithdrawals = async (req, res) => {
 };
 
 // ─── Withdrawal export (Excel-openable CSV) ──────────────────────────────────
-// Hard cap so one export can never try to buffer the whole collection.
-const WITHDRAWAL_EXPORT_LIMIT = 20000;
-
-// Escape a value for a CSV cell.
-// Also neutralises CSV/Excel formula injection: a cell starting with = + - @ or a
-// control char is executed by Excel, so a user-supplied name like
-// "=HYPERLINK(...)" would run on the admin's machine. Prefixing with a single
-// quote makes Excel treat it as text.
-const csvCell = (value) => {
-  if (value === null || value === undefined) return '';
-  let str = String(value);
-  if (/^[=+\-@\t\r]/.test(str)) {
-    str = `'${str}`;
-  }
-  // Escape embedded quotes and always quote — safe for commas and newlines.
-  return `"${str.replace(/"/g, '""')}"`;
-};
-
-// Account numbers and IFSC codes must survive Excel untouched: a plain long
-// number becomes scientific notation and leading zeros get stripped, which would
-// corrupt a bank transfer. `="..."` forces Excel to treat it as literal text.
-// The value is reduced to bank-safe characters first so it cannot break out of
-// the formula.
-const csvTextCell = (value) => {
-  if (value === null || value === undefined || value === '') return '';
-  const safe = String(value).replace(/[^A-Za-z0-9/\-_]/g, '');
-  if (!safe) return '';
-  return `"=""${safe}"""`;
-};
-
-const formatDateTime = (date) =>
-  date ? new Date(date).toISOString().replace('T', ' ').slice(0, 19) : '';
+// The CSV helpers (csvCell / csvTextCell / formatDateTime / sendCsv) and the row
+// cap now live in ../utils/csvExport so every admin export shares one
+// implementation. They used to be defined here, which meant no other page could
+// reuse them.
 
 // @desc    Export withdrawals (with bank details) as a CSV Excel can open
 // @route   GET /api/admin/wallet/withdrawals/export
@@ -632,7 +830,7 @@ const exportWithdrawals = async (req, res) => {
       .populate('reviewedBy', 'fullName email')
       .populate('processedBy', 'fullName email')
       .sort(sort)
-      .limit(WITHDRAWAL_EXPORT_LIMIT)
+      .limit(DEFAULT_EXPORT_LIMIT)
       .lean();
 
     const headers = [
@@ -672,9 +870,9 @@ const exportWithdrawals = async (req, res) => {
         csvCell(account.mobile),
         csvCell(account.email),
         csvCell(w.paymentMethod),
-        csvCell(typeof w.amount === 'number' ? w.amount.toFixed(2) : ''),
+        csvCell(money(w.amount)),
         csvCell(typeof w.processingFee === 'number' ? w.processingFee.toFixed(2) : '0.00'),
-        csvCell(typeof w.netAmount === 'number' ? w.netAmount.toFixed(2) : ''),
+        csvCell(money(w.netAmount)),
         csvCell(bank.accountHolderName),
         csvTextCell(bank.accountNumber),
         csvTextCell(bank.ifscCode),
@@ -688,32 +886,17 @@ const exportWithdrawals = async (req, res) => {
       ].join(',');
     });
 
-    const csv = [headers.map(csvCell).join(','), ...rows].join('\r\n');
-
-    // Bank details are sensitive — leave an audit trail of who exported what.
-    console.log('📥 ADMIN EXPORT: withdrawals', {
-      adminId: req.user?._id,
-      rows: withdrawals.length,
-      filter,
-      truncated: withdrawals.length === WITHDRAWAL_EXPORT_LIMIT,
+    // Bank details are sensitive — sendCsv logs who exported what.
+    return sendCsv(res, {
+      filename: 'withdrawals',
+      suffix: status && status !== 'all' ? status : '',
+      headers,
+      rows,
+      req,
+      audit: { filter, truncated: withdrawals.length === DEFAULT_EXPORT_LIMIT },
     });
-
-    const stamp = new Date().toISOString().slice(0, 10);
-    const suffix = status && status !== 'all' ? `-${status}` : '';
-    const filename = `withdrawals${suffix}-${stamp}.csv`;
-
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Cache-Control', 'no-store');
-    // Leading BOM so Excel detects UTF-8 and renders ₹ and non-Latin names.
-    return res.status(200).send(`\uFEFF${csv}`);
   } catch (error) {
-    console.error('Error exporting withdrawals:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to export withdrawals',
-      error: error.message,
-    });
+    return csvError(res, 'withdrawals', error);
   }
 };
 
@@ -1128,6 +1311,9 @@ module.exports = {
   getAllTransactions,
   getAllWithdrawals,
   exportWithdrawals,
+  exportTransactions,
+  exportProviderWallets,
+  exportGuestWallets,
   approveWithdrawal,
   rejectWithdrawal,
   processWithdrawal

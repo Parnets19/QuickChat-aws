@@ -6,6 +6,9 @@ const {
   getAllTransactions,
   getAllWithdrawals,
   exportWithdrawals,
+  exportTransactions,
+  exportProviderWallets,
+  exportGuestWallets,
   approveWithdrawal,
   rejectWithdrawal,
   processWithdrawal
@@ -18,13 +21,18 @@ const router = express.Router();
 router.use(protect);
 router.use(adminOnly);
 
-// Wallet overview and management
+// Wallet overview and management.
+// Each '/export' variant returns an Excel-openable CSV of every row matching the
+// current filters (not just the visible page).
 router.get('/overview', getWalletOverview);
 router.get('/providers', getProviderWallets);
+router.get('/providers/export', exportProviderWallets);
 router.get('/guests', getGuestWallets);
+router.get('/guests/export', exportGuestWallets);
 
 // Transaction management
 router.get('/transactions', getAllTransactions);
+router.get('/transactions/export', exportTransactions);
 
 // Withdrawal management
 router.get('/withdrawals', getAllWithdrawals);

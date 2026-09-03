@@ -197,6 +197,7 @@ const register = async (req, res, next) => {
       aadharDocuments,
       professionalCertificate,
       portfolioMedia,
+      professionVideo,
       portfolioLinks,
       bankDetails,
       isServiceProvider,
@@ -311,6 +312,19 @@ const register = async (req, res, next) => {
     }
     if (portfolioMedia && portfolioMedia.length > 0)
       userData.portfolioMedia = portfolioMedia;
+    // Profession/intro videos go in their OWN field (User.professionVideo), which
+    // is what the profile screens read and edit. Registration used to fold these
+    // into portfolioMedia, so a video uploaded at signup never appeared in the
+    // provider's "Professional Videos" section afterwards. Normalise to the
+    // schema shape [{ url }] and accept either an array of strings or of objects.
+    if (Array.isArray(professionVideo) && professionVideo.length > 0) {
+      userData.professionVideo = professionVideo
+        .map((v) => {
+          const url = typeof v === "string" ? v : v?.url;
+          return url ? { url } : null;
+        })
+        .filter(Boolean);
+    }
     if (portfolioLinks && portfolioLinks.length > 0)
       userData.portfolioLinks = portfolioLinks;
     if (serviceCategories && serviceCategories.length > 0) {
