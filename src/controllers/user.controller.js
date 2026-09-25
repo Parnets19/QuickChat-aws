@@ -1439,26 +1439,62 @@ const getUserDocuments = async (req, res, next) => {
       try {
         const fs = require("fs");
         const path = require("path");
+        const https = require("https");
+        const http = require("http");
 
-        // Extract filename from URL - handle both full URLs and relative paths
+        if (!filePath) return null;
+
+        const isRemote =
+          typeof filePath === "string" &&
+          (filePath.startsWith("http://") || filePath.startsWith("https://"));
+
+        // For S3 / Cloudinary / any remote URL, fetch just the HEAD response
+        // to read Content-Length (avoids downloading the entire file).
+        if (isRemote) {
+          return new Promise((resolve) => {
+            try {
+              const lib = filePath.startsWith("https:") ? https : http;
+              const req = lib.request(
+                filePath,
+                { method: "HEAD", timeout: 5000 },
+                (res) => {
+                  const len = res.headers["content-length"];
+                  res.resume && res.resume();
+                  if (!len) {
+                    resolve(null);
+                    return;
+                  }
+                  const bytes = parseInt(len, 10);
+                  if (isNaN(bytes) || bytes <= 0) {
+                    resolve(null);
+                    return;
+                  }
+                  if (bytes < 1024) resolve(`${bytes} B`);
+                  else if (bytes < 1024 * 1024)
+                    resolve(`${(bytes / 1024).toFixed(1)} KB`);
+                  else
+                    resolve(
+                      `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+                    );
+                }
+              );
+              req.on("timeout", () => {
+                req.destroy();
+                resolve(null);
+              });
+              req.on("error", () => resolve(null));
+              req.end();
+            } catch {
+              resolve(null);
+            }
+          });
+        }
+
+        // Local file path (old uploads/ behavior)
         let fileName = filePath;
-
-        // If it's a full URL, extract the path part
-        if (filePath.includes("http://") || filePath.includes("https://")) {
-          const url = new URL(filePath);
-          fileName = url.pathname; // Gets /uploads/photo-123.png
-        }
-
-        // Remove leading slash if present
-        if (fileName.startsWith("/")) {
-          fileName = fileName.substring(1);
-        }
-
-        // Handle Windows backslashes
+        if (fileName.startsWith("/")) fileName = fileName.substring(1);
         fileName = fileName.replace(/\\/g, "/");
 
-        // If the path already includes 'uploads/', use it as is
-        // Otherwise, prepend 'uploads/'
         let fullPath;
         if (fileName.startsWith("uploads/")) {
           fullPath = path.join(__dirname, "../../", fileName);
@@ -1474,7 +1510,6 @@ const getUserDocuments = async (req, res, next) => {
           const stats = fs.statSync(fullPath);
           const fileSizeInBytes = stats.size;
 
-          // Convert to human readable format
           if (fileSizeInBytes < 1024) {
             return `${fileSizeInBytes} B`;
           } else if (fileSizeInBytes < 1024 * 1024) {

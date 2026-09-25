@@ -1,5 +1,6 @@
 const cloudinary = require('cloudinary').v2;
 const { logger } = require('./logger');
+const { uploadToS3, deleteFromS3, isS3Configured } = require('./s3');
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -7,7 +8,28 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const getStorageProvider = () => {
+  const provider = (process.env.STORAGE_PROVIDER || '').toLowerCase();
+  if (provider === 's3' && isS3Configured()) return 's3';
+  if (provider === 'cloudinary' && process.env.CLOUDINARY_CLOUD_NAME) return 'cloudinary';
+  if (isS3Configured()) return 's3';
+  if (process.env.CLOUDINARY_CLOUD_NAME) return 'cloudinary';
+  return 'local';
+};
+
 const uploadToCloudinary = async (file, folder = 'skillhub') => {
+  const provider = getStorageProvider();
+
+  if (provider === 's3') {
+    logger.info(`Storage provider: S3 (uploading file: ${file})`);
+    return uploadToS3(file, folder);
+  }
+
+  if (provider === 'local') {
+    logger.warn(`Storage provider: local (fallback for file: ${file})`);
+  }
+
+
   try {
     // Helper function to extract filename from path (handles both / and \ separators)
     const getFileName = (filePath) => {
@@ -123,6 +145,13 @@ const uploadToCloudinary = async (file, folder = 'skillhub') => {
 };
 
 const deleteFromCloudinary = async (publicId) => {
+  const provider = getStorageProvider();
+
+  if (provider === 's3') {
+    logger.info(`Storage provider: S3 (deleting: ${publicId})`);
+    return deleteFromS3(publicId);
+  }
+
   try {
     await cloudinary.uploader.destroy(publicId);
     return true;
@@ -136,5 +165,8 @@ module.exports = {
   cloudinary,
   uploadToCloudinary,
   deleteFromCloudinary,
+  getStorageProvider,
+  uploadToS3,
+  deleteFromS3,
 };
 

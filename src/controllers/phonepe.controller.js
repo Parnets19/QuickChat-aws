@@ -16,7 +16,7 @@ const CLIENT_SECRET = process.env.PHONEPE_CLIENT_SECRET || "a0755144-e7c6-4e0d-a
 const CLIENT_VER    = process.env.PHONEPE_CLIENT_VERSION || "1";
 
 const CALLBACK_URL  = process.env.PHONEPE_CALLBACK_URL  || "https://quickchatindia.com";
-const BACKEND_URL   = process.env.BACKEND_URL           || "https://quickchatindia.com";
+const BACKEND_URL   = process.env.BACKEND_URL           || "https://api.quickchatindia.com";
 const MERCHANT_ID   = process.env.PHONEPE_MERCHANT_ID   || "M2352B2GR2M1V";
 
 const PAY_URL = IS_PROD
@@ -39,10 +39,7 @@ const phonePeClient = StandardCheckoutClient.getInstance(
   IS_PROD ? Env.PRODUCTION : Env.SANDBOX
 );
 
-console.log("🔧 PhonePe Config →", {
-  PHONEPE_ENV, IS_PROD, CLIENT_ID, MERCHANT_ID,
-  PAY_URL, CALLBACK_URL, BACKEND_URL
-});
+
 console.log("✅ PhonePe Node.js SDK client initialized");
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -246,10 +243,7 @@ class PhonePeController {
   // ── Payment Callback (PhonePe webhook POST) ───────────────────────────────
   async paymentcallback(req, res) {
     try {
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log("📩 PhonePe CALLBACK at", new Date().toISOString());
-      console.log("📦 Body:", JSON.stringify(req.body, null, 2));
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+     
 
       let txnId, state;
 
@@ -258,7 +252,7 @@ class PhonePeController {
         txnId = req.body.merchantOrderId;
         // pg.order.completed event always means success
         state = req.body.state || "COMPLETED";
-        console.log(`📋 v2 format → txn=${txnId}, state=${state}`);
+       
       }
       // Old base64 format
       else if (req.body?.response) {
@@ -332,7 +326,7 @@ class PhonePeController {
           },
         });
 
-        console.log("📊 PhonePe order status response:", JSON.stringify(statusResp, null, 2));
+     
 
         const phonepeState = statusResp?.state;
         if (phonepeState === "COMPLETED" && txn.status !== "COMPLETED") {

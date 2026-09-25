@@ -1,0 +1,41 @@
+# Auto-normalize line endings for text files (LF in repo, CRLF on Windows checkout)
+* text=auto eol=lf
+
+# Source files — force LF in repo and working tree (Node.js on WSL/Linux servers expects LF)
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sql  text eol=lf
+*.env* text eol=lf
+*.css  text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.vue  text eol=lf
+*.py   text eol=lf
+*.sh   text eol=lf
+
+# Shell scripts must stay LF even on Windows (won't run with CRLF in bash/WSL)
+*.sh text eol=lf
+
+# Binary files — never touch
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.mp4  binary
+*.mov  binary
+*.mp3  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.zip  binary
+*.keystore binary

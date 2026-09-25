@@ -3,7 +3,17 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
+uploads/
+# Uploads
+uploads/
+# Database
+*.sqlite
+*.sqlite3
+*.db
+# SSL certificates
+*.pem
+*.key
+*.crt
 # Environment variables
 .env
 .env.local

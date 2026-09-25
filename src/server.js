@@ -15,6 +15,12 @@ const routes = require('./routes');
 // Load environment variables from parent directory
 dotenv.config({ path: require('path').join(__dirname, '..', '.env') });
 
+// Suppress Mongoose strictQuery deprecation and prepare for Mongoose 7 behavior.
+// strict: true (default for schemas) still strips unknown fields from documents.
+// strictQuery: false means query filters with unknown paths pass through to MongoDB
+// instead of being silently stripped — matches the new Mongoose 7 default.
+mongoose.set('strictQuery', false);
+
 // Initialize Express app
 const app = express();
 const httpServer = createServer(app);
@@ -130,12 +136,12 @@ app.get('/reel/:reelId', async (req, res) => {
   // If it's NOT a crawler, redirect to the web frontend which has a proper ReelPage
   if (!isCrawler) {
     // Let the SPA handle it — redirect to the frontend URL
-    const buildPath = path.join(__dirname, '..', 'build');
-    const indexPath = path.join(buildPath, 'index.html');
-    const fs = require('fs');
-    if (fs.existsSync(indexPath)) {
-      return res.sendFile(indexPath);
-    }
+    // const buildPath = path.join(__dirname, '..', 'build');
+    // const indexPath = path.join(buildPath, 'index.html');
+    // const fs = require('fs');
+    // if (fs.existsSync(indexPath)) {
+    //   return res.sendFile(indexPath);
+    // }
     // Fallback if build doesn't exist (dev mode)
     return res.redirect(`https://quickchatindia.com/reel/${reelId}`);
   }
@@ -208,29 +214,36 @@ app.get('/reel/:reelId', async (req, res) => {
 app.use('/api', routes);
 
 // Serve static files from build directory
-const buildPath = path.join(__dirname, '..', 'build');
-app.use(express.static(buildPath));
+// const buildPath = path.join(__dirname, '..', 'build');
+// app.use(express.static(buildPath));
 
 // Catch-all handler: send back React's index.html file for any non-API routes
-app.get("*", (req, res) => {
-  // Skip API routes
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'API route not found' });
-  }
+// app.get("*", (req, res) => {
+//   // Skip API routes
+//   if (req.path.startsWith('/api/')) {
+//     return res.status(404).json({ error: 'API route not found' });
+//   }
   
-  const indexPath = path.join(buildPath, 'index.html');
+//   const indexPath = path.join(buildPath, 'index.html');
   
-  // Check if index.html exists
-  if (fs.existsSync(indexPath)) {
-    return res.sendFile(indexPath);
-  } else {
-    return res.status(404).json({ 
-      error: 'Frontend build not found. Please ensure build directory exists with index.html',
-      buildPath: buildPath 
-    });
-  }
-});
+//   // Check if index.html exists
+//   if (fs.existsSync(indexPath)) {
+//     return res.sendFile(indexPath);
+//   } else {
+//     return res.status(404).json({ 
+//       error: 'Frontend build not found. Please ensure build directory exists with index.html',
+//       buildPath: buildPath 
+//     });
+//   }
+// });
 
+app.get("/",(req,res)=>{
+  try{
+    return res.status(200).json({status:200,msg:"welcome to quick chat india"})
+  }catch(err){
+    console.log(err)
+  }
+})
 // Error handling middleware
 app.use(errorHandler);
 

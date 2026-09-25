@@ -1,5 +1,6 @@
 const { Chat, ChatMessage, User, Guest } = require("../models");
 const { AppError } = require("../middlewares/errorHandler");
+const { uploadToCloudinary } = require("../utils/cloudinary");
 
 // @desc    Send a chat message
 // @route   POST /api/chat/send
@@ -903,7 +904,9 @@ const sendFileMessage = async (req, res, next) => {
     const ext = req.file.originalname.split('.').pop().toLowerCase();
     const isPdf = ext === 'pdf';
     const fileType = isPdf ? 'file' : 'image';
-    const fileUrl = `/uploads/${req.file.filename}`;
+
+    const uploadResult = await uploadToCloudinary(req.file.path, "skillhub/chat");
+    const fileUrl = uploadResult?.url || `/uploads/${req.file.filename}`;
 
     // Find or create chat
     let chat = await Chat.findOne({
