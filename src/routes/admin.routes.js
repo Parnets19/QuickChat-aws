@@ -103,6 +103,22 @@ router.post('/guests/:id/add-money', adminGuestController.addMoneyToGuestWallet)
 // Analytics routes
 router.get('/stats', adminController.getAdminStats);
 
+// Monetization routes
+router.get('/monetization/overview', adminController.getMonetizationOverview);
+router.get('/monetization/settings', adminController.getMonetizationSettings);
+router.put('/monetization/settings', adminController.updateMonetizationSettings);
+
+// Commission management routes
+router.get('/commissions/stats', adminController.getCommissionStats);
+router.get('/commissions/rules', adminController.getCommissionRules);
+router.post('/commissions/rules', adminController.createCommissionRule);
+router.put('/commissions/rules/:id', adminController.updateCommissionRule);
+router.delete('/commissions/rules/:id', adminController.deleteCommissionRule);
+router.get('/commissions/platform-fees', adminController.getPlatformFees);
+router.put('/commissions/platform-fees', adminController.updatePlatformFees);
+router.get('/commissions/tiered', adminController.getTieredCommissions);
+router.put('/commissions/tiered', adminController.updateTieredCommissions);
+
 // KYC management routes
 router.get('/kyc', adminController.getKycRequests);
 router.get('/kyc/export', adminExportController.exportKycRequests);

@@ -1208,6 +1208,444 @@ const updateReportStatus = async (req, res) => {
   }
 };
 
+const { Transaction } = require('../models');
+const Settings = require('../models/Settings.model');
+const PhonePe = require('../models/phonepe.model');
+
+const DEFAULT_MONETIZATION_SETTINGS = {
+  platformCommission: 10,
+  walletRechargeFee: 2,
+  minWithdrawal: 100,
+  maxWithdrawal: 50000,
+};
+
+const DEFAULT_COMMISSION_RULES = [
+  {
+    id: 'default-1',
+    category: 'General',
+    type: 'percentage',
+    rate: 10,
+    minAmount: 0,
+    maxAmount: 0,
+    isActive: true,
+    effectiveFrom: new Date().toISOString().split('T')[0],
+    description: 'Default commission rate for all services',
+  },
+];
+
+const DEFAULT_PLATFORM_FEES = {
+  bookingFee: 2.99,
+  paymentProcessingFee: 2.9,
+  cancellationFee: 10,
+  refundFee: 5,
+  disputeFee: 25,
+};
+
+const DEFAULT_TIERED_COMMISSIONS = [
+  { id: 'tier-1', minEarnings: 0, maxEarnings: 1000, rate: 10, level: 'Bronze' },
+  { id: 'tier-2', minEarnings: 1001, maxEarnings: 5000, rate: 12, level: 'Silver' },
+  { id: 'tier-3', minEarnings: 5001, maxEarnings: 15000, rate: 15, level: 'Gold' },
+  { id: 'tier-4', minEarnings: 15001, maxEarnings: -1, rate: 18, level: 'Platinum' },
+];
+
+const getOrCreateSettings = async (key, defaultValue) => {
+  let setting = await Settings.findOne({ key });
+  if (!setting) {
+    setting = await Settings.create({
+      key,
+      value: defaultValue,
+      type: typeof defaultValue === 'object' ? 'object' : typeof defaultValue,
+      description: `Default value for ${key}`,
+    });
+  }
+  return setting.value;
+};
+
+const updateSettings = async (key, value) => {
+  const type = typeof value === 'object' ? 'object' : typeof value;
+  const setting = await Settings.findOneAndUpdate(
+    { key },
+    { value, type },
+    { new: true, upsert: true, runValidators: true }
+  );
+  return setting.value;
+};
+
+const buildDateFilter = (startDate, endDate) => {
+  const filter = {};
+  if (startDate) filter.$gte = new Date(startDate);
+  if (endDate) {
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    filter.$lte = end;
+  }
+  return Object.keys(filter).length > 0 ? filter : undefined;
+};
+
+const getMonetizationOverview = async (req, res, next) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const dateFilter = buildDateFilter(startDate, endDate);
+
+    const settings = await getOrCreateSettings('monetization', DEFAULT_MONETIZATION_SETTINGS);
+    const commissionRate = settings.platformCommission || DEFAULT_MONETIZATION_SETTINGS.platformCommission;
+    const walletFeePct = settings.walletRechargeFee || DEFAULT_MONETIZATION_SETTINGS.walletRechargeFee;
+
+    const consultationMatch = { status: 'completed', totalAmount: { $gt: 0 } };
+    if (dateFilter) consultationMatch.createdAt = dateFilter;
+
+    const consultationAgg = await Consultation.aggregate([
+      { $match: consultationMatch },
+      {
+        $group: {
+          _id: null,
+          totalGross: { $sum: '$totalAmount' },
+          transactions: { $sum: 1 },
+        },
+      },
+    ]);
+    const totalGross = consultationAgg[0]?.totalGross || 0;
+    const commissionTransactions = consultationAgg[0]?.transactions || 0;
+    const commissionRevenue = Math.round(totalGross * commissionRate) / 100;
+
+    const rechargeMatch = { status: 'completed', amount: { $gt: 0 } };
+    if (dateFilter) rechargeMatch.createdAt = dateFilter;
+
+    const walletRecharges = await PhonePe.find({
+      ...(dateFilter ? { createdAt: dateFilter } : {}),
+      transactionStatus: 'CR',
+      amount: { $gt: 0 },
+    });
+    const totalRechargeAmount = walletRecharges.reduce((s, r) => s + (r.amount || 0), 0);
+    const walletRechargeCount = walletRecharges.length;
+    const walletRechargeRevenue = Math.round(totalRechargeAmount * walletFeePct) / 100;
+
+    const totalRevenue = commissionRevenue + walletRechargeRevenue;
+
+    const prevMonthStart = new Date();
+    prevMonthStart.setMonth(prevMonthStart.getMonth() - 1);
+    prevMonthStart.setDate(1);
+    const prevMonthEnd = new Date();
+    prevMonthEnd.setDate(0);
+    prevMonthEnd.setHours(23, 59, 59, 999);
+
+    const currMonthStart = new Date();
+    currMonthStart.setDate(1);
+
+    const [prevComm, currComm, prevWallet, currWallet] = await Promise.all([
+      Consultation.aggregate([
+        { $match: { status: 'completed', totalAmount: { $gt: 0 }, createdAt: { $gte: prevMonthStart, $lte: prevMonthEnd } } },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } },
+      ]),
+      Consultation.aggregate([
+        { $match: { status: 'completed', totalAmount: { $gt: 0 }, createdAt: { $gte: currMonthStart } } },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } },
+      ]),
+      PhonePe.find({
+        createdAt: { $gte: prevMonthStart, $lte: prevMonthEnd },
+        transactionStatus: 'CR',
+        amount: { $gt: 0 },
+      }),
+      PhonePe.find({
+        createdAt: { $gte: currMonthStart },
+        transactionStatus: 'CR',
+        amount: { $gt: 0 },
+      }),
+    ]);
+
+    const prevTotal = (prevComm[0]?.total || 0) * commissionRate / 100
+      + prevWallet.reduce((s, r) => s + (r.amount || 0), 0) * walletFeePct / 100;
+    const currTotal = (currComm[0]?.total || 0) * commissionRate / 100
+      + currWallet.reduce((s, r) => s + (r.amount || 0), 0) * walletFeePct / 100;
+    const growth = prevTotal > 0 ? Math.round(((currTotal - prevTotal) / prevTotal) * 1000) / 10 : 0;
+
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setDate(1);
+
+    const monthlyConsultations = await Consultation.aggregate([
+      {
+        $match: {
+          status: 'completed',
+          totalAmount: { $gt: 0 },
+          createdAt: { $gte: sixMonthsAgo },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+          },
+          gross: { $sum: '$totalAmount' },
+          txCount: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+    ]);
+
+    const monthlyRechargesRaw = await PhonePe.aggregate([
+      {
+        $match: {
+          transactionStatus: 'CR',
+          amount: { $gt: 0 },
+          createdAt: { $gte: sixMonthsAgo },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+          },
+          total: { $sum: '$amount' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthlyData = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const year = d.getFullYear();
+      const month = d.getMonth() + 1;
+      const c = monthlyConsultations.find(m => m._id.year === year && m._id.month === month);
+      const w = monthlyRechargesRaw.find(m => m._id.year === year && m._id.month === month);
+      const commissionAmt = Math.round((c?.gross || 0) * commissionRate * 100) / 10000;
+      const walletAmt = Math.round((w?.total || 0) * walletFeePct * 100) / 10000;
+      monthlyData.push({
+        month: monthNames[month - 1],
+        commission: commissionAmt,
+        subscriptions: 0,
+        wallet: walletAmt,
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        commission: {
+          revenue: commissionRevenue,
+          transactions: commissionTransactions,
+          rate: commissionRate,
+          growth,
+        },
+        subscriptions: {
+          revenue: 0,
+          count: 0,
+          growth: 0,
+        },
+        walletRecharges: {
+          revenue: walletRechargeRevenue,
+          count: walletRechargeCount,
+          feePercentage: walletFeePct,
+          growth,
+        },
+        totalRevenue,
+        monthlyData,
+        growthOverall: growth,
+        settings,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getMonetizationSettings = async (req, res, next) => {
+  try {
+    const settings = await getOrCreateSettings('monetization', DEFAULT_MONETIZATION_SETTINGS);
+    res.json({ success: true, data: settings });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const updateMonetizationSettings = async (req, res, next) => {
+  try {
+    const { platformCommission, walletRechargeFee, minWithdrawal, maxWithdrawal } = req.body;
+    const current = await getOrCreateSettings('monetization', DEFAULT_MONETIZATION_SETTINGS);
+    const updated = {
+      ...current,
+      ...(platformCommission !== undefined && { platformCommission: Number(platformCommission) }),
+      ...(walletRechargeFee !== undefined && { walletRechargeFee: Number(walletRechargeFee) }),
+      ...(minWithdrawal !== undefined && { minWithdrawal: Number(minWithdrawal) }),
+      ...(maxWithdrawal !== undefined && { maxWithdrawal: Number(maxWithdrawal) }),
+    };
+    const result = await updateSettings('monetization', updated);
+    res.json({ success: true, data: result, message: 'Monetization settings updated' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getCommissionRules = async (req, res, next) => {
+  try {
+    const rules = await getOrCreateSettings('commissionRules', DEFAULT_COMMISSION_RULES);
+    res.json({ success: true, data: rules });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const createCommissionRule = async (req, res, next) => {
+  try {
+    const rules = await getOrCreateSettings('commissionRules', DEFAULT_COMMISSION_RULES);
+    const newRule = {
+      id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      category: req.body.category,
+      type: req.body.type || 'percentage',
+      rate: Number(req.body.rate) || 0,
+      minAmount: Number(req.body.minAmount) || 0,
+      maxAmount: Number(req.body.maxAmount) || 0,
+      isActive: req.body.isActive !== false,
+      effectiveFrom: req.body.effectiveFrom || new Date().toISOString().split('T')[0],
+      description: req.body.description || '',
+    };
+    rules.push(newRule);
+    await updateSettings('commissionRules', rules);
+    res.json({ success: true, data: newRule, message: 'Commission rule created' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const updateCommissionRule = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const rules = await getOrCreateSettings('commissionRules', DEFAULT_COMMISSION_RULES);
+    const idx = rules.findIndex(r => r.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Rule not found' });
+    rules[idx] = {
+      ...rules[idx],
+      ...(req.body.category !== undefined && { category: req.body.category }),
+      ...(req.body.type !== undefined && { type: req.body.type }),
+      ...(req.body.rate !== undefined && { rate: Number(req.body.rate) }),
+      ...(req.body.minAmount !== undefined && { minAmount: Number(req.body.minAmount) }),
+      ...(req.body.maxAmount !== undefined && { maxAmount: Number(req.body.maxAmount) }),
+      ...(req.body.isActive !== undefined && { isActive: req.body.isActive }),
+      ...(req.body.description !== undefined && { description: req.body.description }),
+    };
+    await updateSettings('commissionRules', rules);
+    res.json({ success: true, data: rules[idx], message: 'Commission rule updated' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteCommissionRule = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const rules = await getOrCreateSettings('commissionRules', DEFAULT_COMMISSION_RULES);
+    const filtered = rules.filter(r => r.id !== id);
+    if (filtered.length === rules.length) {
+      return res.status(404).json({ success: false, message: 'Rule not found' });
+    }
+    await updateSettings('commissionRules', filtered);
+    res.json({ success: true, message: 'Commission rule deleted' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getPlatformFees = async (req, res, next) => {
+  try {
+    const fees = await getOrCreateSettings('platformFees', DEFAULT_PLATFORM_FEES);
+    res.json({ success: true, data: fees });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const updatePlatformFees = async (req, res, next) => {
+  try {
+    const current = await getOrCreateSettings('platformFees', DEFAULT_PLATFORM_FEES);
+    const updated = {
+      ...current,
+      ...(req.body.bookingFee !== undefined && { bookingFee: Number(req.body.bookingFee) }),
+      ...(req.body.paymentProcessingFee !== undefined && { paymentProcessingFee: Number(req.body.paymentProcessingFee) }),
+      ...(req.body.cancellationFee !== undefined && { cancellationFee: Number(req.body.cancellationFee) }),
+      ...(req.body.refundFee !== undefined && { refundFee: Number(req.body.refundFee) }),
+      ...(req.body.disputeFee !== undefined && { disputeFee: Number(req.body.disputeFee) }),
+    };
+    const result = await updateSettings('platformFees', updated);
+    res.json({ success: true, data: result, message: 'Platform fees updated' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getTieredCommissions = async (req, res, next) => {
+  try {
+    const tiers = await getOrCreateSettings('tieredCommissions', DEFAULT_TIERED_COMMISSIONS);
+    res.json({ success: true, data: tiers });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const updateTieredCommissions = async (req, res, next) => {
+  try {
+    const { tiers } = req.body;
+    if (!Array.isArray(tiers)) {
+      return res.status(400).json({ success: false, message: 'tiers must be an array' });
+    }
+    const cleaned = tiers.map(t => ({
+      id: t.id || `tier-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      minEarnings: Number(t.minEarnings) || 0,
+      maxEarnings: Number(t.maxEarnings) || 0,
+      rate: Number(t.rate) || 0,
+      level: t.level || '',
+    }));
+    const result = await updateSettings('tieredCommissions', cleaned);
+    res.json({ success: true, data: result, message: 'Tiered commissions updated' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getCommissionStats = async (req, res, next) => {
+  try {
+    const monetization = await getOrCreateSettings('monetization', DEFAULT_MONETIZATION_SETTINGS);
+    const commissionRate = monetization.platformCommission || 10;
+
+    const completedAgg = await Consultation.aggregate([
+      { $match: { status: 'completed', totalAmount: { $gt: 0 } } },
+      {
+        $group: {
+          _id: null,
+          gross: { $sum: '$totalAmount' },
+          transactions: { $sum: 1 },
+        },
+      },
+    ]);
+    const totalGross = completedAgg[0]?.gross || 0;
+    const totalTransactions = completedAgg[0]?.transactions || 0;
+    const totalCommissionEarned = Math.round(totalGross * commissionRate) / 100;
+    const averageCommissionRate = commissionRate;
+
+    const pendingAgg = await Consultation.aggregate([
+      { $match: { status: { $in: ['ongoing', 'pending'] }, totalAmount: { $gt: 0 } } },
+      { $group: { _id: null, gross: { $sum: '$totalAmount' } } },
+    ]);
+    const pendingCommissions = Math.round((pendingAgg[0]?.gross || 0) * commissionRate) / 100;
+
+    res.json({
+      success: true,
+      data: {
+        totalCommissionEarned,
+        averageCommissionRate,
+        totalTransactions,
+        pendingCommissions,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllProviders,
   getProviderById,
@@ -1224,5 +1662,17 @@ module.exports = {
   bulkVerifyExistingProviders,
   fixUserRoles,
   getReportsAndBlocks,
-  updateReportStatus
+  updateReportStatus,
+  getMonetizationOverview,
+  getMonetizationSettings,
+  updateMonetizationSettings,
+  getCommissionRules,
+  createCommissionRule,
+  updateCommissionRule,
+  deleteCommissionRule,
+  getPlatformFees,
+  updatePlatformFees,
+  getTieredCommissions,
+  updateTieredCommissions,
+  getCommissionStats,
 };
