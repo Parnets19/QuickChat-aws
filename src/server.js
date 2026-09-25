@@ -67,6 +67,9 @@ const corsOptions = {
       process.env.ADMIN_URL || 'http://localhost:3001',
       'https://skill-quick-chats.netlify.app',
       'https://quickchatindia.com',
+      'http://13.203.206.5',
+      'http://13.203.206.5:3000',
+      'http://13.203.206.5:5001',
     ];
     
     // Allow any origin in development
