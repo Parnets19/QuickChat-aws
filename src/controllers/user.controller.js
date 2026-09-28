@@ -1870,7 +1870,7 @@ const getVerificationStatus = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id)
       .select(
-        "providerVerificationStatus verificationNotes verifiedAt verifiedBy isServiceProvider"
+        "providerVerificationStatus verificationNotes verifiedAt verifiedBy isServiceProvider correctionRequested correctionNote"
       )
       .populate("verifiedBy", "fullName email");
 
@@ -1882,15 +1882,25 @@ const getVerificationStatus = async (req, res, next) => {
       return next(new AppError("Not a service provider", 403));
     }
 
+    // If admin requested corrections, surface that as a distinct status to
+    // the front-end while keeping the DB enum compliant (pending + flag).
+    const displayStatus =
+      user.correctionRequested && user.providerVerificationStatus === "pending"
+        ? "correction_requested"
+        : user.providerVerificationStatus;
+
     res.status(200).json({
       success: true,
       data: {
-        status: user.providerVerificationStatus,
-        notes: user.verificationNotes,
+        status: displayStatus,
+        notes: user.correctionNote || user.verificationNotes,
         verifiedAt: user.verifiedAt,
         verifiedBy: user.verifiedBy,
         isVerified: user.providerVerificationStatus === "verified",
         canAccessFeatures: user.providerVerificationStatus === "verified",
+        correctionRequested: user.correctionRequested || false,
+        correctionNote: user.correctionNote || "",
+        providerVerificationStatus: user.providerVerificationStatus,
       },
     });
   } catch (error) {

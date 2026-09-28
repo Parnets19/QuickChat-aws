@@ -281,6 +281,14 @@ const UserSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
     },
+    correctionRequested: {
+      type: Boolean,
+      default: false,
+    },
+    correctionNote: {
+      type: String,
+      default: "",
+    },
     isAdmin: {
       type: Boolean,
       default: false,
