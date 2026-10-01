@@ -412,7 +412,7 @@ const register = async (req, res, next) => {
     // Notify all connected admins about new KYC request (only for providers)
     try {
       if (req.io && user.isServiceProvider) {
-        req.io.emit("admin:new_kyc_request", {
+        req.io.to('admin_room').emit("admin:new_kyc_request", {
           userId: user._id,
           fullName: user.fullName,
           mobile: user.mobile,

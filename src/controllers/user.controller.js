@@ -12,6 +12,42 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true, mode: 0o755 });
 }
 
+const KYC_PROFILE_FIELDS = [
+  "fullName", "email", "dateOfBirth", "gender", "place", "address",
+  "profession", "education", "hobbies", "skills", "languagesKnown", "bio",
+  "portfolioLinks",
+];
+
+const changedFields = (updates, current, fields) => fields.filter((field) => {
+  if (updates[field] === undefined) return false;
+  return JSON.stringify(updates[field] ?? null) !== JSON.stringify(current?.[field] ?? null);
+});
+
+const getKycResubmissionUpdates = (user, hasKycChanges) => {
+  const rejected = user?.providerVerificationStatus === "rejected";
+  const correctionResubmission = user?.providerVerificationStatus === "pending" && user?.correctionRequested;
+  if (!user?.isServiceProvider || !hasKycChanges || (!rejected && !correctionResubmission)) return null;
+
+  return {
+    providerVerificationStatus: "pending",
+    correctionRequested: false,
+    correctionNote: "",
+    isAadharVerified: false,
+    verifiedAt: null,
+    verifiedBy: null,
+  };
+};
+
+const notifyKycResubmission = (io, user) => {
+  io?.to("admin_room").emit("admin:kyc_resubmitted", {
+    userId: user._id,
+    fullName: user.fullName,
+    mobile: user.mobile,
+    profilePhoto: user.profilePhoto,
+    providerVerificationStatus: "pending",
+  });
+};
+
 // @desc    Get user profile
 // @route   GET /api/users/profile/:id
 // @access  Public
@@ -112,6 +148,12 @@ const updateProfile = async (req, res, next) => {
     // Fetch old data BEFORE update for audit log
     const oldUser = await User.findById(req.user?._id).lean();
 
+    const resubmissionUpdates = getKycResubmissionUpdates(
+      oldUser,
+      changedFields(updateData, oldUser, KYC_PROFILE_FIELDS).length > 0
+    );
+    if (resubmissionUpdates) Object.assign(updateData, resubmissionUpdates);
+
     const user = await User.findByIdAndUpdate(req.user?._id, updateData, {
       new: true,
       runValidators: true,
@@ -146,6 +188,8 @@ const updateProfile = async (req, res, next) => {
         }).catch(err => console.error('ProfileEditLog error:', err));
       }
     }
+
+    if (resubmissionUpdates) notifyKycResubmission(req.io, user);
 
     // Notify admin about the profile update (fire-and-forget)
     createAdminNotification({
@@ -254,16 +298,17 @@ const uploadAadhar = async (req, res, next) => {
     // If user is authenticated, update their profile
     let user = null;
     if (req.user?._id) {
-      user = await User.findByIdAndUpdate(
-        req.user._id,
-        {
-          aadharDocuments: {
-            front: frontResult.url,
-            back: backResult ? backResult.url : "",
-          },
-        },
-        { new: true }
-      );
+      user = await User.findById(req.user._id);
+      if (user) {
+        user.aadharDocuments = {
+          front: frontResult.url,
+          back: backResult ? backResult.url : "",
+        };
+        const resubmissionUpdates = getKycResubmissionUpdates(user, true);
+        if (resubmissionUpdates) Object.assign(user, resubmissionUpdates);
+        await user.save();
+        if (resubmissionUpdates) notifyKycResubmission(req.io, user);
+      }
     }
 
     const aadharDocuments = {
@@ -547,6 +592,12 @@ const updateProviderSettings = async (req, res, next) => {
       }
     });
 
+    const kycFieldsChanged = changedFields(updateData, currentUser, [
+      "serviceCategories", "portfolioMedia", "professionVideo",
+    ]).length > 0;
+    const resubmissionUpdates = getKycResubmissionUpdates(currentUser, kycFieldsChanged);
+    if (resubmissionUpdates) Object.assign(updateData, resubmissionUpdates);
+
     // Special handling for rates to ensure nested objects are properly updated
     if (updateData.rates) {
       console.log(
@@ -681,6 +732,8 @@ const updateProviderSettings = async (req, res, next) => {
 
     // Fetch the updated user to verify rates were saved correctly
     const updatedUser = await User.findById(req.user._id);
+
+    if (resubmissionUpdates) notifyKycResubmission(req.io, updatedUser);
 
     // Log provider settings changes (fire-and-forget)
     const ProfileEditLog = require('../models/ProfileEditLog.model');
@@ -1708,7 +1761,12 @@ const updateDocument = async (req, res, next) => {
       return next(new AppError("Invalid document ID", 400));
     }
 
+    const isKycDocument = ["profile-photo", "aadhar-front", "aadhar-back"].includes(documentId)
+      || documentId.startsWith("portfolio-");
+    const resubmissionUpdates = getKycResubmissionUpdates(user, isKycDocument);
+    if (resubmissionUpdates) Object.assign(user, resubmissionUpdates);
     await user.save();
+    if (resubmissionUpdates) notifyKycResubmission(req.io, user);
 
     res.status(200).json({
       success: true,

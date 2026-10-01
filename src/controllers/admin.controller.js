@@ -783,7 +783,7 @@ const getKycRequests = async (req, res) => {
       .select('-password -fcmTokens -socialLogins') // Exclude sensitive fields only
       .populate('verifiedBy', 'fullName email')
       .populate('serviceCategories')
-      .sort({ createdAt: -1 })
+      .sort(status === 'pending' ? { updatedAt: -1, createdAt: -1 } : { createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
       .lean();
