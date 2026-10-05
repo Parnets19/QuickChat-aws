@@ -1,29 +1,7 @@
 
 const { LiveStream, User } = require('../models');
-const { settleViewerExit } = require('../controllers/liveStream.controller');
 
 module.exports = (io) => {
-  // Count the LIVE viewers actually connected to the stream's socket room,
-  // excluding the streamer. Using live room membership (instead of the DB
-  // viewers array) means the count self-corrects when someone closes the tab
-  // or disconnects — socket.io removes them from the room automatically, so
-  // stale "leftAt: null" records can no longer inflate the number. Distinct
-  // userIds are counted so a viewer with multiple tabs still counts once.
-  const getLiveViewerCount = (liveStreamId, streamerId) => {
-    const room = io.sockets.adapter.rooms.get(`live-stream:${liveStreamId}`);
-    if (!room) return 0;
-    const uniqueUserIds = new Set();
-    for (const socketId of room) {
-      const s = io.sockets.sockets.get(socketId);
-      const uid = s?.data?.userId;
-      if (!uid) continue;
-      if (streamerId && uid.toString() === streamerId.toString()) continue; // exclude streamer
-      if (s?.data?.user?.isAdminAccount === true) continue; // exclude admin monitors
-      uniqueUserIds.add(uid.toString());
-    }
-    return uniqueUserIds.size;
-  };
-
   // Live stream socket handlers
   const joinLiveStreamRoom = async (socket, data) => {
     try {
@@ -36,81 +14,38 @@ module.exports = (io) => {
       // Join the room
       
       // Update the live stream viewers
-      let liveStream = await LiveStream.findById(liveStreamId);
+      const liveStream = await LiveStream.findById(liveStreamId);
       
       if (!liveStream) {
         socket.emit('error', { message: 'Live stream not found' });
         return;
       }
       
-      // Classify the joiner so billing knows which wallet to charge (or to skip
-      // them entirely). Without this, a viewer who only ever joined over the
-      // socket was invisible to billing.
-      const isAdminViewer = socket.data.user?.isAdminAccount === true;
-      const isStreamer =
-        liveStream.streamer && liveStream.streamer.toString() === userId.toString();
-      const viewerType = socket.data.user?.isGuest === true ? 'Guest' : 'User';
-
       // Check if user is already in the viewers list
       const existingViewerIndex = liveStream.viewers.findIndex(viewer => viewer.user.toString() === userId.toString());
       
       if (existingViewerIndex === -1) {
-        // The streamer is not a viewer of their own stream. Adding them here
-        // inflated `totalViewers` (the pre-save hook uses viewers.length), so
-        // hosted-stream analytics were always off by one.
-        if (!isStreamer) {
-          liveStream.viewers.push({
-            user: userId,
-            viewerType,
-            isAdminViewer,
-            joinedAt: new Date(),
-            isPaid: isAdminViewer,
-          });
-        }
+        // Add the user as a new viewer
+        liveStream.viewers.push({
+          user: userId,
+          joinedAt: new Date(),
+        });
       } else {
         // If the user was a viewer who left, rejoin them
-        const existingViewer = liveStream.viewers[existingViewerIndex];
-        existingViewer.leftAt = null;
-        existingViewer.viewerType = viewerType;
-        existingViewer.isAdminViewer = isAdminViewer;
-        if (isAdminViewer) {
-          existingViewer.isPaid = true;
-          existingViewer.billingStarted = false;
-        } else if (!isStreamer) {
-          // Re-arm billing for the new session. Carrying isPaid=true over from
-          // the previous session would exempt them from billing permanently.
-          existingViewer.isPaid = false;
-          existingViewer.billingStarted = false;
-          existingViewer.webrtcConnectedAt = null;
-        }
+        liveStream.viewers[existingViewerIndex].leftAt = null;
       }
       
       await liveStream.save();
       
-      // Populate streamer and viewers user data
-      liveStream = await LiveStream.findById(liveStreamId)
-        .populate('streamer', 'fullName profilePhoto')
-        .populate('viewers.user', 'fullName profilePhoto');
-      
-      // Count live viewers from actual socket-room membership (excludes streamer,
-      // self-corrects on disconnect). This replaces the old DB-array count that
-      // over-counted stale viewers who left without calling /leave.
-      const streamerId = liveStream.streamer?._id
-        ? liveStream.streamer._id.toString()
-        : liveStream.streamer?.toString();
-      const activeViewersCount = getLiveViewerCount(liveStreamId, streamerId);
-      
-      // Notify everyone in the room that a user joined (including the sender)
-      io.to(`live-stream:${liveStreamId}`).emit('live-stream:viewer-joined', {
+      // Notify everyone in the room that a user joined
+      socket.to(`live-stream:${liveStreamId}`).emit('live-stream:viewer-joined', {
         userId,
         user: socket.data.user,
-        viewerCount: activeViewersCount,
       });
       
       socket.emit('live-stream:joined', {
         liveStreamId,
         liveStream,
-        viewerCount: activeViewersCount,
       });
 
     } catch (error) {
@@ -126,7 +61,7 @@ module.exports = (io) => {
       
       socket.leave(`live-stream:${liveStreamId}`);
       
-      let liveStream = await LiveStream.findById(liveStreamId);
+      const liveStream = await LiveStream.findById(liveStreamId);
       
       if (!liveStream) {
         socket.emit('error', { message: 'Live stream not found' });
@@ -136,30 +71,14 @@ module.exports = (io) => {
       const viewerIndex = liveStream.viewers.findIndex(viewer => viewer.user.toString() === userId.toString());
 
       if (viewerIndex !== -1) {
-        // Mark the viewer as left AND settle what they owe. Previously this path
-        // only stamped leftAt, so any partial minute since the last successful
-        // /process-billing call was never charged.
+        // Mark the viewer as left
         liveStream.viewers[viewerIndex].leftAt = new Date();
         await liveStream.save();
-        await settleViewerExit(liveStreamId, userId);
       }
       
-      // Populate to get active viewers
-      liveStream = await LiveStream.findById(liveStreamId)
-        .populate('streamer', 'fullName profilePhoto')
-        .populate('viewers.user', 'fullName profilePhoto');
-      
-      // Count live viewers from actual socket-room membership. socket.leave()
-      // above already removed this socket, so the count reflects the departure.
-      const streamerId = liveStream.streamer?._id
-        ? liveStream.streamer._id.toString()
-        : liveStream.streamer?.toString();
-      const activeViewersCount = getLiveViewerCount(liveStreamId, streamerId);
-      
-      // Notify everyone in the room (including the sender)
-      io.to(`live-stream:${liveStreamId}`).emit('live-stream:viewer-left', {
+      // Notify everyone in the room
+      socket.to(`live-stream:${liveStreamId}`).emit('live-stream:viewer-left', {
         userId,
-        viewerCount: activeViewersCount,
       });
       
       socket.emit('live-stream:left', {
@@ -188,21 +107,16 @@ module.exports = (io) => {
     }
   };
 
-  // Forward WebRTC signaling events to specific users
+  // Forward WebRTC signaling events within live-stream rooms
   const handleWebRTCOffer = (socket, data) => {
     try {
-      const { liveStreamId, offer, to } = data;
-      if (!liveStreamId || !to) {
-        console.log('⚠️ Missing liveStreamId or to in webrtc offer');
-        return;
-      }
-      console.log(`📤 Forwarding WebRTC offer from ${socket.data.userId} to user:${to}`);
-      socket.to(`user:${to}`).emit('webrtc:offer', {
+      const { liveStreamId, offer } = data;
+      if (!liveStreamId) return;
+      socket.to(`live-stream:${liveStreamId}`).emit('webrtc:offer', {
         offer,
         liveStreamId,
         from: socket.data.userId,
       });
-      console.log(`✅ WebRTC offer forwarded to user:${to}`);
     } catch (error) {
       console.error('Error forwarding webrtc offer for live stream:', error);
     }
@@ -210,18 +124,13 @@ module.exports = (io) => {
 
   const handleWebRTCAnswer = (socket, data) => {
     try {
-      const { liveStreamId, answer, to } = data;
-      if (!liveStreamId || !to) {
-        console.log('⚠️ Missing liveStreamId or to in webrtc answer');
-        return;
-      }
-      console.log(`📤 Forwarding WebRTC answer from ${socket.data.userId} to user:${to}`);
-      socket.to(`user:${to}`).emit('webrtc:answer', {
+      const { liveStreamId, answer } = data;
+      if (!liveStreamId) return;
+      socket.to(`live-stream:${liveStreamId}`).emit('webrtc:answer', {
         answer,
         liveStreamId,
         from: socket.data.userId,
       });
-      console.log(`✅ WebRTC answer forwarded to user:${to}`);
     } catch (error) {
       console.error('Error forwarding webrtc answer for live stream:', error);
     }
@@ -229,13 +138,9 @@ module.exports = (io) => {
 
   const handleWebRTCIceCandidate = (socket, data) => {
     try {
-      const { liveStreamId, candidate, to } = data;
-      if (!liveStreamId || !to) {
-        console.log('⚠️ Missing liveStreamId or to in webrtc ice candidate');
-        return;
-      }
-      console.log(`🧊 Forwarding ICE candidate from ${socket.data.userId} to user:${to}`);
-      socket.to(`user:${to}`).emit('webrtc:ice-candidate', {
+      const { liveStreamId, candidate } = data;
+      if (!liveStreamId) return;
+      socket.to(`live-stream:${liveStreamId}`).emit('webrtc:ice-candidate', {
         candidate,
         liveStreamId,
         from: socket.data.userId,
@@ -248,119 +153,18 @@ module.exports = (io) => {
   const handleReadyToReceive = (socket, data) => {
     try {
       const { liveStreamId, role } = data;
-      if (!liveStreamId) {
-        console.log('⚠️ Missing liveStreamId in ready-to-receive');
-        return;
-      }
-      console.log(`📢 User ${socket.data.userId} is ready to receive (role: ${role}), broadcasting to live-stream:${liveStreamId}`);
-      // Send to everyone in the live stream room (for streamer to receive)
+      if (!liveStreamId) return;
       socket.to(`live-stream:${liveStreamId}`).emit('webrtc:ready-to-receive', {
         from: socket.data.userId,
         liveStreamId,
         role,
         timestamp: new Date(),
       });
-      console.log(`✅ Ready-to-receive broadcast to live-stream:${liveStreamId}`);
     } catch (error) {
       console.error('Error forwarding ready-to-receive for live stream:', error);
     }
   };
   
-  const handleLike = async (socket, data) => {
-    try {
-      const { liveStreamId, emoji } = data;
-      const userId = socket.data.userId;
-
-      let liveStream = await LiveStream.findById(liveStreamId);
-      
-      if (!liveStream) {
-        socket.emit('error', { message: 'Live stream not found' });
-        return;
-      }
-
-      // Increment likes count
-      liveStream.likes = (liveStream.likes || 0) + 1;
-      await liveStream.save();
-
-      // Emit to everyone in the room
-      io.to(`live-stream:${liveStreamId}`).emit('live-stream:like', {
-        userId,
-        likeCount: liveStream.likes,
-        emoji: emoji || '❤️',
-      });
-      
-      console.log(`User ${userId} liked live stream ${liveStreamId} with emoji ${emoji}, new count: ${liveStream.likes}`);
-    } catch (error) {
-      console.error('Error handling live stream like:', error);
-      socket.emit('error', { message: 'Failed to like live stream' });
-    }
-  };
-
-  // Called on socket "disconnecting" (fires while socket.rooms still lists the
-  // rooms). When a viewer closes their tab without emitting live-stream:leave,
-  // this updates the DB and broadcasts a fresh viewer count so the streamer's
-  // number goes down instead of staying stale.
-  const handleDisconnecting = async (socket) => {
-    try {
-      const userId = socket.data.userId;
-      if (!userId) return;
-
-      // Find any live-stream rooms this socket is currently in
-      const liveRooms = [];
-      for (const room of socket.rooms) {
-        if (typeof room === 'string' && room.startsWith('live-stream:')) {
-          liveRooms.push(room.slice('live-stream:'.length));
-        }
-      }
-      if (liveRooms.length === 0) return;
-
-      for (const liveStreamId of liveRooms) {
-        try {
-          const liveStream = await LiveStream.findById(liveStreamId);
-          if (!liveStream) continue;
-
-          // Mark this viewer as left and settle their outstanding balance. A
-          // closed tab used to mean the time since the last /process-billing
-          // call was free.
-          const viewerIndex = liveStream.viewers.findIndex(
-            (v) => v.user && v.user.toString() === userId.toString()
-          );
-          if (viewerIndex !== -1 && !liveStream.viewers[viewerIndex].leftAt) {
-            liveStream.viewers[viewerIndex].leftAt = new Date();
-            await liveStream.save();
-            await settleViewerExit(liveStreamId, userId);
-          }
-
-          const streamerId = liveStream.streamer?.toString();
-          // This socket hasn't been removed from the room yet (disconnecting),
-          // so exclude it explicitly when counting.
-          const room = io.sockets.adapter.rooms.get(`live-stream:${liveStreamId}`);
-          const uniqueUserIds = new Set();
-          if (room) {
-            for (const socketId of room) {
-              if (socketId === socket.id) continue; // exclude the leaving socket
-              const s = io.sockets.sockets.get(socketId);
-              const uid = s?.data?.userId;
-              if (!uid) continue;
-              if (streamerId && uid.toString() === streamerId.toString()) continue;
-              if (s?.data?.user?.isAdminAccount === true) continue;
-              uniqueUserIds.add(uid.toString());
-            }
-          }
-
-          io.to(`live-stream:${liveStreamId}`).emit('live-stream:viewer-left', {
-            userId,
-            viewerCount: uniqueUserIds.size,
-          });
-        } catch (innerErr) {
-          console.error('Error handling live-stream disconnect for', liveStreamId, innerErr.message);
-        }
-      }
-    } catch (error) {
-      console.error('Error in handleDisconnecting (live stream):', error);
-    }
-  };
-
   return {
     joinLiveStreamRoom,
     leaveLiveStreamRoom,
@@ -369,7 +173,5 @@ module.exports = (io) => {
     handleWebRTCAnswer,
     handleWebRTCIceCandidate,
     handleReadyToReceive,
-    handleLike,
-    handleDisconnecting,
   };
 };

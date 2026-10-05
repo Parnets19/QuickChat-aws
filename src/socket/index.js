@@ -7,7 +7,6 @@ const onlineUsers = new Map(); // userId -> socketIds[]
 const callTimeouts = new Map(); // consultationId -> timeoutId
 const offlineTimeouts = new Map(); // userId -> timeoutId (for debouncing offline status)
 const activeChatRooms = new Map(); // userId -> consultationId (tracks which chat room user is actively viewing)
-const consultationMembers = new Map(); // consultationId -> Map<userId, { userName, joinedAt }>
 
 const initializeSocket = (io) => {
   // Authentication middleware
@@ -35,34 +34,6 @@ const initializeSocket = (io) => {
       console.log("Socket token received, length:", token.length);
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       console.log("Socket token decoded successfully for user:", decoded.id);
-
-      // Handle admin users (Admin model). Admin JWTs carry isAdmin:true and no mobile.
-      // Without this branch the code below runs User.findById(admin.id) which returns
-      // null, so admin sockets were being rejected with "User not found" — that's why
-      // admins couldn't join live streams over socket.
-      if (decoded.isAdmin && !decoded.mobile) {
-        const Admin = require("../models/Admin.model");
-        const admin = await Admin.findById(decoded.id);
-        if (!admin) {
-          console.log(
-            "Socket authentication failed: Admin not found for ID:",
-            decoded.id
-          );
-          return next(new Error("Admin not found"));
-        }
-
-        console.log("Socket authentication successful for admin:", admin.email);
-        socket.data.userId = admin._id.toString();
-        socket.data.user = {
-          _id: admin._id.toString(),
-          fullName: admin.fullName || admin.email || "Admin",
-          email: admin.email,
-          isAdmin: true,
-          isAdminAccount: true,
-          isServiceProvider: false,
-        };
-        return next();
-      }
 
       // Handle guest users
       if (decoded.isGuest) {
@@ -154,16 +125,6 @@ const initializeSocket = (io) => {
     socket.join(`user:${userId}`);
     console.log(`User ${userId} joined personal room: user:${userId}`);
 
-    // Handle explicit user room join request (belt-and-suspenders for reconnection scenarios)
-    socket.on("join-user-room", (data) => {
-      const requestedUserId = data?.userId;
-      // Only allow joining own room (security check)
-      if (requestedUserId && requestedUserId === userId) {
-        socket.join(`user:${userId}`);
-        console.log(`User ${userId} re-joined personal room via explicit request`);
-      }
-    });
-
     // Handle consultation join with duplicate prevention
     socket.on("consultation:join", async (data) => {
       try {
@@ -178,18 +139,12 @@ const initializeSocket = (io) => {
         const consultationUserId =
           typeof consultation.user === "string"
             ? consultation.user
-            : consultation.user?.toString();
-        const consultationProviderId = consultation.provider?.toString();
-
-        // Also allow participants added via the conference add-participant flow
-        const isConferenceParticipant = consultation.participants?.some(
-          p => p.userId?.toString() === userId
-        );
+            : consultation.user.toString();
+        const consultationProviderId = consultation.provider.toString();
 
         if (
           consultationUserId !== userId &&
-          consultationProviderId !== userId &&
-          !isConferenceParticipant
+          consultationProviderId !== userId
         ) {
           socket.emit("error", { message: "Unauthorized" });
           return;
@@ -205,67 +160,17 @@ const initializeSocket = (io) => {
           console.log(
             `User ${userId} already in consultation room, skipping duplicate join`
           );
-          // Update userName if previously null — use emit data first, then socket.data fallback
-          const cid2 = data.consultationId;
-          if (consultationMembers.has(cid2)) {
-            const mmap = consultationMembers.get(cid2);
-            if (mmap.has(userId)) {
-              const existing = mmap.get(userId);
-              if (!existing.userName) {
-                const updatedName = data.userName || socket.data.user?.fullName || socket.data.user?.name || null;
-                if (updatedName) {
-                  mmap.set(userId, { ...existing, userName: updatedName });
-                }
-              }
-            }
-          }
-          // Send confirmation
+          // Still send confirmation but don't notify others
           const isProvider = consultationProviderId === userId;
           socket.emit("consultation:joined", {
             consultationId: data.consultationId,
             isProvider: isProvider,
             participantCount: room.size,
           });
-          // Re-send participants-list to THIS socket so the screen's freshly-registered
-          // handler (which missed the first emission during webrtcService.initialize())
-          // can populate allParticipants correctly.
-          const cid2r = data.consultationId;
-          if (consultationMembers.has(cid2r)) {
-            const mmap2 = consultationMembers.get(cid2r);
-            // Build list excluding self, filling in any missing names from DB
-            const listForRejoin = [];
-            for (const [mid, minfo] of mmap2.entries()) {
-              if (mid === userId) continue; // skip self
-              let name = minfo.userName;
-              if (!name) {
-                try {
-                  const u = await User.findById(mid).select('fullName name mobile').lean();
-                  name = u?.fullName || u?.name || (u?.mobile ? `User (${u.mobile.slice(-4)})` : null);
-                  if (name) minfo.userName = name;
-                } catch (_) {}
-              }
-              listForRejoin.push({ userId: mid, userName: name, joinedAt: minfo.joinedAt });
-            }
-            console.log(`📋 [REJOIN] Re-sending participants-list to ${userId} (isAlreadyInRoom path):`, JSON.stringify(listForRejoin));
-            socket.emit('participants-list', { participants: listForRejoin });
-          }
           return;
         }
 
         socket.join(`consultation:${data.consultationId}`);
-
-        // Track participant name for this consultation room
-        const cid = data.consultationId;
-        if (!consultationMembers.has(cid)) {
-          consultationMembers.set(cid, new Map());
-        }
-        const memberMap = consultationMembers.get(cid);
-        // Prefer name from emit data; fall back to socket.data (always populated from JWT)
-        const resolvedUserName = data.userName || socket.data.user?.fullName || socket.data.user?.name || null;
-        memberMap.set(userId, {
-          userName: resolvedUserName,
-          joinedAt: Date.now(),
-        });
 
         // Get updated room info after joining
         const updatedRoom = io.sockets.adapter.rooms.get(
@@ -340,68 +245,13 @@ const initializeSocket = (io) => {
 
         // Only notify others if this is a new join and there are other participants
         if (participantCount > 1) {
-          // Get participant name for display — include mobile for last-resort fallback
-          const joiningUser = await User.findById(userId).select('fullName name mobile profilePhoto').lean();
-          const joiningUserName = joiningUser?.fullName || joiningUser?.name ||
-            (joiningUser?.mobile ? `User (${joiningUser.mobile.slice(-4)})` : null);
-          
           socket
             .to(`consultation:${data.consultationId}`)
             .emit("participant:joined", {
               userId: userId,
-              userName: joiningUserName,
               isProvider: isProvider,
               participantCount: participantCount,
             });
-
-          // If 3rd+ participant joining — emit participant:added so ALL existing users can show them
-          if (participantCount >= 3) {
-            io.to(`consultation:${data.consultationId}`).emit("participant:added", {
-              participantId: userId,
-              participantName: joiningUserName || 'Adviser',
-              participantPhoto: joiningUser?.profilePhoto || null,
-              joinedAt: Date.now(),
-              consultationId: data.consultationId,
-            });
-          }
-        }
-
-        // Build enriched participant list — fill in any missing userName from DB.
-        // Uses mobile number as last-resort display name so userName is never null.
-        const buildParticipantList = async (excludeUserId) => {
-          const list = [];
-          for (const [mid, minfo] of memberMap.entries()) {
-            if (mid === excludeUserId) continue;
-            let name = minfo.userName;
-            if (!name) {
-              // userName missing in memory — look up from DB
-              try {
-                const u = await User.findById(mid).select('fullName name mobile').lean();
-                name = u?.fullName || u?.name || (u?.mobile ? `User (${u.mobile.slice(-4)})` : null);
-                if (name) minfo.userName = name; // cache for next time
-              } catch (_) {}
-            }
-            list.push({ userId: mid, userName: name, joinedAt: minfo.joinedAt });
-          }
-          return list;
-        };
-
-        // Send existing participants list to the new joiner (so they see who's already in the call)
-        const existingForJoiner = await buildParticipantList(userId);
-        console.log(`📋 [JOIN] Sending participants-list to new joiner ${userId}:`, JSON.stringify(existingForJoiner));
-        socket.emit('participants-list', { participants: existingForJoiner });
-
-        // Broadcast full list to EVERYONE in the room (so all screens update)
-        const fullList = await buildParticipantList(null); // include everyone
-        console.log(`📋 [JOIN] Broadcasting full participants-list (${fullList.length} people):`, JSON.stringify(fullList));
-        io.to(`consultation:${data.consultationId}`).emit('participants-list', { participants: fullList });
-
-        // ALSO send directly to each member's personal room to guarantee delivery
-        for (const [mid] of memberMap.entries()) {
-          if (mid !== userId) {
-            // Send full list so each person knows everyone in the call
-            io.to(`user:${mid}`).emit('participants-list', { participants: fullList });
-          }
         }
 
         logger.info(
@@ -636,62 +486,54 @@ const initializeSocket = (io) => {
           notificationData
         );
 
-        // 🔔 Send push notification only if the other user is NOT actively viewing this chat
-        // If both users are in the same chat room, no notification needed — they can see the message directly
-        if (otherUserId === userId) {
-          // Sender and receiver are the same user — skip (shouldn't happen but guard it)
-          console.log(`⚠️ Sender === receiver, skipping notification`);
-        } else if (isOtherUserInThisChat) {
-          console.log(`💬 Both users in same chat room — skipping push notification`);
-        } else {
-          // Non-blocking: fire and forget so the message response isn't held up
-          Promise.resolve().then(async () => {
-            try {
-              const notificationTemplates = require('../utils/notificationTemplates');
-              const Guest = require('../models/Guest.model');
-              const isGuest = await Guest.findById(otherUserId);
-              const userType = isGuest ? 'guest' : 'user';
-
-              const result = await notificationTemplates.custom(
-                otherUserId,
-                userType,
-                `New message from ${senderName}`,
-                data.message.length > 50 ? data.message.substring(0, 50) + '...' : data.message,
-                'consultation',
-                {
-                  consultationId: data.consultationId,
-                  senderId: userId,
-                  senderName: senderName,
-                  messageType: data.type || 'text',
-                  action: 'new_message'
-                },
-                io,
-                { saveToDatabase: false }
-              );
-
-              // Push delivered → show double tick on sender's screen
-              // The receiver got the notification (message was delivered to their device)
-              if (savedMessage?._id) {
-                // Emit to consultation room AND sender's personal room for reliability
-                io.to(`consultation:${data.consultationId}`).emit('consultation:messageStatus', {
-                  messageId: savedMessage._id,
-                  status: 'delivered',
-                });
-                io.to(`user:${userId}`).emit('consultation:messageStatus', {
-                  messageId: savedMessage._id,
-                  status: 'delivered',
-                });
-                // Update DB
-                const savedMsg = consultation.messages.id(savedMessage._id);
-                if (savedMsg && savedMsg.status !== 'read') {
-                  savedMsg.status = 'delivered';
-                  await consultation.save();
-                }
-              }
-            } catch (notifError) {
-              console.error('❌ Failed to send chat push notification:', notifError.message);
-            }
+        // 🔔 ALWAYS SEND PUSH NOTIFICATION FOR CHAT MESSAGES
+        // Let the mobile app decide whether to show it based on foreground state
+        // This ensures notifications work even if app is in background or device is locked
+        console.log(`📱 Sending push notification for chat message to user ${otherUserId}`);
+        console.log(`📊 User status: online=${isOtherUserOnline}, inThisChat=${isOtherUserInThisChat}`);
+        
+        try {
+          const notificationTemplates = require('../utils/notificationTemplates');
+          
+          // Determine user type
+          let userType = 'user';
+          const Guest = require('../models/Guest.model');
+          const isGuest = await Guest.findById(otherUserId);
+          if (isGuest) {
+            userType = 'guest';
+            console.log(`👤 User ${otherUserId} is a GUEST`);
+          } else {
+            console.log(`👤 User ${otherUserId} is a REGULAR USER`);
+          }
+          
+          console.log(`📤 Sending notification to ${userType}:`, {
+            userId: otherUserId,
+            title: `New message from ${senderName}`,
+            message: data.message.substring(0, 50),
+            consultationId: data.consultationId
           });
+          
+          // Send custom notification for chat message (push only, don't save to notifications DB)
+          await notificationTemplates.custom(
+            otherUserId,
+            userType,
+            `New message from ${senderName}`,
+            data.message.length > 50 ? data.message.substring(0, 50) + '...' : data.message,
+            'consultation',
+            {
+              consultationId: data.consultationId,
+              senderId: userId,
+              senderName: senderName,
+              messageType: data.type || 'text',
+              action: 'new_message'
+            },
+            io,
+            { saveToDatabase: false }
+          );
+          console.log(`✅ Push notification sent to user ${otherUserId}`);
+        } catch (notifError) {
+          console.error('❌ Failed to send chat push notification:', notifError);
+          console.error('❌ Error details:', notifError.stack);
         }
 
         logger.info(
@@ -803,66 +645,15 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Allow cancellation if:
-        // - status is "pending" (legacy path), OR
-        // - status is "ongoing" but billing hasn't started yet (ringing phase —
-        //   /billing/start sets status:"ongoing" immediately, before either side
-        //   has actually connected, so billingStarted:false means still ringing)
-        const canCancel =
-          consultation.status === "pending" ||
-          (consultation.status === "ongoing" && !consultation.billingStarted);
-
-        // When billing has already started (canCancel=false), the client sent
-        // consultation:cancel instead of consultation:end — this happens when the
-        // call was very short (<5s) and the mobile callWasEstablished check fires
-        // the wrong branch.  Rather than rejecting with an error (which leaves the
-        // DB record stuck as "ongoing"), route straight to the billing-end flow.
-        if (!canCancel && consultation.status === "ongoing" && consultation.billingStarted) {
-          console.log(
-            `⚠️ consultation:cancel received for a billing-active call — routing to endConsultation (${data.consultationId})`
-          );
-          const { endConsultation: endConsultationWithBilling } = require('../controllers/realTimeBilling.controller');
-          const mockReq = {
-            body: { consultationId: data.consultationId },
-            user: { id: userId, _id: userId },
-          };
-          const mockRes = {
-            json: (d) => d,
-            status: (code) => ({ json: (d) => { console.log(`⚠️ billing-end (cancel fallback) status ${code}:`, d); return d; } }),
-          };
-          await endConsultationWithBilling(mockReq, mockRes);
-          // Reload to pick up the updated status so notifications below are accurate
-          await consultation.reload?.();
-
-          const cancellingUser = await User.findById(userId).select('fullName name');
-          const cancelledByName = cancellingUser?.fullName || cancellingUser?.name || 'User';
-          const cancelledByRole = consultationProviderId === userId ? 'provider' : 'client';
-          const otherUserId = consultationUserId === userId ? consultationProviderId : consultationUserId;
-
-          const endedEventData = {
-            consultationId: data.consultationId,
-            reason: "manual_cancel",
-            message: `Call ended by ${cancelledByName}`,
-            timestamp: new Date(),
-            endedBy: cancelledByRole,
-            endedByUserId: userId,
-            endedByName: cancelledByName,
-          };
-
-          io.to(`consultation:${data.consultationId}`).emit("consultation:ended", endedEventData);
-          io.to(`user:${otherUserId}`).emit("consultation:ended", endedEventData);
-          io.to(`user:${userId}`).emit("consultation:ended", endedEventData);
-          console.log(`✅ BACKEND: billing-active call ended via cancel fallback (${data.consultationId})`);
-          return;
-        }
-
-        if (canCancel) {
+        // Only allow cancellation if call is still pending (not answered yet)
+        if (consultation.status === "pending") {
           consultation.status = "cancelled";
           consultation.endTime = new Date();
           consultation.endReason = "manual_cancel";
           consultation.duration = 0;
           consultation.totalAmount = 0;
           await consultation.save();
+
           // Get the user who cancelled
           const cancellingUser = await User.findById(userId).select('fullName name');
           const cancelledByName = cancellingUser?.fullName || cancellingUser?.name || 'User';
@@ -897,85 +688,16 @@ const initializeSocket = (io) => {
           io.to(`user:${otherUserId}`).emit("consultation:cancelled", cancelEventData);
           io.to(`user:${userId}`).emit("consultation:cancelled", cancelEventData);
 
-          // ── Send FCM push to the OTHER party so they know the call was ────
-          // cancelled even when their app is killed or backgrounded.
-          // The native QuickChatFirebaseService handles call_cancelled to:
-          //   1. Stop the native ringtone immediately
-          //   2. Cancel the incoming-call notification
-          //   3. Write MISSED_CALL to SharedPreferences so the next app open
-          //      shows a "Missed call from X" banner via IncomingCallProvider
-          Promise.resolve().then(async () => {
-            try {
-              const notificationTemplates = require('../utils/notificationTemplates');
-              const Guest = require('../models/Guest.model');
-
-              // Determine the OTHER user — the one who did NOT cancel
-              const recipientId = otherUserId;
-
-              const isGuest = await Guest.findById(recipientId);
-              const userType = isGuest ? 'guest' : 'user';
-
-              // Wording depends on who cancelled. When the CLIENT hangs up while
-              // ringing, the provider genuinely missed a call. When the PROVIDER
-              // cancels, the client did not miss anything — calling that a
-              // "Missed Call" (as this did for both cases) was simply wrong.
-              const providerCancelled = cancelledByRole === 'provider';
-              const pushTitle = providerCancelled ? 'Call Ended' : 'Missed Call';
-              const pushBody = providerCancelled
-                ? `${cancelledByName} ended the call`
-                : `You missed a call from ${cancelledByName}`;
-
-              // This push is DATA-ONLY (see utils/firebase.js). It exists to make
-              // QuickChatFirebaseService run natively so the ringtone stops, the
-              // ringing notification/screen is dismissed and the missed-call entry
-              // is posted — none of which can happen from a socket event when the
-              // receiver's app is backgrounded or killed.
-              await notificationTemplates.custom(
-                recipientId,
-                userType,
-                pushTitle,
-                pushBody,
-                'consultation',
-                {
-                  type:           'consultation',
-                  action:         'call_cancelled',
-                  consultationId: String(data.consultationId),
-                  cancelledByName,
-                  cancelledBy:    cancelledByRole,
-                  fromName:       cancelledByName,
-                  callerName:     cancelledByName,
-                  callType:       String(consultation.type || 'audio'),
-                  reason:         'manual_cancel',
-                },
-                io,
-                { saveToDatabase: false },
-              );
-              console.log(`✅ BACKEND: call_cancelled FCM push sent to ${recipientId}`);
-
-              // Log a real missed call for the provider when the caller hung up
-              // while it was still ringing. Goes through the shared helper so it
-              // is persisted (visible in the notifications list) and deduped
-              // against the 60 s no-answer timer.
-              if (!providerCancelled) {
-                const { sendMissedCallNotification } = require('../utils/missedCall');
-                await sendMissedCallNotification({
-                  consultationId: data.consultationId,
-                  recipientId,
-                  callerId: userId,
-                  callerName: cancelledByName,
-                  callType: consultation.type,
-                  io,
-                });
-              }
-            } catch (e) {
-              console.error('❌ BACKEND: Failed to send call_cancelled FCM push:', e.message);
-            }
-          });
-        } else {
-          // Call is already completed/missed/no_answer — nothing to do
           console.log(
-            `ℹ️ consultation:cancel ignored — status already '${consultation.status}' (${data.consultationId})`
+            `✅ BACKEND: Call cancellation notifications sent to both parties (user:${userId} and user:${otherUserId})`
           );
+        } else {
+          console.log(
+            `⚠️ Cannot cancel consultation - status is ${consultation.status}`
+          );
+          socket.emit("error", { 
+            message: "Call cannot be cancelled at this stage" 
+          });
         }
       } catch (error) {
         console.error("❌ BACKEND: Error cancelling consultation:", error);
@@ -983,11 +705,11 @@ const initializeSocket = (io) => {
       }
     });
 
-    // Handle consultation end - ENHANCED FOR ONE-TO-ONE / MULTIPARTY TERMINATION
+    // Handle consultation end - ENHANCED FOR BILATERAL TERMINATION WITH BILLING
     socket.on("consultation:end", async (data) => {
       try {
         console.log(
-          `🛑 BACKEND: User ${userId} requested end for consultation ${data.consultationId}`
+          `🛑 BACKEND: User ${userId} is ending consultation ${data.consultationId}`
         );
 
         const consultation = await Consultation.findById(data.consultationId);
@@ -997,6 +719,7 @@ const initializeSocket = (io) => {
           return;
         }
 
+        // Either party can end the consultation (handle guest users)
         const consultationUserId =
           typeof consultation.user === "string"
             ? consultation.user
@@ -1011,79 +734,58 @@ const initializeSocket = (io) => {
           return;
         }
 
-        const consultationRoom = io.sockets.adapter.rooms.get(
-          `consultation:${data.consultationId}`
-        );
-        const participantCount = consultationRoom ? consultationRoom.size : 0;
-        console.log(
-          `🧮 BACKEND: consultation room currently has ${participantCount} connected sockets`
-        );
-
-        const endingUser = await User.findById(userId).select('fullName name');
-        const endedByName = endingUser?.fullName || endingUser?.name || 'User';
-        const endedByRole = consultationProviderId === userId ? 'provider' : 'client';
-
-        const isFullCallEnd = participantCount <= 2;
-
-        if (!isFullCallEnd) {
-          console.log(
-            '🧩 BACKEND: Multiparty leave detected; removing only this participant from the call'
-          );
-
-          // Remove from member tracking
-          if (consultationMembers.has(data.consultationId)) {
-            consultationMembers.get(data.consultationId).delete(userId);
-          }
-
-          socket.to(`consultation:${data.consultationId}`).emit('participant-left', {
-            consultationId: data.consultationId,
-            userId,
-            endedBy: endedByRole,
-            endedByName,
-            reason: 'user_left',
-            timestamp: new Date().toISOString(),
-          });
-
-          socket.leave(`consultation:${data.consultationId}`);
-          return;
-        }
-
+        // CRITICAL FIX: Call the billing controller to process billing properly
+        // This ensures wallet deduction, provider credit, and transaction records
         if (consultation.status === "ongoing") {
-          console.log("💰 SOCKET: Processing final billing for call end...");
+          console.log("💰 SOCKET: Calling billing controller to process final billing...");
+          
+          // Import the billing controller
           const { endConsultation: endConsultationWithBilling } = require('../controllers/realTimeBilling.controller');
+          
+          // Create a mock request/response to call the controller
           const mockReq = {
             body: { consultationId: data.consultationId },
             user: { id: userId, _id: userId }
           };
+          
           const mockRes = {
-            json: (responseData) => {
-              console.log("✅ SOCKET: Billing processed successfully:", responseData);
-              return responseData;
+            json: (data) => {
+              console.log("✅ SOCKET: Billing processed successfully:", data);
+              return data;
             },
             status: (code) => ({
-              json: (responseData) => {
-                console.log(`⚠️ SOCKET: Billing response status ${code}:`, responseData);
-                return responseData;
+              json: (data) => {
+                console.log(`⚠️ SOCKET: Billing response status ${code}:`, data);
+                return data;
               }
             })
           };
+          
+          // Call the billing controller to process billing
           await endConsultationWithBilling(mockReq, mockRes);
+          
+          // Reload consultation to get updated values
           await consultation.reload();
+          
         } else if (
           ["no_answer", "cancelled", "missed"].includes(consultation.status)
         ) {
           console.log(
-            `⚠️ BACKEND: Consultation already has status '${consultation.status}', keeping existing state`
+            `⚠️ Not overriding consultation status '${consultation.status}' - keeping system-set status`
           );
+          // Don't change the status, but still update provider availability
         }
 
+        // Mark provider as no longer busy
+        // Check if provider has any other ongoing consultations
         const ongoingConsultations = await Consultation.countDocuments({
           provider: consultation.provider,
           status: "ongoing",
-          _id: { $ne: consultation._id },
+          _id: { $ne: consultation._id }, // Exclude current consultation
         });
 
         const newStatus = ongoingConsultations > 0 ? "busy" : "available";
+
         await User.findByIdAndUpdate(consultation.provider, {
           consultationStatus: newStatus,
           isInCall: ongoingConsultations > 0,
@@ -1096,9 +798,22 @@ const initializeSocket = (io) => {
         console.log(
           `📱 Provider ${consultation.provider} status updated to: ${newStatus} (${ongoingConsultations} ongoing consultations)`
         );
+
         console.log(
           `✅ BACKEND: Consultation ${data.consultationId} status: ${consultation.status}`
         );
+
+        // BILATERAL TERMINATION FIX: Notify ALL participants in BOTH room formats
+        console.log(
+          `🛑 BACKEND: Broadcasting consultation end to ALL room formats for bilateral termination`
+        );
+
+        // Get the user who ended the call
+        const endingUser = await User.findById(userId).select('fullName name');
+        const endedByName = endingUser?.fullName || endingUser?.name || 'User';
+        
+        // Determine if ended by provider or client
+        const endedByRole = consultationProviderId === userId ? 'provider' : 'client';
 
         const endEventData = {
           consultationId: data.consultationId,
@@ -1108,18 +823,22 @@ const initializeSocket = (io) => {
           endedBy: endedByRole,
           endedByUserId: userId,
           endedByName: endedByName,
-          consultation: consultation,
+          consultation: consultation, // Include full consultation data
         };
 
+        // Send to mobile app format room
         io.to(`consultation:${data.consultationId}`).emit(
           "consultation:ended",
           endEventData
         );
+
+        // Send to web app format room
         io.to(`billing:${data.consultationId}`).emit(
           "consultation:ended",
           endEventData
         );
 
+        // Also send to individual user rooms to ensure delivery
         const otherUserId =
           consultationUserId === userId
             ? consultationProviderId
@@ -1127,25 +846,23 @@ const initializeSocket = (io) => {
 
         io.to(`user:${otherUserId}`).emit("consultation:ended", endEventData);
 
-        // Clean up member tracking for this consultation
-        consultationMembers.delete(data.consultationId);
-
         console.log(
           `✅ BACKEND: Bilateral termination events sent to all room formats and user rooms`
         );
 
-        const consultationEndRoom = io.sockets.adapter.rooms.get(
+        // Force disconnect all sockets in consultation rooms
+        const consultationRoom = io.sockets.adapter.rooms.get(
           `consultation:${data.consultationId}`
         );
         const billingRoom = io.sockets.adapter.rooms.get(
           `billing:${data.consultationId}`
         );
 
-        if (consultationEndRoom) {
+        if (consultationRoom) {
           console.log(
-            `🛑 BACKEND: Force disconnecting ${consultationEndRoom.size} clients from consultation room`
+            `🛑 BACKEND: Force disconnecting ${consultationRoom.size} clients from consultation room`
           );
-          consultationEndRoom.forEach((socketId) => {
+          consultationRoom.forEach((socketId) => {
             const clientSocket = io.sockets.sockets.get(socketId);
             if (clientSocket) {
               clientSocket.leave(`consultation:${data.consultationId}`);
@@ -1183,28 +900,20 @@ const initializeSocket = (io) => {
     // UNIFIED WebRTC OFFER HANDLER - Supports both mobile and web formats
     const handleWebRTCOffer = (data, callback) => {
       try {
-        // Get room info — check BOTH room formats for cross-platform compatibility
-        // Mobile may be in consultation:{id}, web may be in billing:{id}, or both
-        const consultationRoom = io.sockets.adapter.rooms.get(
+        // Get room info to check if other party is connected
+        const room = io.sockets.adapter.rooms.get(
           `consultation:${data.consultationId}`
         );
-        const billingRoom = io.sockets.adapter.rooms.get(
-          `billing:${data.consultationId}`
-        );
-
-        // Combine unique socket IDs from both rooms
-        const allMembers = new Set();
-        if (consultationRoom) consultationRoom.forEach(id => allMembers.add(id));
-        if (billingRoom) billingRoom.forEach(id => allMembers.add(id));
-        
-        const participantCount = allMembers.size;
-        const roomMembers = Array.from(allMembers);
+        const participantCount = room ? room.size : 0;
+        const roomMembers = room ? Array.from(room) : [];
 
         console.log(
           `📞 WebRTC offer received from ${userId} for consultation ${data.consultationId}`
         );
         console.log(
-          `📊 Room info: ${participantCount} unique participants across both rooms`
+          `📊 Room info: ${participantCount} participants, socket IDs: ${roomMembers.join(
+            ", "
+          )}`
         );
 
         // Log if this is an upgrade offer
@@ -1216,7 +925,7 @@ const initializeSocket = (io) => {
 
         if (participantCount < 2) {
           console.log(
-            `⚠️ Cannot forward offer - only ${participantCount} participant(s) in rooms`
+            `⚠️ Cannot forward offer - only ${participantCount} participant(s) in room`
           );
           if (callback)
             callback({
@@ -1371,28 +1080,6 @@ const initializeSocket = (io) => {
     socket.on("webrtc:ice-candidate", handleWebRTCIceCandidate); // Mobile format
     socket.on("ice-candidate", handleWebRTCIceCandidate); // Web format
 
-    // Handle webrtc:create-offer-request - relay from mobile provider to web client
-    socket.on("webrtc:create-offer-request", (data) => {
-      try {
-        const { consultationId: cId, to, from } = data;
-        if (!cId) return;
-
-        console.log(`📨 Relaying webrtc:create-offer-request from ${from} to ${to} for consultation ${cId}`);
-
-        // Broadcast to consultation and billing rooms so web client receives it
-        socket.to(`consultation:${cId}`).emit("webrtc:create-offer-request", data);
-        socket.to(`billing:${cId}`).emit("webrtc:create-offer-request", data);
-
-        // Also emit to the target user's personal room for reliability
-        if (to) {
-          io.to(`user:${to}`).emit("webrtc:create-offer-request", data);
-          console.log(`📡 webrtc:create-offer-request also sent to user:${to} personal room`);
-        }
-      } catch (error) {
-        console.error("Error relaying webrtc:create-offer-request:", error);
-      }
-    });
-
     // BILLING SAFETY: Record the exact moment WebRTC actually connected.
     // This is used as the TRUE billing start time in endConsultation.
     // If this event never arrives (call failed to connect), webrtcConnectedAt
@@ -1425,30 +1112,24 @@ const initializeSocket = (io) => {
         );
 
         // Broadcast ready signal to other participants (the initiator)
-        const readyPayload = {
-          from: userId,
-          userId: userId,
-          consultationId: data.consultationId,
-          role: data.role,
-          timestamp: data.timestamp,
-        };
-
         socket
           .to(`consultation:${data.consultationId}`)
-          .emit("webrtc:ready-to-receive", readyPayload);
+          .emit("webrtc:ready-to-receive", {
+            from: userId,
+            consultationId: data.consultationId,
+            role: data.role,
+            timestamp: data.timestamp,
+          });
 
         // Also send to billing room for web compatibility
         socket
           .to(`billing:${data.consultationId}`)
-          .emit("webrtc:ready-to-receive", readyPayload);
-
-        // Also broadcast plain ready-to-receive for legacy listeners
-        socket
-          .to(`consultation:${data.consultationId}`)
-          .emit("ready-to-receive", readyPayload);
-        socket
-          .to(`billing:${data.consultationId}`)
-          .emit("ready-to-receive", readyPayload);
+          .emit("webrtc:ready-to-receive", {
+            from: userId,
+            consultationId: data.consultationId,
+            role: data.role,
+            timestamp: data.timestamp,
+          });
 
         console.log(
           `✅ Ready-to-receive signal forwarded to initiator for consultation ${data.consultationId}`
@@ -1831,42 +1512,40 @@ const initializeSocket = (io) => {
               );
             }
 
-            const timeoutPayload = {
+            // Send timeout to caller
+            socket.emit("consultation:call-timeout", {
               consultationId,
               message: "Provider did not answer the call",
               status: "rejected",
               reason: "timeout_no_answer",
-              timestamp: new Date().toISOString(),
-            };
+            });
 
-            // Send timeout to caller (the socket that initiated the call)
-            socket.emit("consultation:call-timeout", timeoutPayload);
-
-            // Send to receiver (provider) so their ringing screen dismisses
-            // and they see a "missed call" notification
-            io.to(`user:${to}`).emit("consultation:call-timeout", timeoutPayload);
-
-            // Also broadcast to room formats for web-app clients
-            io.to(`consultation:${consultationId}`).emit("consultation:call-timeout", timeoutPayload);
-            io.to(`billing:${consultationId}`).emit("consultation:call-timeout", timeoutPayload);
-
-            console.log(
-              `⏰ Call timeout sent for consultation ${consultationId} to caller and receiver (user:${to})`
+            // Also broadcast timeout to both room formats
+            io.to(`consultation:${consultationId}`).emit(
+              "consultation:call-timeout",
+              {
+                consultationId,
+                message: "Provider did not answer the call",
+                status: "rejected",
+                reason: "timeout_no_answer",
+                timestamp: new Date().toISOString(),
+              }
             );
 
-            // 📵 MISSED CALL PUSH — the socket events above only reach a live,
-            // foregrounded client. Nobody answered, so the receiver is very
-            // likely backgrounded or killed and saw none of them. Send a real
-            // push so they know they missed a call (deduped internally).
-            const { sendMissedCallNotification } = require("../utils/missedCall");
-            await sendMissedCallNotification({
-              consultationId,
-              recipientId: to,
-              callerId: userId,
-              callerName: fromName,
-              callType,
-              io,
-            });
+            io.to(`billing:${consultationId}`).emit(
+              "consultation:call-timeout",
+              {
+                consultationId,
+                message: "Provider did not answer the call",
+                status: "rejected",
+                reason: "timeout_no_answer",
+                timestamp: new Date().toISOString(),
+              }
+            );
+
+            console.log(
+              `⏰ Call timeout sent for consultation ${consultationId} - status set to rejected`
+            );
 
             // Remove timeout from map
             callTimeouts.delete(consultationId);
@@ -1943,39 +1622,38 @@ const initializeSocket = (io) => {
               );
             }
 
-            const timeoutPayload = {
+            socket.emit("consultation:call-timeout", {
               consultationId,
               message: "Provider did not answer the call",
               status: "rejected",
               reason: "timeout_no_answer",
-              timestamp: new Date().toISOString(),
-            };
+            });
 
-            // Notify caller
-            socket.emit("consultation:call-timeout", timeoutPayload);
-
-            // Notify receiver so their ringing screen is dismissed
-            io.to(`user:${to}`).emit("consultation:call-timeout", timeoutPayload);
-
-            // Room-format broadcast for web clients
-            io.to(`consultation:${consultationId}`).emit("consultation:call-timeout", timeoutPayload);
-            io.to(`billing:${consultationId}`).emit("consultation:call-timeout", timeoutPayload);
-
-            console.log(
-              `⏰ Call timeout sent for consultation ${consultationId} to caller and receiver (user:${to})`
+            io.to(`consultation:${consultationId}`).emit(
+              "consultation:call-timeout",
+              {
+                consultationId,
+                message: "Provider did not answer the call",
+                status: "rejected",
+                reason: "timeout_no_answer",
+                timestamp: new Date().toISOString(),
+              }
             );
 
-            // 📵 MISSED CALL PUSH — this is the provider-was-offline branch, so a
-            // push is the ONLY way to tell them. Deduped inside the helper.
-            const { sendMissedCallNotification } = require("../utils/missedCall");
-            await sendMissedCallNotification({
-              consultationId,
-              recipientId: to,
-              callerId: userId,
-              callerName: fromName,
-              callType,
-              io,
-            });
+            io.to(`billing:${consultationId}`).emit(
+              "consultation:call-timeout",
+              {
+                consultationId,
+                message: "Provider did not answer the call",
+                status: "rejected",
+                reason: "timeout_no_answer",
+                timestamp: new Date().toISOString(),
+              }
+            );
+
+            console.log(
+              `⏰ Call timeout sent for consultation ${consultationId} - status set to rejected`
+            );
 
             callTimeouts.delete(consultationId);
           }, 60000);
@@ -1997,10 +1675,6 @@ const initializeSocket = (io) => {
         console.log(
           `📞 Call accepted by provider ${userId} for consultation ${consultationId}`
         );
-
-        // Ensure the accepting provider is in both rooms for WebRTC signaling
-        socket.join(`consultation:${consultationId}`);
-        socket.join(`billing:${consultationId}`);
         console.log(`📞 Caller ID (from): ${from}`);
         console.log(`📞 Provider ID (userId): ${userId}`);
 
@@ -2014,38 +1688,17 @@ const initializeSocket = (io) => {
           );
         }
 
-        const callerId = data.to || data.clientId || from;
-        
-        // SAFETY NET: If callerId resolves to the provider themselves, look up the actual client from DB
-        let resolvedCallerId = callerId;
-        if (callerId === userId) {
-          try {
-            const consultation = await Consultation.findById(consultationId).select('user provider');
-            if (consultation) {
-              const clientId = consultation.user?.toString();
-              if (clientId && clientId !== userId) {
-                resolvedCallerId = clientId;
-                console.log(`🔧 callerId was provider's own ID, resolved actual client from DB: ${resolvedCallerId}`);
-              }
-            }
-          } catch (lookupErr) {
-            console.warn(`⚠️ Failed to lookup consultation for callerId resolution:`, lookupErr.message);
-          }
-        }
-        
         const acceptanceData = {
           consultationId,
           acceptedBy: userId,
           acceptedByName: socket.data.user?.fullName || socket.user?.fullName || "Provider",
           timestamp: new Date().toISOString(),
-          source: data.source || 'unknown', // Forward the source (mobile-app, web, etc.)
         };
 
         console.log(`📡 Acceptance data:`, acceptanceData);
-        console.log(`📡 Caller ID resolved for acceptance notification:`, resolvedCallerId);
 
         // Find caller's sockets and notify directly
-        const callerSockets = onlineUsers.get(resolvedCallerId);
+        const callerSockets = onlineUsers.get(from);
         console.log(`📞 Caller sockets found:`, callerSockets ? callerSockets.length : 0);
         
         if (callerSockets && callerSockets.length > 0) {
@@ -2056,18 +1709,9 @@ const initializeSocket = (io) => {
               callerSocket.emit("consultation:call-accepted", acceptanceData);
             }
           });
-          console.log(`✅ Call acceptance notification sent to caller ${resolvedCallerId}`);
+          console.log(`✅ Call acceptance notification sent to caller ${from}`);
         } else {
-          console.warn(`⚠️ No sockets found for caller ${resolvedCallerId} in onlineUsers map`);
-        }
-
-        // CRITICAL FALLBACK: Always emit to caller's personal user room
-        // This ensures the web client receives the acceptance even if onlineUsers lookup failed
-        // or the client hasn't joined consultation/billing rooms yet
-        if (resolvedCallerId) {
-          io.to(`user:${resolvedCallerId}`).emit("consultation:call-accepted", acceptanceData);
-          io.to(`user:${resolvedCallerId}`).emit("webrtc:call-accepted", acceptanceData);
-          console.log(`📡 Fallback: Emitted call-accepted to user:${resolvedCallerId} personal room`);
+          console.warn(`⚠️ No sockets found for caller ${from} in onlineUsers map`);
         }
 
         // CRITICAL FIX: Broadcast to both room formats for cross-platform compatibility
@@ -2125,72 +1769,11 @@ const initializeSocket = (io) => {
         const { consultationId, from, reason } = data;
 
         console.log(
-          `📞 Call rejected by user ${userId} for consultation ${consultationId}`
+          `📞 Call rejected by provider ${userId} for consultation ${consultationId}`
         );
 
-        // Clear the call timeout since the call was rejected
-        const timeoutId = callTimeouts.get(consultationId);
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          callTimeouts.delete(consultationId);
-          console.log(`⏰ Call timeout cleared for consultation ${consultationId} (rejected)`);
-        }
-
+        // Update consultation status to rejected
         const consultation = await Consultation.findById(consultationId);
-
-        // Get the rejecting user's name
-        const rejectingUser = await User.findById(userId).select('fullName name');
-        const rejectedByName = rejectingUser?.fullName || rejectingUser?.name || 'Provider';
-
-        // ── CONFERENCE vs 1-TO-1 LOGIC ────────────────────────────────────────
-        // If this is a conference call and the rejector is a conference participant
-        // (not the primary user or provider), only that participant is removed.
-        // The existing 1-to-1 call between A and B continues unaffected.
-        //
-        // If this is a 1-to-1 call (no isConference flag), the whole consultation
-        // is rejected and the DB is updated accordingly.
-
-        const consultationUserId     = consultation?.user?.toString();
-        const consultationProviderId = consultation?.provider?.toString();
-        const isPrimaryParticipant   = userId === consultationUserId || userId === consultationProviderId;
-
-        const isConferenceParticipantReject =
-          consultation?.isConference &&
-          !isPrimaryParticipant;
-
-        if (isConferenceParticipantReject) {
-          // ── CONFERENCE DECLINE ─────────────────────────────────────────────
-          // C declined the invite — remove them from consultation.participants
-          // but leave the consultation status and the A↔B call untouched.
-          console.log(`📞 Conference participant ${userId} declined invite — removing from participants only`);
-
-          if (consultation) {
-            consultation.participants = (consultation.participants || []).filter(
-              (p) => p.userId?.toString() !== userId
-            );
-            await consultation.save();
-          }
-
-          const conferenceDeclineData = {
-            consultationId,
-            declinedBy: userId,
-            declinedByName: rejectedByName,
-            reason: reason || 'Conference invite declined',
-            timestamp: new Date(),
-          };
-
-          // Notify ALL existing participants (A, B, and any other Cs) that this
-          // person declined so their UI can update the participant list.
-          io.to(`consultation:${consultationId}`).emit('participant:declined', conferenceDeclineData);
-          io.to(`user:${consultationUserId}`).emit('participant:declined', conferenceDeclineData);
-          io.to(`user:${consultationProviderId}`).emit('participant:declined', conferenceDeclineData);
-
-          console.log(`✅ Conference decline notification sent to existing participants`);
-          return;
-        }
-
-        // ── 1-TO-1 DECLINE (or primary participant declining conference) ──────
-        // Update consultation status to rejected in the DB
         if (consultation && consultation.status === "pending") {
           consultation.status = "rejected";
           consultation.endTime = new Date();
@@ -2198,8 +1781,21 @@ const initializeSocket = (io) => {
           consultation.duration = 0;
           consultation.totalAmount = 0;
           await consultation.save();
-          console.log(`✅ Consultation ${consultationId} marked as rejected in DB`);
         }
+
+        // Clear the call timeout since provider rejected (no need to wait anymore)
+        const timeoutId = callTimeouts.get(consultationId);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          callTimeouts.delete(consultationId);
+          console.log(
+            `⏰ Call timeout cleared for consultation ${consultationId} (rejected)`
+          );
+        }
+
+        // Get provider info
+        const providerUser = await User.findById(userId).select('fullName name');
+        const rejectedByName = providerUser?.fullName || providerUser?.name || 'Provider';
 
         const rejectionData = {
           consultationId,
@@ -2213,9 +1809,11 @@ const initializeSocket = (io) => {
           timestamp: new Date(),
         };
 
-        // Notify the caller (the `from` field = caller's userId)
+        // Find caller's sockets and notify
         const callerSockets = onlineUsers.get(from);
+
         if (callerSockets && callerSockets.length > 0) {
+          // Notify caller that call was rejected
           callerSockets.forEach((socketId) => {
             const callerSocket = io.sockets.sockets.get(socketId);
             if (callerSocket) {
@@ -2223,14 +1821,15 @@ const initializeSocket = (io) => {
               callerSocket.emit("consultation:cancelled", rejectionData);
             }
           });
+
           console.log(`✅ Call rejection notification sent to caller ${from}`);
         }
 
-        // Also emit to user rooms for reliability (covers offline/reconnect cases)
+        // Also emit to user rooms for reliability
         io.to(`user:${from}`).emit("consultation:call-rejected", rejectionData);
         io.to(`user:${from}`).emit("consultation:cancelled", rejectionData);
-
-        console.log(`✅ BACKEND: 1-to-1 call rejection fully handled for consultation ${consultationId}`);
+        
+        console.log(`✅ BACKEND: Call rejection sent to user:${from}`);
       } catch (error) {
         console.error("Error handling call rejection:", error);
       }
@@ -2257,22 +1856,6 @@ const initializeSocket = (io) => {
       } catch (error) {
         console.error("Error joining billing room:", error);
         socket.emit("error", { message: "Failed to join billing room" });
-      }
-    });
-
-    // Handle join-consultation (mobile app emits this for quick room join without DB validation)
-    socket.on("join-consultation", (data) => {
-      try {
-        const { consultationId } = data;
-        if (!consultationId) return;
-
-        // Join both rooms immediately (no async DB check — fast path for cross-platform)
-        socket.join(`consultation:${consultationId}`);
-        socket.join(`billing:${consultationId}`);
-
-        console.log(`📞 User ${userId} fast-joined consultation + billing rooms: ${consultationId}`);
-      } catch (error) {
-        console.error("Error in join-consultation:", error);
       }
     });
 
@@ -2630,7 +2213,6 @@ const initializeSocket = (io) => {
     socket.on('live-stream:join', (data) => liveStreamHandlers.joinLiveStreamRoom(socket, data));
     socket.on('live-stream:leave', (data) => liveStreamHandlers.leaveLiveStreamRoom(socket, data));
     socket.on('live-stream:message', (data) => liveStreamHandlers.sendLiveStreamMessage(socket, data));
-    socket.on('live-stream:like', (data) => liveStreamHandlers.handleLike(socket, data));
     // Forward WebRTC signaling for live-stream rooms when present
     socket.on('webrtc:offer', (data) => {
       if (data && data.liveStreamId) return liveStreamHandlers.handleWebRTCOffer(socket, data);
@@ -2643,12 +2225,6 @@ const initializeSocket = (io) => {
     });
     socket.on('webrtc:ready-to-receive', (data) => {
       if (data && data.liveStreamId) return liveStreamHandlers.handleReadyToReceive(socket, data);
-    });
-    // Update live-stream viewer counts when a viewer disconnects (closes tab)
-    // without emitting live-stream:leave. Uses "disconnecting" so socket.rooms
-    // still lists the live-stream rooms.
-    socket.on('disconnecting', () => {
-      liveStreamHandlers.handleDisconnecting(socket);
     });
     // ===== END LIVE STREAM SOCKET HANDLERS =====
 
