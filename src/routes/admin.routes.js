@@ -402,10 +402,10 @@ router.get('/users/:id/details', async (req, res, next) => {
     const totalCallDurationAsProvider = completedAsProvider.reduce((s, c) => s + (c.duration || 0), 0);
 
     const totalDeposited = transactions
-      .filter(t => t.type === 'credit' && t.category === 'recharge')
+      .filter(t => t.category === 'deposit' || t.type === 'deposit' || t.type === 'wallet_credit')
       .reduce((s, t) => s + (t.amount || 0), 0);
     const totalWithdrawn = transactions
-      .filter(t => t.type === 'debit' && t.category === 'withdrawal')
+      .filter(t => t.category === 'withdrawal' || t.type === 'withdrawal' || t.type === 'payout')
       .reduce((s, t) => s + (t.amount || 0), 0);
 
     res.json({

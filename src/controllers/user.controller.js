@@ -162,13 +162,28 @@ const updateProfile = async (req, res, next) => {
     // Log profile changes (fire-and-forget)
     if (oldUser && Object.keys(updateData).length > 0) {
       const ProfileEditLog = require('../models/ProfileEditLog.model');
+      // Only compare fields the user explicitly submitted, not injected KYC fields
+      const KYC_INJECTED = ['providerVerificationStatus', 'isProfileHidden', 'verificationNotes', 'verifiedAt', 'verifiedBy'];
       const changes = [];
       for (const field of Object.keys(updateData)) {
+        if (KYC_INJECTED.includes(field)) continue;
         const oldVal = oldUser[field];
         const newVal = updateData[field];
-        // Only log if value actually changed
-        const oldStr = JSON.stringify(oldVal || '');
-        const newStr = JSON.stringify(newVal || '');
+
+        // Normalize dates: compare only the date portion (YYYY-MM-DD)
+        // to avoid false positives when DB returns a full ISO timestamp
+        // but the client sends a plain date string.
+        const normalize = (v) => {
+          if (!v && v !== 0) return '';
+          if (v instanceof Date || (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v))) {
+            return new Date(v).toISOString().split('T')[0];
+          }
+          if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+          return JSON.stringify(v);
+        };
+
+        const oldStr = normalize(oldVal);
+        const newStr = normalize(newVal);
         if (oldStr !== newStr) {
           changes.push({
             field,
@@ -740,11 +755,21 @@ const updateProviderSettings = async (req, res, next) => {
     const provChanges = [];
     const oldData = currentUser.toObject();
     const fieldsToCheck = [...allowedFields, 'rates'];
+
+    const normalizeVal = (v) => {
+      if (!v && v !== 0) return '';
+      if (v instanceof Date || (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v))) {
+        return new Date(v).toISOString().split('T')[0];
+      }
+      if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+      return JSON.stringify(v);
+    };
+
     for (const field of fieldsToCheck) {
       const oldVal = oldData[field];
       const newVal = updatedUser[field];
-      const oldStr = JSON.stringify(oldVal || '');
-      const newStr = JSON.stringify(newVal || '');
+      const oldStr = normalizeVal(oldVal);
+      const newStr = normalizeVal(newVal);
       if (oldStr !== newStr) {
         provChanges.push({
           field,
