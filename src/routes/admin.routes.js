@@ -329,9 +329,17 @@ router.get('/users/:id/details', async (req, res, next) => {
         // Guest not found — show mobile if available
         return { ...c, user: { _id: c.user, fullName: 'Guest User', profilePhoto: null, isGuest: true } };
       }
-      // Regular user — if populate worked, user.fullName exists; if not, show fallback
+      // Regular user — if populate worked, user.fullName exists; if not, user was deleted
       if (!c.user || !c.user.fullName) {
-        return { ...c, user: { _id: c.user, fullName: 'Deleted User', profilePhoto: null } };
+        return {
+          ...c,
+          user: {
+            _id: c.user || null,
+            fullName: 'Account Deleted',
+            profilePhoto: null,
+            isDeleted: true,
+          }
+        };
       }
       return c;
     });
