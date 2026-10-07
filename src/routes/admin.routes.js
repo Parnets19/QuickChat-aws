@@ -293,55 +293,96 @@ router.get('/users/:id/details', async (req, res, next) => {
     const providerQuery = { provider: id, status: { $in: ['completed', 'ongoing', 'no_answer', 'failed', 'cancelled', 'missed'] } };
     if (hasDateFilter) providerQuery.createdAt = dateFilter;
     const providerConsultations = await Consultation.find(providerQuery)
-      .populate('user', 'fullName profilePhoto')
       .sort({ createdAt: -1 })
       .lean();
 
-    // ── Manually populate Guest callers (populate() only works for User refs) ──
-    const Guest = require('../models/Guest.model');
-    const guestIds = providerConsultations
-      .filter(c => c.userType === 'Guest' && c.user)
-      .map(c => c.user.toString());
-    const uniqueGuestIds = [...new Set(guestIds)];
-    const guests = uniqueGuestIds.length > 0
-      ? await Guest.find({ _id: { $in: uniqueGuestIds } }).select('name mobile').lean()
-      : [];
-    const guestMap = {};
-    guests.forEach(g => { guestMap[g._id.toString()] = g; });
+    // ── Manually populate callers ─────────────────────────────────────────────
+    // The 'user' field is Schema.Types.Mixed (not a typed ref), so Mongoose
+    // .populate() does not work on it. We fetch User and Guest docs separately.
 
-    // Normalize: if user is null (populate failed) and userType is Guest, inject guest data
+    const Guest = require('../models/Guest.model');
+
+    // Collect IDs by type
+    const regularUserIds = [];
+    const guestUserIds = [];
+
+    providerConsultations.forEach(c => {
+      if (!c.user) return;
+      const uid = c.user.toString();
+      if (c.userType === 'Guest') {
+        guestUserIds.push(uid);
+      } else {
+        regularUserIds.push(uid);
+      }
+    });
+
+    // Fetch both in parallel
+    const [regularUsers, guestUsers] = await Promise.all([
+      regularUserIds.length > 0
+        ? User.find({ _id: { $in: [...new Set(regularUserIds)] } })
+            .select('fullName profilePhoto mobile isServiceProvider')
+            .lean()
+        : [],
+      guestUserIds.length > 0
+        ? Guest.find({ _id: { $in: [...new Set(guestUserIds)] } })
+            .select('name mobile')
+            .lean()
+        : [],
+    ]);
+
+    const userMap = {};
+    regularUsers.forEach(u => { userMap[u._id.toString()] = u; });
+
+    const guestMap = {};
+    guestUsers.forEach(g => { guestMap[g._id.toString()] = g; });
+
+    // Normalize: attach the correct caller object to every consultation
     const normalizedProviderConsultations = providerConsultations.map(c => {
-      if (c.userType === 'Guest' && c.user) {
-        const guestId = c.user._id ? c.user._id.toString() : c.user.toString();
-        const guest = guestMap[guestId];
+      if (!c.user) {
+        // No user ref at all — truly anonymous/deleted
+        return { ...c, user: { _id: null, fullName: 'Account Deleted', profilePhoto: null, isDeleted: true } };
+      }
+
+      const uid = c.user.toString();
+
+      if (c.userType === 'Guest') {
+        const guest = guestMap[uid];
         if (guest) {
           return {
             ...c,
             user: {
               _id: guest._id,
-              fullName: guest.name,   // Guest uses 'name' not 'fullName'
+              fullName: guest.name,
               profilePhoto: null,
               isGuest: true,
               mobile: guest.mobile,
             }
           };
         }
-        // Guest not found — show mobile if available
-        return { ...c, user: { _id: c.user, fullName: 'Guest User', profilePhoto: null, isGuest: true } };
+        // Guest record deleted
+        return { ...c, user: { _id: c.user, fullName: 'Account Deleted', profilePhoto: null, isDeleted: true } };
       }
-      // Regular user — if populate worked, user.fullName exists; if not, user was deleted
-      if (!c.user || !c.user.fullName) {
+
+      // Regular user / provider
+      const regularUser = userMap[uid];
+      if (regularUser) {
         return {
           ...c,
           user: {
-            _id: c.user || null,
-            fullName: 'Account Deleted',
-            profilePhoto: null,
-            isDeleted: true,
+            _id: regularUser._id,
+            fullName: regularUser.fullName,
+            profilePhoto: regularUser.profilePhoto || null,
+            mobile: regularUser.mobile || null,
+            isServiceProvider: regularUser.isServiceProvider || false,
           }
         };
       }
-      return c;
+
+      // User document not found — was deleted
+      return {
+        ...c,
+        user: { _id: c.user, fullName: 'Account Deleted', profilePhoto: null, isDeleted: true }
+      };
     });
 
     // ── Transactions ──────────────────────────────────────────────────────────
