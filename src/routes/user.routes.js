@@ -22,6 +22,7 @@ const {
   deactivateAccount,
   reactivateAccount,
   requestAccountDeletion,
+  changePassword,
 } = require('../controllers/user.controller');
 const { protect, isServiceProvider } = require('../middlewares/auth');
 const { uploadImage, uploadMedia, upload } = require('../middlewares/upload');
@@ -142,6 +143,7 @@ router.get('/verification-status', isServiceProvider, getVerificationStatus);
 router.post('/deactivate', deactivateAccount);
 router.post('/reactivate', reactivateAccount);
 router.post('/request-deletion', requestAccountDeletion);
+router.post('/change-password', changePassword);
 
 module.exports = router;
 

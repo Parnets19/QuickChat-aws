@@ -2221,6 +2221,47 @@ const getFilterOptions = async (req, res, next) => {
   }
 };
 
+// @desc    Change password
+// @route   POST /api/users/change-password
+// @access  Private
+const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return next(new AppError('Please provide current and new password', 400));
+    }
+    if (newPassword.length < 6) {
+      return next(new AppError('New password must be at least 6 characters', 400));
+    }
+    if (currentPassword === newPassword) {
+      return next(new AppError('New password must be different from current password', 400));
+    }
+
+    // Fetch user WITH password field (it is select:false by default)
+    const User = require('../models/User.model');
+    const user = await User.findById(req.user?._id).select('+password');
+    if (!user) return next(new AppError('User not found', 404));
+
+    // If account was created via social login it may have no password
+    if (!user.password) {
+      return next(new AppError('Your account uses social login. Please use forgot password to set a password.', 400));
+    }
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return next(new AppError('Current password is incorrect', 401));
+    }
+
+    user.password = newPassword; // pre-save hook will hash it
+    await user.save();
+
+    res.status(200).json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateProfile,
@@ -2244,4 +2285,5 @@ module.exports = {
   deactivateAccount,
   reactivateAccount,
   requestAccountDeletion,
+  changePassword,
 };
