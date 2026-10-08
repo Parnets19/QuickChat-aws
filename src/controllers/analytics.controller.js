@@ -206,14 +206,33 @@ const getUserGrowthAnalytics = async (req, res) => {
 // Get revenue analytics
 const getRevenueAnalytics = async (req, res) => {
   try {
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const { dateRange = '6m' } = req.query;
+
+    // Determine how many months back to look based on dateRange
+    const monthsBack =
+      dateRange === '7d'  ? 1 :
+      dateRange === '30d' ? 1 :
+      dateRange === '90d' ? 3 :
+      dateRange === '1y'  ? 12 : 6;
+
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - monthsBack);
+    startDate.setDate(1);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Get actual commission rate from settings (fallback to 10%)
+    let commissionRate = 10;
+    try {
+      const Settings = require('../models/Settings.model');
+      const settings = await Settings.findOne().lean();
+      commissionRate = settings?.providerCommissionRate ?? settings?.commissionRate ?? 10;
+    } catch (_) {}
 
     const revenueData = await Consultation.aggregate([
       {
         $match: {
           status: 'completed',
-          createdAt: { $gte: sixMonthsAgo }
+          createdAt: { $gte: startDate }
         }
       },
       {
@@ -231,31 +250,31 @@ const getRevenueAnalytics = async (req, res) => {
       }
     ]);
 
-    // Format data
+    // Format data — fill in every month in the range (no gaps)
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const formattedData = [];
-    
-    for (let i = 5; i >= 0; i--) {
+
+    for (let i = monthsBack - 1; i >= 0; i--) {
       const date = new Date();
       date.setMonth(date.getMonth() - i);
       const year = date.getFullYear();
       const month = date.getMonth() + 1;
-      
+
       const entry = revenueData.find(r => r._id.year === year && r._id.month === month);
-      const revenue = entry?.revenue || 0;
-      const commissions = Math.round(revenue * 0.15); // Assuming 15% commission
-      
+      const revenue = Math.round((entry?.revenue || 0) * 100) / 100;
+      const commissions = Math.round(revenue * (commissionRate / 100) * 100) / 100;
+
       formattedData.push({
         month: `${monthNames[month - 1]} ${year}`,
         revenue,
         commissions,
-        consultations: entry?.consultations || 0
+        consultations: entry?.consultations || 0,
       });
     }
 
     res.json({
       success: true,
-      data: formattedData
+      data: formattedData,
     });
 
   } catch (error) {
