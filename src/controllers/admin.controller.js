@@ -112,7 +112,7 @@ const getProviderById = async (req, res) => {
 
     // Get consultation statistics
     const consultationStats = await Consultation.aggregate([
-      { $match: { providerId: provider._id } },
+      { $match: { provider: provider._id } },
       {
         $group: {
           _id: null,
@@ -135,6 +135,11 @@ const getProviderById = async (req, res) => {
       success: true,
       data: {
         ...provider,
+        // Map to field names the frontend modal expects
+        walletBalance: provider.wallet || 0,
+        totalEarnings: provider.earnings || stats.totalEarnings || 0,
+        consultationCount: stats.totalConsultations || 0,
+        rating: provider.rating || { average: 0, count: 0 },
         consultationStats: stats
       }
     });
