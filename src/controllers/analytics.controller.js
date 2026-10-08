@@ -536,6 +536,9 @@ const getDailyActivityAnalytics = async (req, res) => {
       });
     }
 
+    // Sort most recent day first
+    result.sort((a, b) => b.date.localeCompare(a.date));
+
     res.json({
       success: true,
       data: result.slice((pageNum - 1) * limitNum, pageNum * limitNum),
@@ -631,6 +634,9 @@ const getDailyUserJoins = async (req, res) => {
         total: u.users + (guestMap[dateStr] || 0)
       });
     }
+
+    // Sort most recent day first
+    result.sort((a, b) => b.date.localeCompare(a.date));
 
     res.json({ success: true, data: result });
   } catch (error) {
