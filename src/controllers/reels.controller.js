@@ -71,6 +71,7 @@ const getReels = async (req, res, next) => {
       .limit(50);
 
     console.log('🔍 [Reels Debug] Found providers:', providers.length);
+    console.log('🔍 [Reels Debug] Found regular reels:', reels.length);
     providers.forEach(p => {
       console.log('  → Provider:', p.fullName, 
         'portfolioMedia:', p.portfolioMedia?.length, 
@@ -195,6 +196,10 @@ const getReels = async (req, res, next) => {
     const total = combinedItems.length;
     const start = (page - 1) * limit;
     const pagedItems = combinedItems.slice(start, start + limit);
+
+    console.log('🔍 [Reels Debug] Total combined items:', total);
+    console.log('🔍 [Reels Debug] Returning paged items:', pagedItems.length);
+    console.log('🔍 [Reels Debug] Page:', page, 'Start:', start, 'Limit:', limit);
 
     res.status(200).json({
       success: true,
