@@ -1080,6 +1080,10 @@ const getDashboard = async (req, res, next) => {
       };
     }
 
+    // Fetch fresh wallet balance from database
+    const freshUser = await User.findById(userId).select('wallet earnings').lean();
+    const currentWalletBalance = freshUser?.wallet || 0;
+
     res.status(200).json({
       success: true,
       data: {
@@ -1090,8 +1094,8 @@ const getDashboard = async (req, res, next) => {
           totalConsultations,
           providerConsultationCount,
           clientConsultationCount,
-          totalEarnings: req.user?.earnings || 0,
-          walletBalance: req.user?.wallet || 0,
+          totalEarnings: freshUser?.earnings || req.user?.earnings || 0,
+          walletBalance: currentWalletBalance,
           totalSpent: userStats.totalSpent,
           notifications: notificationsCount,
         },
