@@ -154,30 +154,46 @@ const getReels = async (req, res, next) => {
     // If user is logged in, prioritize items from followed users
     if (userId) {
       const currentUser = await User.findById(userId).select('following');
-      const followingIds = currentUser.following.map(id => id.toString());
+      
+      // Only sort by following if user exists and has following array
+      if (currentUser && currentUser.following) {
+        const followingIds = currentUser.following.map(id => id.toString());
 
-      // Sort combined items: following first, then videos before images, then by engagement
-      combinedItems.sort((a, b) => {
-        const aIsFollowing = followingIds.includes(a.user._id.toString());
-        const bIsFollowing = followingIds.includes(b.user._id.toString());
+        // Sort combined items: following first, then videos before images, then by engagement
+        combinedItems.sort((a, b) => {
+          const aIsFollowing = followingIds.includes(a.user._id.toString());
+          const bIsFollowing = followingIds.includes(b.user._id.toString());
 
-        // Step 1: Following users first
-        if (aIsFollowing && !bIsFollowing) return -1;
-        if (!aIsFollowing && bIsFollowing) return 1;
+          // Step 1: Following users first
+          if (aIsFollowing && !bIsFollowing) return -1;
+          if (!aIsFollowing && bIsFollowing) return 1;
 
-        // Step 2: Videos before images
-        const aIsVideo = a.type === 'video';
-        const bIsVideo = b.type === 'video';
-        if (aIsVideo && !bIsVideo) return -1;
-        if (!aIsVideo && bIsVideo) return 1;
+          // Step 2: Videos before images
+          const aIsVideo = a.type === 'video';
+          const bIsVideo = b.type === 'video';
+          if (aIsVideo && !bIsVideo) return -1;
+          if (!aIsVideo && bIsVideo) return 1;
 
-        // Step 3: Engagement score
-        const aScore = (a.views || 0) * 0.5 + (a.likes?.length || 0) * 0.3 + (a.shares || 0) * 0.2;
-        const bScore = (b.views || 0) * 0.5 + (b.likes?.length || 0) * 0.3 + (b.shares || 0) * 0.2;
-        return bScore - aScore;
-      });
+          // Step 3: Engagement score
+          const aScore = (a.views || 0) * 0.5 + (a.likes?.length || 0) * 0.3 + (a.shares || 0) * 0.2;
+          const bScore = (b.views || 0) * 0.5 + (b.likes?.length || 0) * 0.3 + (b.shares || 0) * 0.2;
+          return bScore - aScore;
+        });
+      } else {
+        // User exists but no following data - sort by engagement only
+        combinedItems.sort((a, b) => {
+          const aIsVideo = a.type === 'video';
+          const bIsVideo = b.type === 'video';
+          if (aIsVideo && !bIsVideo) return -1;
+          if (!aIsVideo && bIsVideo) return 1;
+
+          const aScore = (a.views || 0) * 0.5 + (a.likes?.length || 0) * 0.3 + (a.shares || 0) * 0.2;
+          const bScore = (b.views || 0) * 0.5 + (b.likes?.length || 0) * 0.3 + (b.shares || 0) * 0.2;
+          return bScore - aScore;
+        });
+      }
     } else {
-      // If not logged in: videos first, then engagement
+      // If not logged in (guest): videos first, then engagement
       combinedItems.sort((a, b) => {
         // Step 1: Videos before images
         const aIsVideo = a.type === 'video';
