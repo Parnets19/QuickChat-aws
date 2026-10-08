@@ -395,7 +395,7 @@ const getChatHistory = async (req, res, next) => {
   try {
     const { providerId } = req.params;
     const userId = req.user.id || req.user._id;
-    const { page = 1, limit = 50 } = req.query;
+    const { page = 1, limit = 1000 } = req.query;
 
     // Find chat
     const chat = await Chat.findOne({
@@ -413,7 +413,7 @@ const getChatHistory = async (req, res, next) => {
           chat: null,
           pagination: {
             page: 1,
-            limit: 50,
+            limit: 1000,
             total: 0,
             pages: 0,
           },
